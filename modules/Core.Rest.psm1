@@ -221,14 +221,38 @@ function New-NormalizedError {
     )
     
     $status = 0
-    $message = $Exception.Message
+    $message = "Unknown error"
     
-    if ($Exception.Exception.Response) {
-        $status = [int]$Exception.Exception.Response.StatusCode.value__
+    # Handle different error object types
+    if ($Exception -is [System.Management.Automation.ErrorRecord]) {
+        $message = $Exception.Exception.Message
+        $actualException = $Exception.Exception
+    }
+    elseif ($Exception.Message) {
+        $message = $Exception.Message
+        $actualException = $Exception
+    }
+    elseif ($Exception.Exception) {
+        $message = $Exception.Exception.Message
+        $actualException = $Exception.Exception
+    }
+    else {
+        $message = $Exception.ToString()
+        $actualException = $Exception
+    }
+    
+    # Try to extract HTTP status and response body
+    if ($actualException -and $actualException.Response) {
+        try {
+            $status = [int]$actualException.Response.StatusCode.value__
+        }
+        catch {
+            # Status code not available
+        }
         
         # Try to extract error message from response body
         try {
-            $reader = New-Object System.IO.StreamReader($Exception.Exception.Response.GetResponseStream())
+            $reader = New-Object System.IO.StreamReader($actualException.Response.GetResponseStream())
             $reader.BaseStream.Position = 0
             $body = $reader.ReadToEnd() | ConvertFrom-Json -ErrorAction SilentlyContinue
             
@@ -237,6 +261,9 @@ function New-NormalizedError {
             }
             elseif ($body.error) {
                 $message = $body.error
+            }
+            elseif ($body.error_description) {
+                $message = $body.error_description
             }
         }
         catch {

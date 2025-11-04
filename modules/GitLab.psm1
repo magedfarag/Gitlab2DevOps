@@ -47,13 +47,24 @@ function Get-GitLabProject {
         Invoke-GitLabRest $fullPath
     }
     catch {
+        # Extract meaningful error message
+        $errorMsg = if ($_.Exception.Message) {
+            $_.Exception.Message
+        }
+        elseif ($_ -is [string]) {
+            $_
+        }
+        else {
+            $_.ToString()
+        }
+        
         Write-Host "[ERROR] Failed to fetch GitLab project '$PathWithNamespace'." -ForegroundColor Red
-        Write-Host "        Error: $_" -ForegroundColor Red
+        Write-Host "        Error: $errorMsg" -ForegroundColor Red
         Write-Host "        Suggestions:" -ForegroundColor Yellow
         Write-Host "          - Verify the project path is correct (group/subgroup/project)." -ForegroundColor Yellow
         Write-Host "          - Ensure the GitLab token has 'api' scope and can access the project." -ForegroundColor Yellow
         Write-Host "          - If the project is private, confirm the token user is a member or has access." -ForegroundColor Yellow
-        throw
+        throw $errorMsg
     }
 }
 
