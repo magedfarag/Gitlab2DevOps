@@ -1,0 +1,192 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  lint:
+    name: PowerShell Lint
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser -SkipPublisherCheck
+      
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings PSGallery `
+            -Severity Error,Warning -ExcludeRule PSAvoidUsingWriteHost
+          
+          if ($results) {
+            $results | Format-Table -AutoSize
+            Write-Host "##[error]PSScriptAnalyzer found $($results.Count) issue(s)"
+            exit 1
+          } else {
+            Write-Host "##[section]PSScriptAnalyzer: No issues found ✓"
+          }
+
+  test:
+    name: Run Tests
+    runs-on: windows-latest
+    needs: lint
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Install-Module -Name Pester -Force -Scope CurrentUser -SkipPublisherCheck -MinimumVersion 5.0
+      
+      - name: Run Pester Tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = ".\tests"
+          $config.Run.PassThru = $true
+          $config.CodeCoverage.Enabled = $true
+          $config.CodeCoverage.Path = ".\modules\*.psm1"
+          $config.CodeCoverage.OutputFormat = "JaCoCoXml"
+          $config.CodeCoverage.OutputPath = "coverage.xml"
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputFormat = "NUnitXml"
+          $config.TestResult.OutputPath = "testresults.xml"
+          
+          $result = Invoke-Pester -Configuration $config
+          
+          Write-Host "##[section]Test Results"
+          Write-Host "  Passed:  $($result.PassedCount)"
+          Write-Host "  Failed:  $($result.FailedCount)"
+          Write-Host "  Skipped: $($result.SkippedCount)"
+          Write-Host "  Total:   $($result.TotalCount)"
+          
+          if ($result.FailedCount -gt 0) {
+            Write-Host "##[error]$($result.FailedCount) test(s) failed"
+            exit 1
+          }
+      
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            testresults.xml
+            coverage.xml
+      
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action/windows@v2
+        if: always()
+        with:
+          files: testresults.xml
+
+  coverage:
+    name: Code Coverage
+    runs-on: windows-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: test-results
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          flags: unittests
+          name: codecov-gitlab2devops
+
+  security:
+    name: Security Scan
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Scan for secrets
+        shell: pwsh
+        run: |
+          Write-Host "##[section]Scanning for hardcoded secrets..."
+          
+          $patterns = @(
+            'glpat-[a-zA-Z0-9_\-]{20,}',
+            'ado_pat=[a-zA-Z0-9_\-]{40,}',
+            'password\s*=\s*[''"][^''"]+[''"]',
+            'token\s*=\s*[''"][^''"]+[''"]'
+          )
+          
+          $found = $false
+          Get-ChildItem -Path . -Recurse -Include *.ps1,*.psm1 | ForEach-Object {
+            $content = Get-Content $_.FullName -Raw
+            foreach ($pattern in $patterns) {
+              if ($content -match $pattern) {
+                Write-Host "##[error]Potential secret found in $($_.Name): $pattern"
+                $found = $true
+              }
+            }
+          }
+          
+          if ($found) {
+            Write-Host "##[error]Hardcoded secrets detected. Please remove them."
+            exit 1
+          } else {
+            Write-Host "##[section]No hardcoded secrets found ✓"
+          }
+
+  validate-structure:
+    name: Validate Project Structure
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Validate required files
+        shell: pwsh
+        run: |
+          $requiredFiles = @(
+            'README.md',
+            'LICENSE',
+            'CHANGELOG.md',
+            'CONTRIBUTING.md',
+            'Gitlab2DevOps.ps1',
+            'modules/Core.Rest.psm1',
+            'modules/Logging.psm1',
+            'modules/AzureDevOps.psm1',
+            'modules/GitLab.psm1',
+            'modules/Migration.psm1',
+            'docs/README.md',
+            'tests/README.md'
+          )
+          
+          $missing = @()
+          foreach ($file in $requiredFiles) {
+            if (-not (Test-Path $file)) {
+              $missing += $file
+            }
+          }
+          
+          if ($missing.Count -gt 0) {
+            Write-Host "##[error]Missing required files:"
+            $missing | ForEach-Object { Write-Host "  - $_" }
+            exit 1
+          } else {
+            Write-Host "##[section]All required files present ✓"
+          }
