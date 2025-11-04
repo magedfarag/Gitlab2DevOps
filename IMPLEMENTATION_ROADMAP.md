@@ -5,9 +5,9 @@
 This document outlines the comprehensive improvements needed to transform Gitlab2DevOps from a functional migration tool into a production-grade infrastructure automation solution following industry best practices (Terraform, Bicep, Azure DevOps).
 
 **Target Version**: 2.1.0  
-**Current Status**: Phase 4 (Caching and Performance) - COMPLETED  
-**Estimated Completion**: 2-3 weeks with proper testing  
-**Progress**: 62% (4 of 8 phases complete, 6 of 10 original requirements)
+**Current Status**: Phase 5 (Logging and Observability) - COMPLETED  
+**Estimated Completion**: 1-2 weeks with proper testing  
+**Progress**: 75% (5 of 8 phases complete, 7 of 10 original requirements)
 
 ---
 
@@ -423,13 +423,13 @@ function Invoke-BulkPrepareGitLab {
 
 ---
 
-## Phase 5: Logging and Observability 🔴 NOT STARTED
+## Phase 5: Logging and Observability ✅ COMPLETED
 
 ### 5.1 Standardized Log Levels
 
-**Status**: 🔴 Not Started  
-**Files to Modify**:
-- `modules/Logging.psm1`
+**Status**: ✅ Completed  
+**Files Modified**:
+- `modules/Logging.psm1` - Already had standardized levels (INFO, WARN, ERROR, SUCCESS, DEBUG)
 
 **Changes**:
 ```powershell
@@ -484,20 +484,21 @@ Write-MigrationLog -Level INFO -Message "Starting migration..." -LogFile $logFil
 
 ### 5.2 REST Call Logging
 
-**Status**: ✅ Implemented in Core.Rest (via $script:LogRestCalls)  
-**Usage**:
-```powershell
-Initialize-CoreRest ... -LogRestCalls
-# Now all REST calls log: [REST] ado GET /_apis/projects (attempt 1/4)
-# And responses: [REST] ado GET -> HTTP 200 OK
-```
+**Status**: ✅ Completed  
+**Files Modified**:
+- `modules/Core.Rest.psm1` - Enhanced with timing, status codes, and visual indicators
+**Implementation**:
+- Measures request duration with stopwatch
+- Logs: [REST] ✓ ADO GET /_apis/projects → 200 (456 ms)
+- Logs failures: [REST] ✗ ADO GET /_apis/projects → 404
+- Uses Hide-Secret to mask sensitive data in URLs
 
 ### 5.3 Run Manifest
 
-**Status**: 🔴 Not Started  
-**Files to Modify**:
-- `modules/Logging.psm1`
-- `modules/Migration.psm1`
+**Status**: ✅ Completed  
+**Files Modified**:
+- `modules/Logging.psm1` - Added New-RunManifest, Update-RunManifest, Write-RestCallLog
+- `Gitlab2DevOps.ps1` - Integrated run manifest tracking in CLI mode
 
 **New Function**:
 ```powershell

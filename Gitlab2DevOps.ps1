@@ -204,8 +204,30 @@ if ($PSCmdlet.ParameterSetName -eq 'CLI') {
     Write-Host "[INFO] Running in CLI mode: $Mode" -ForegroundColor Cyan
     Write-Host ""
     
-    # Validate required parameters based on mode
-    switch ($Mode) {
+    # Create run manifest for tracking
+    $runParams = @{
+        Mode = $Mode
+        Source = $Source
+        Project = $Project
+        Parameters = @{
+            AllowSync = $AllowSync.IsPresent
+            Force = $Force.IsPresent
+            Replace = $Replace.IsPresent
+            WhatIf = $WhatIfPreference
+        }
+    }
+    $runManifest = New-RunManifest @runParams
+    $runId = $runManifest.run_id
+    
+    Write-Verbose "[Run] Manifest ID: $runId"
+    
+    $migrationErrors = @()
+    $migrationWarnings = @()
+    $migrationStatus = "SUCCESS"
+    
+    try {
+        # Validate required parameters based on mode
+        switch ($Mode) {
         'Preflight' {
             if ([string]::IsNullOrWhiteSpace($Source)) {
                 Write-Host "[ERROR] -Source parameter is required for Preflight mode" -ForegroundColor Red
@@ -273,10 +295,25 @@ if ($PSCmdlet.ParameterSetName -eq 'CLI') {
             Write-Host "[INFO] Starting bulk migration workflow" -ForegroundColor Cyan
             Invoke-BulkMigrationWorkflow
         }
+        }
+    }
+    catch {
+        $migrationStatus = "FAILED"
+        $migrationErrors += $_.Exception.Message
+        Write-Host ""
+        Write-Host "[ERROR] CLI operation failed: $_" -ForegroundColor Red
+        
+        # Update manifest with failure
+        Update-RunManifest -RunId $runId -Status $migrationStatus -EndTime (Get-Date) -Errors $migrationErrors -Warnings $migrationWarnings
+        throw
     }
     
+    # Update manifest with success
+    Update-RunManifest -RunId $runId -Status $migrationStatus -EndTime (Get-Date) -Errors $migrationErrors -Warnings $migrationWarnings
+    
     Write-Host ""
-    Write-Host "[INFO] CLI operation completed" -ForegroundColor Green
+    Write-Host "[SUCCESS] CLI operation completed" -ForegroundColor Green
+    Write-Verbose "[Run] Manifest: migrations/run-manifest-$runId.json"
 }
 else {
     # Interactive mode - launch menu

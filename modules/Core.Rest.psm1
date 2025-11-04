@@ -349,10 +349,15 @@ function Invoke-RestWithRetry {
                 Write-Verbose "[REST] $Side $Method $maskedUri (attempt $attempt/$maxAttempts)"
             }
             
+            # Measure request duration
+            $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
             $response = Invoke-RestMethod @invokeParams
+            $stopwatch.Stop()
             
             if ($script:LogRestCalls) {
-                Write-Verbose "[REST] $side $Method -> HTTP 200 OK"
+                $durationMs = [int]$stopwatch.ElapsedMilliseconds
+                $maskedUri = Hide-Secret -Text $Uri
+                Write-Verbose "[REST] ✓ $Side $Method $maskedUri → 200 ($durationMs ms)"
             }
             
             return $response
@@ -360,6 +365,12 @@ function Invoke-RestWithRetry {
         catch {
             $normalizedError = New-NormalizedError -Exception $_ -Side $Side -Endpoint $Uri
             $status = $normalizedError.status
+            
+            # Log failed REST call
+            if ($script:LogRestCalls) {
+                $maskedUri = Hide-Secret -Text $Uri
+                Write-Verbose "[REST] ✗ $Side $Method $maskedUri → $status"
+            }
             
             # Retry on transient failures
             $shouldRetry = $status -in @(429, 500, 502, 503, 504) -and $attempt -lt $maxAttempts
@@ -372,7 +383,7 @@ function Invoke-RestWithRetry {
             else {
                 # Final failure or non-retryable error
                 $maskedEndpoint = $normalizedError.endpoint
-                Write-Error "[$Side] REST $Method $maskedEndpoint -> HTTP $status : $($normalizedError.message)"
+                Write-Error "[$Side] ✗ REST $Method $maskedEndpoint → HTTP $status : $($normalizedError.message)"
                 throw
             }
         }

@@ -314,6 +314,220 @@ function Write-MigrationMessage {
 
 <#
 .SYNOPSIS
+    Creates a run manifest for tracking migration execution.
+
+.DESCRIPTION
+    Generates a manifest file in migrations/ root with metadata about the migration run.
+    Useful for auditing, debugging, and tracking automation history.
+
+.PARAMETER RunId
+    Unique run identifier (default: generated GUID).
+
+.PARAMETER Mode
+    Migration mode (Preflight, Initialize, Migrate, BulkPrepare, BulkMigrate).
+
+.PARAMETER Source
+    Source GitLab project path.
+
+.PARAMETER Project
+    Target Azure DevOps project.
+
+.PARAMETER Parameters
+    Hashtable of parameters used for the run.
+
+.OUTPUTS
+    Run manifest object.
+
+.EXAMPLE
+    New-RunManifest -Mode "Migrate" -Source "group/app" -Project "MyApp"
+#>
+function New-RunManifest {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [string]$RunId = [guid]::NewGuid().ToString(),
+        
+        [Parameter(Mandatory)]
+        [ValidateSet('Preflight', 'Initialize', 'Migrate', 'BulkPrepare', 'BulkMigrate', 'Interactive')]
+        [string]$Mode,
+        
+        [string]$Source = "",
+        
+        [string]$Project = "",
+        
+        [hashtable]$Parameters = @{}
+    )
+    
+    $manifest = [pscustomobject]@{
+        run_id            = $RunId
+        timestamp         = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        timestamp_utc     = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
+        mode              = $Mode
+        source            = $Source
+        project           = $Project
+        parameters        = $Parameters
+        environment       = @{
+            powershell_version = "$($PSVersionTable.PSVersion)"
+            os                 = [System.Environment]::OSVersion.VersionString
+            machine_name       = $env:COMPUTERNAME
+            user               = $env:USERNAME
+        }
+        tool_version      = "2.0.0"
+        status            = "RUNNING"
+        start_time        = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        end_time          = $null
+        duration_seconds  = $null
+        errors            = @()
+        warnings          = @()
+    }
+    
+    # Write manifest to migrations root
+    $migrationsDir = Get-MigrationsDirectory
+    $manifestFile = Join-Path $migrationsDir "run-manifest-$RunId.json"
+    
+    Write-MigrationReport -ReportFile $manifestFile -Data $manifest
+    
+    Write-Verbose "[Logging] Created run manifest: $manifestFile"
+    
+    return $manifest
+}
+
+<#
+.SYNOPSIS
+    Updates an existing run manifest.
+
+.DESCRIPTION
+    Updates manifest file with final status, timing, and messages.
+
+.PARAMETER RunId
+    Run identifier from New-RunManifest.
+
+.PARAMETER Status
+    Final status (SUCCESS, FAILED, PARTIAL).
+
+.PARAMETER EndTime
+    End time of the run.
+
+.PARAMETER Errors
+    Array of error messages.
+
+.PARAMETER Warnings
+    Array of warning messages.
+
+.EXAMPLE
+    Update-RunManifest -RunId $runId -Status "SUCCESS" -EndTime (Get-Date)
+#>
+function Update-RunManifest {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$RunId,
+        
+        [Parameter(Mandatory)]
+        [ValidateSet('SUCCESS', 'FAILED', 'PARTIAL')]
+        [string]$Status,
+        
+        [Parameter(Mandatory)]
+        [datetime]$EndTime,
+        
+        [array]$Errors = @(),
+        
+        [array]$Warnings = @()
+    )
+    
+    $migrationsDir = Get-MigrationsDirectory
+    $manifestFile = Join-Path $migrationsDir "run-manifest-$RunId.json"
+    
+    if (-not (Test-Path $manifestFile)) {
+        Write-Warning "[Logging] Run manifest not found: $manifestFile"
+        return
+    }
+    
+    # Read existing manifest
+    $manifest = Get-Content $manifestFile -Raw | ConvertFrom-Json
+    
+    # Calculate duration
+    $startTime = [datetime]::ParseExact($manifest.start_time, 'yyyy-MM-dd HH:mm:ss', $null)
+    $duration = $EndTime - $startTime
+    
+    # Update fields
+    $manifest.status = $Status
+    $manifest.end_time = $EndTime.ToString('yyyy-MM-dd HH:mm:ss')
+    $manifest.duration_seconds = [math]::Round($duration.TotalSeconds, 2)
+    $manifest.errors = $Errors
+    $manifest.warnings = $Warnings
+    
+    # Write updated manifest
+    Write-MigrationReport -ReportFile $manifestFile -Data $manifest
+    
+    Write-Verbose "[Logging] Updated run manifest: $manifestFile (Status: $Status)"
+}
+
+<#
+.SYNOPSIS
+    Logs REST API call details for debugging.
+
+.DESCRIPTION
+    Logs REST method, URL, status code, and response time for observability.
+    Useful for troubleshooting API issues and performance analysis.
+
+.PARAMETER Method
+    HTTP method (GET, POST, PUT, DELETE, PATCH).
+
+.PARAMETER Url
+    Full or relative URL.
+
+.PARAMETER StatusCode
+    HTTP status code (200, 404, 500, etc.).
+
+.PARAMETER DurationMs
+    Request duration in milliseconds.
+
+.PARAMETER Side
+    API side ('ado' or 'gitlab').
+
+.PARAMETER LogFile
+    Optional log file path. If not provided, writes to verbose stream.
+
+.EXAMPLE
+    Write-RestCallLog -Method "GET" -Url "/_apis/projects" -StatusCode 200 -DurationMs 456 -Side "ado"
+#>
+function Write-RestCallLog {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('GET', 'POST', 'PUT', 'DELETE', 'PATCH')]
+        [string]$Method,
+        
+        [Parameter(Mandatory)]
+        [string]$Url,
+        
+        [int]$StatusCode = 0,
+        
+        [int]$DurationMs = 0,
+        
+        [Parameter(Mandatory)]
+        [ValidateSet('ado', 'gitlab')]
+        [string]$Side,
+        
+        [string]$LogFile = ""
+    )
+    
+    $sideLabel = $Side.ToUpper()
+    $statusLabel = if ($StatusCode -ge 200 -and $StatusCode -lt 300) { "✓" } elseif ($StatusCode -ge 400) { "✗" } else { "○" }
+    
+    $message = "[$sideLabel] $statusLabel $Method $Url → $StatusCode ($DurationMs ms)"
+    
+    if ($LogFile -and (Test-Path (Split-Path -Parent $LogFile))) {
+        Write-MigrationLog -LogFile $LogFile -Message $message -Level 'DEBUG'
+    }
+    else {
+        Write-Verbose $message
+    }
+}
+
+<#
+.SYNOPSIS
     Creates a migration summary object.
 
 .DESCRIPTION
@@ -403,5 +617,8 @@ Export-ModuleMember -Function @(
     'New-LogFilePath',
     'New-ReportFilePath',
     'Write-MigrationMessage',
-    'New-MigrationSummary'
+    'New-MigrationSummary',
+    'New-RunManifest',
+    'Update-RunManifest',
+    'Write-RestCallLog'
 )
