@@ -1,0 +1,17 @@
+{
+  "targetAdoProject": "ConsolidatedProject",
+  "migrations": [
+    {
+      "gitlabProject": "organization/frontend-app",
+      "adoRepository": "FrontendApp"
+    },
+    {
+      "gitlabProject": "organization/backend-api",
+      "adoRepository": "BackendAPI"
+    },
+    {
+      "gitlabProject": "devops/infrastructure",
+      "adoRepository": "Infrastructure"
+    }
+  ]
+}

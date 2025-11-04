@@ -1,0 +1,32 @@
+# Ignore migrations folder (contains repository data and logs)
+migrations/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*~
+
+# User-specific configuration files (may contain credentials)
+bulk-migration-config.json
+config.local.json
+setup-env.ps1
+*.local.ps1
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE files
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Backup files
+*.bak
+*.backup
