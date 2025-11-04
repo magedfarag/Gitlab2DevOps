@@ -178,7 +178,11 @@ param(
     
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
-    [switch]$SkipCertificateCheck
+    [switch]$SkipCertificateCheck,
+    
+    [Parameter(ParameterSetName='Interactive')]
+    [Parameter(ParameterSetName='CLI')]
+    [string]$EnvFile = ""  # Optional: Path to .env file
 )
 
 Set-StrictMode -Version Latest
@@ -186,6 +190,54 @@ $ErrorActionPreference = 'Stop'
 
 # Get script directory
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# Load .env file if available (before loading other modules)
+# Auto-load .env files (in priority order: .env.local, .env)
+$envFiles = @()
+if ([string]::IsNullOrWhiteSpace($EnvFile)) {
+    # Auto-detect .env files
+    $localEnv = Join-Path $scriptRoot ".env.local"
+    $defaultEnv = Join-Path $scriptRoot ".env"
+    
+    if (Test-Path $defaultEnv) { $envFiles += $defaultEnv }
+    if (Test-Path $localEnv) { $envFiles += $localEnv }
+} else {
+    # Use specified .env file
+    $envFiles = @($EnvFile)
+}
+
+if ($envFiles.Count -gt 0) {
+    # Load EnvLoader module
+    $envLoaderModule = Join-Path $scriptRoot "modules\EnvLoader.psm1"
+    if (Test-Path $envLoaderModule) {
+        Import-Module $envLoaderModule -Force -ErrorAction SilentlyContinue
+        
+        if (Get-Command Import-DotEnvFile -ErrorAction SilentlyContinue) {
+            Write-Host "[INFO] Loading configuration from .env file(s)..." -ForegroundColor Cyan
+            $envConfig = Import-DotEnvFile -Path $envFiles -SetEnvironmentVariables
+            
+            # Override parameters with .env values if not explicitly provided
+            if ([string]::IsNullOrWhiteSpace($AdoPat) -and $envConfig.ContainsKey('ADO_PAT')) {
+                $AdoPat = $envConfig.ADO_PAT
+            }
+            if ([string]::IsNullOrWhiteSpace($GitLabToken) -and $envConfig.ContainsKey('GITLAB_PAT')) {
+                $GitLabToken = $envConfig.GITLAB_PAT
+            }
+            if ($CollectionUrl -eq "https://devops.example.com/DefaultCollection" -and $envConfig.ContainsKey('ADO_COLLECTION_URL')) {
+                $CollectionUrl = $envConfig.ADO_COLLECTION_URL
+            }
+            if ($GitLabBaseUrl -eq "https://gitlab.example.com" -and $envConfig.ContainsKey('GITLAB_BASE_URL')) {
+                $GitLabBaseUrl = $envConfig.GITLAB_BASE_URL
+            }
+            if ($envConfig.ContainsKey('ADO_API_VERSION')) {
+                $AdoApiVersion = $envConfig.ADO_API_VERSION
+            }
+            if ($envConfig.ContainsKey('SKIP_CERTIFICATE_CHECK') -and $envConfig.SKIP_CERTIFICATE_CHECK -eq 'true') {
+                $SkipCertificateCheck = $true
+            }
+        }
+    }
+}
 
 # Import modules
 Write-Host "[INFO] Loading migration modules..."

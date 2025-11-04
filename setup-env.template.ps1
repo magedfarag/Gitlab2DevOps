@@ -58,7 +58,7 @@ Write-Host "  GITLAB_BASE_URL: $env:GITLAB_BASE_URL" -ForegroundColor Cyan
 Write-Host "  GITLAB_PAT: $(if ($env:GITLAB_PAT) { '***' + $env:GITLAB_PAT.Substring($env:GITLAB_PAT.Length - 4) } else { 'NOT SET' })" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "You can now run the migration script:" -ForegroundColor Yellow
-Write-Host "  .\devops.ps1 -Mode preflight -GitLabProject 'mygroup/myproject' -AdoProject 'MyProject'" -ForegroundColor White
+Write-Host "  .\Gitlab2DevOps.ps1 -Mode Preflight -Source 'mygroup/myproject'" -ForegroundColor White
 Write-Host ""
 Write-Host "Security Reminder:" -ForegroundColor Red
 Write-Host "  - Never commit setup-env.ps1 with real credentials" -ForegroundColor Red

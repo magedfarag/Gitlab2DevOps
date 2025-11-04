@@ -16,6 +16,11 @@ config.local.json
 setup-env.ps1
 *.local.ps1
 
+# Environment files (contain secrets)
+.env
+.env.local
+.env.*.local
+
 # OS-specific files
 .DS_Store
 Thumbs.db

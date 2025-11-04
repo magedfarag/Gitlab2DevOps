@@ -154,20 +154,36 @@ Understanding limitations helps set proper expectations:
 
 ## Quick Start
 
+### Option 1: Using .env File (Recommended)
+
 ```powershell
-# 1. Set credentials as environment variables (recommended)
+# 1. Create .env file from template
+Copy-Item .env.example .env
+
+# 2. Edit .env with your credentials
+notepad .env
+
+# 3. Run preflight check
+.\Gitlab2DevOps.ps1 -Mode Preflight -Source "mygroup/myproject"
+
+# 4. Execute migration
+.\Gitlab2DevOps.ps1 -Mode Migrate -Source "mygroup/myproject" -Project "MyProject"
+```
+
+### Option 2: Using Environment Variables
+
+```powershell
+# 1. Set credentials as environment variables
 $env:ADO_COLLECTION_URL = "https://dev.azure.com/your-org"
 $env:ADO_PAT = "your-ado-pat-here"
 $env:GITLAB_BASE_URL = "https://gitlab.com"
 $env:GITLAB_PAT = "your-gitlab-token-here"
 
-# 2. Generate pre-migration report
-.\devops.ps1 -Mode preflight -GitLabProject "mygroup/myproject" -AdoProject "MyProject"
+# 2. Run preflight check
+.\Gitlab2DevOps.ps1 -Mode Preflight -Source "mygroup/myproject"
 
-# 3. Review the report at migrations/mygroup-myproject/reports/preflight-report.json
-
-# 4. Execute migration
-.\devops.ps1 -Mode migrate -GitLabProject "mygroup/myproject" -AdoProject "MyProject"
+# 3. Execute migration
+.\Gitlab2DevOps.ps1 -Mode Migrate -Source "mygroup/myproject" -Project "MyProject"
 ```
 
 📖 **First time?** Jump to [Step-by-Step Guide](#usage) for detailed instructions.  
@@ -290,7 +306,7 @@ $env:GITLAB_PAT = "your-gitlab-token-here"
 4. **Run your first migration**:
    ```powershell
    # Generate pre-flight report
-   .\devops.ps1 -Mode preflight -GitLabProject "mygroup/myproject" -AdoProject "MyProject"
+   .\Gitlab2DevOps.ps1 -Mode Preflight -Source "mygroup/myproject"
    ```
 
 That's it! You're ready to start migrating.
@@ -299,9 +315,42 @@ That's it! You're ready to start migrating.
 
 ### 1. Initial Setup
 
-You can configure the tool using **environment variables** (recommended for security) or **parameters**:
+You can configure the tool using **.env files** (recommended), **environment variables**, or **parameters**:
 
-#### Option A: Using Environment Variables (Recommended)
+#### Option A: Using .env File (Recommended - Most Secure)
+```powershell
+# 1. Create .env file from template
+Copy-Item .env.example .env
+
+# 2. Edit .env with your credentials
+notepad .env
+# OR
+code .env
+
+# 3. Run the script (automatically loads .env)
+.\Gitlab2DevOps.ps1
+```
+
+Your `.env` file should look like:
+```bash
+# Azure DevOps Configuration
+ADO_COLLECTION_URL=https://dev.azure.com/your-org
+ADO_PAT=your-azure-devops-pat-here
+
+# GitLab Configuration
+GITLAB_BASE_URL=https://gitlab.com
+GITLAB_PAT=your-gitlab-pat-here
+```
+
+**Benefits:**
+- ✅ Keeps secrets out of command history
+- ✅ Easy to manage multiple environments (.env.local, .env.production)
+- ✅ Automatically gitignored (never commit credentials)
+- ✅ Simple to share templates with team (.env.example)
+
+📖 **Full .env guide:** [Environment Configuration Documentation](docs/env-configuration.md)
+
+#### Option B: Using Environment Variables
 ```powershell
 # Set environment variables
 $env:ADO_COLLECTION_URL = "https://devops.example.com/DefaultCollection"
@@ -310,12 +359,12 @@ $env:GITLAB_BASE_URL = "https://gitlab.example.com"
 $env:GITLAB_PAT = "your-gitlab-pat-here"
 
 # Run the script
-.\devops.ps1
+.\Gitlab2DevOps.ps1
 ```
 
-#### Option B: Using Parameters
+#### Option C: Using Parameters
 ```powershell
-.\devops.ps1 -CollectionUrl "https://devops.example.com/DefaultCollection" `
+.\Gitlab2DevOps.ps1 -CollectionUrl "https://devops.example.com/DefaultCollection" `
              -AdoPat "your-azure-devops-pat" `
              -GitLabBaseUrl "https://gitlab.example.com" `
              -GitLabToken "your-gitlab-pat" `
@@ -345,7 +394,7 @@ The tool automatically configures enterprise-grade security:
 
 #### Step 1: Prepare GitLab Project
 ```powershell
-.\devops.ps1
+.Gitlab2DevOps.ps1
 # Choose option 1
 Enter Source GitLab project path: group/my-project
 ```
@@ -358,7 +407,7 @@ Enter Source GitLab project path: group/my-project
 
 #### Step 2: Initialize Azure DevOps Project
 ```powershell
-.\devops.ps1
+.Gitlab2DevOps.ps1
 # Choose option 2
 Enter Source GitLab project path: group/my-project
 Enter Destination Azure DevOps project name: MyProject
@@ -375,7 +424,7 @@ Enter Destination Azure DevOps project name: MyProject
 
 #### Step 3: Execute Migration
 ```powershell
-.\devops.ps1
+.Gitlab2DevOps.ps1
 # Choose option 3
 Enter Source GitLab project path: group/my-project
 Enter Destination Azure DevOps project name: MyProject
@@ -424,14 +473,14 @@ Enter Destination Azure DevOps project name: MyProject
 
 3. **Execute bulk migration**:
    ```powershell
-   .\devops.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json"
+   .Gitlab2DevOps.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json"
    ```
 
 #### Option B: Interactive Bulk Preparation
 
 #### Step 1: Bulk Preparation
 ```powershell
-.\devops.ps1
+.Gitlab2DevOps.ps1
 # Choose option 4
 Enter Destination Azure DevOps project name: ConsolidatedProject
 # Enter multiple GitLab project paths (one per line)
@@ -449,7 +498,7 @@ Project 4: [empty line to finish]
 
 #### Step 2: Review Migration Template
 ```powershell
-.\devops.ps1
+.Gitlab2DevOps.ps1
 # Choose option 5
 ```
 
@@ -461,7 +510,7 @@ Project 4: [empty line to finish]
 
 #### Step 3: Execute Bulk Migration
 ```powershell
-.\devops.ps1
+.Gitlab2DevOps.ps1
 # Choose option 6
 # Select prepared template
 # Confirm destination project
@@ -551,7 +600,7 @@ The tool supports re-running migrations to sync Azure DevOps repositories with u
 
 **Command Line:**
 ```powershell
-.\devops.ps1 -Mode migrate -GitLabProject "org/my-repo" -AdoProject "ConsolidatedProject" -AllowSync
+.Gitlab2DevOps.ps1 -Mode migrate -GitLabProject "org/my-repo" -AdoProject "ConsolidatedProject" -AllowSync
 ```
 
 **Interactive Menu:**
@@ -563,7 +612,7 @@ The tool supports re-running migrations to sync Azure DevOps repositories with u
 
 **Command Line:**
 ```powershell
-.\devops.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json" -AllowSync
+.Gitlab2DevOps.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json" -AllowSync
 ```
 
 **Interactive Menu:**
@@ -735,7 +784,7 @@ This tool has been hardened with enterprise security features:
 
 For on-premises environments with private Certificate Authorities:
 ```powershell
-.\devops.ps1 -SkipCertificateCheck
+.Gitlab2DevOps.ps1 -SkipCertificateCheck
 ```
 
 **⚠️ Warning**: Only use `-SkipCertificateCheck` in trusted environments. Do not use in production without proper certificate management.

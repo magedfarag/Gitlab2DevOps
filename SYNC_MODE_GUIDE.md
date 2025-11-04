@@ -43,14 +43,14 @@ Sync mode **updates** the following:
 
 #### Command Line
 ```powershell
-.\devops.ps1 -Mode migrate `
+.\Gitlab2DevOps.ps1 -Mode migrate `
   -GitLabProject "myorg/my-repository" `
   -AdoProject "ConsolidatedProject" `
   -AllowSync
 ```
 
 #### Interactive Menu
-1. Run `.\devops.ps1`
+1. Run `.\Gitlab2DevOps.ps1`
 2. Select option **3** (Single Project Migration)
 3. Enter GitLab project path: `myorg/my-repository`
 4. Enter Azure DevOps project name: `ConsolidatedProject`
@@ -61,13 +61,13 @@ Sync mode **updates** the following:
 
 #### Command Line
 ```powershell
-.\devops.ps1 -Mode bulkMigrate `
+.\Gitlab2DevOps.ps1 -Mode bulkMigrate `
   -ConfigFile "bulk-migration-config.json" `
   -AllowSync
 ```
 
 #### Interactive Menu
-1. Run `.\devops.ps1`
+1. Run `.\Gitlab2DevOps.ps1`
 2. Select option **6** (Execute Bulk Migration)
 3. Select your prepared template file
 4. When asked "Allow sync of existing repositories? (Y/N)", answer **Y**
@@ -78,7 +78,7 @@ Sync mode **updates** the following:
 You can validate that a repository can be synced before actually syncing:
 
 ```powershell
-.\devops.ps1 -Mode preflight `
+.\Gitlab2DevOps.ps1 -Mode preflight `
   -GitLabProject "myorg/my-repository" `
   -AdoProject "ConsolidatedProject" `
   -AllowSync
@@ -203,7 +203,7 @@ Write-Host "Status: $($summary.status)"
 For bulk operations with many repositories:
 ```powershell
 # Sync all repositories in config
-.\devops.ps1 -Mode bulkMigrate -ConfigFile "production-sync.json" -AllowSync
+.\Gitlab2DevOps.ps1 -Mode bulkMigrate -ConfigFile "production-sync.json" -AllowSync
 
 # Check results in each migration folder
 Get-ChildItem migrations -Directory | ForEach-Object {
@@ -245,7 +245,7 @@ Set-Location "C:\Projects\devops\Gitlab2DevOps"
 .\setup-env.ps1
 
 # Sync all repositories
-.\devops.ps1 -Mode bulkMigrate `
+.\Gitlab2DevOps.ps1 -Mode bulkMigrate `
   -ConfigFile "production-repos.json" `
   -AllowSync
 
@@ -270,7 +270,7 @@ Send-MailMessage -To "devops@company.com" `
 
 **Solution:** Add `-AllowSync` parameter
 ```powershell
-.\devops.ps1 -Mode migrate -GitLabProject "org/repo" -AdoProject "Project" -AllowSync
+.\Gitlab2DevOps.ps1 -Mode migrate -GitLabProject "org/repo" -AdoProject "Project" -AllowSync
 ```
 
 ### Sync Count Not Incrementing
@@ -344,3 +344,4 @@ if ($repoExists -and -not $AllowSync) {
 - [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - Quick command examples including sync
 - [BULK_MIGRATION_CONFIG.md](BULK_MIGRATION_CONFIG.md) - Bulk configuration format
 - [CHANGELOG.md](CHANGELOG.md) - Version history including sync feature
+

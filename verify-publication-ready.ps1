@@ -48,7 +48,7 @@ function Test-FileContent {
 
 Write-Host "Checking Core Files..." -ForegroundColor Cyan
 Write-Host "----------------------" -ForegroundColor Cyan
-Test-FileExists "devops.ps1" "Main script (devops.ps1)"
+Test-FileExists "Gitlab2DevOps.ps1" "Main entry point script"
 Test-FileExists "LICENSE" "License file"
 Test-FileExists ".gitignore" "Git ignore file"
 Test-FileExists ".gitattributes" "Git attributes file"
@@ -89,7 +89,7 @@ Write-Host ""
 
 Write-Host "Checking Content..." -ForegroundColor Cyan
 Write-Host "-------------------" -ForegroundColor Cyan
-Test-FileContent "devops.ps1" "-AllowSync" "devops.ps1 contains -AllowSync parameter"
+Test-FileContent "Gitlab2DevOps.ps1" "-AllowSync" "Gitlab2DevOps.ps1 contains -AllowSync parameter"
 Test-FileContent "README.md" "Re-running Migrations" "README contains sync mode section"
 Test-FileContent "README.md" "SYNC_MODE_GUIDE\.md" "README links to sync guide"
 Test-FileContent "QUICK_REFERENCE.md" "-AllowSync" "Quick reference contains sync examples"
@@ -162,7 +162,7 @@ $sensitivePatterns = @(
     "(?i)pat\s*[:=]\s*['""][^'""]+['""]"
 )
 
-$trackedFiles = @("devops.ps1", "README.md", "setup-env.template.ps1", "bulk-migration-config.template.json")
+$trackedFiles = @("Gitlab2DevOps.ps1", "README.md", "setup-env.template.ps1", "bulk-migration-config.template.json")
 $foundSensitive = $false
 
 foreach ($file in $trackedFiles) {

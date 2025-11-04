@@ -9,10 +9,10 @@ notepad setup-env.ps1  # Edit with your PATs
 .\setup-env.ps1
 
 # 2. Validate
-.\devops.ps1 -Mode preflight -GitLabProject "group/project" -AdoProject "Project"
+.Gitlab2DevOps.ps1 -Mode preflight -GitLabProject "group/project" -AdoProject "Project"
 
 # 3. Migrate
-.\devops.ps1 -Mode migrate -GitLabProject "group/project" -AdoProject "Project"
+.Gitlab2DevOps.ps1 -Mode migrate -GitLabProject "group/project" -AdoProject "Project"
 ```
 
 ## 📝 Common Commands
@@ -20,13 +20,13 @@ notepad setup-env.ps1  # Edit with your PATs
 ### Single Project Migration
 ```powershell
 # Pre-flight check
-.\devops.ps1 -Mode preflight -GitLabProject "myorg/myrepo" -AdoProject "MyRepo"
+.Gitlab2DevOps.ps1 -Mode preflight -GitLabProject "myorg/myrepo" -AdoProject "MyRepo"
 
 # Execute migration
-.\devops.ps1 -Mode migrate -GitLabProject "myorg/myrepo" -AdoProject "MyRepo"
+.Gitlab2DevOps.ps1 -Mode migrate -GitLabProject "myorg/myrepo" -AdoProject "MyRepo"
 
 # Sync existing repository with GitLab updates
-.\devops.ps1 -Mode migrate -GitLabProject "myorg/myrepo" -AdoProject "MyRepo" -AllowSync
+.Gitlab2DevOps.ps1 -Mode migrate -GitLabProject "myorg/myrepo" -AdoProject "MyRepo" -AllowSync
 ```
 
 ### Bulk Migration
@@ -39,10 +39,10 @@ cp bulk-migration-config.template.json bulk-migration-config.json
 # - List all migrations with gitlabProject and adoRepository names
 
 # Run bulk migration
-.\devops.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json"
+.Gitlab2DevOps.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json"
 
 # Sync all repositories in bulk config with GitLab updates
-.\devops.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json" -AllowSync
+.Gitlab2DevOps.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json" -AllowSync
 ```
 
 **Config Format:**
@@ -59,13 +59,13 @@ cp bulk-migration-config.template.json bulk-migration-config.json
 ### Sync Mode Operations
 ```powershell
 # Re-sync a single repository (updates content, preserves ADO config)
-.\devops.ps1 -Mode migrate -GitLabProject "org/repo" -AdoProject "Project" -AllowSync
+.Gitlab2DevOps.ps1 -Mode migrate -GitLabProject "org/repo" -AdoProject "Project" -AllowSync
 
 # Re-sync all repositories from bulk config
-.\devops.ps1 -Mode bulkMigrate -ConfigFile "config.json" -AllowSync
+.Gitlab2DevOps.ps1 -Mode bulkMigrate -ConfigFile "config.json" -AllowSync
 
 # Pre-flight check with sync (validates existing repo can be updated)
-.\devops.ps1 -Mode preflight -GitLabProject "org/repo" -AdoProject "Project" -AllowSync
+.Gitlab2DevOps.ps1 -Mode preflight -GitLabProject "org/repo" -AdoProject "Project" -AllowSync
 ```
 
 **Sync Mode Behavior:**
@@ -78,13 +78,13 @@ cp bulk-migration-config.template.json bulk-migration-config.json
 ### Advanced Options
 ```powershell
 # Older Azure DevOps Server
-.\devops.ps1 -Mode migrate -GitLabProject "org/repo" -AdoProject "Repo" -AdoApiVersion "6.0"
+.Gitlab2DevOps.ps1 -Mode migrate -GitLabProject "org/repo" -AdoProject "Repo" -AdoApiVersion "6.0"
 
 # On-premises with private CA
-.\devops.ps1 -Mode migrate -GitLabProject "org/repo" -AdoProject "Repo" -SkipCertificateCheck
+.Gitlab2DevOps.ps1 -Mode migrate -GitLabProject "org/repo" -AdoProject "Repo" -SkipCertificateCheck
 
 # With build validation
-.\devops.ps1 -Mode migrate -GitLabProject "org/repo" -AdoProject "Repo" -BuildDefinitionId 42
+.Gitlab2DevOps.ps1 -Mode migrate -GitLabProject "org/repo" -AdoProject "Repo" -BuildDefinitionId 42
 ```
 
 ## 🔧 Environment Variables
@@ -164,13 +164,13 @@ echo $env:GITLAB_PAT
 ### Certificate Errors (On-Prem)
 ```powershell
 # Use certificate bypass
-.\devops.ps1 -SkipCertificateCheck -Mode migrate -GitLabProject "org/repo" -AdoProject "Repo"
+.Gitlab2DevOps.ps1 -SkipCertificateCheck -Mode migrate -GitLabProject "org/repo" -AdoProject "Repo"
 ```
 
 ### API Version Errors
 ```powershell
 # Try older API version
-.\devops.ps1 -AdoApiVersion "6.0" -Mode migrate -GitLabProject "org/repo" -AdoProject "Repo"
+.Gitlab2DevOps.ps1 -AdoApiVersion "6.0" -Mode migrate -GitLabProject "org/repo" -AdoProject "Repo"
 ```
 
 ### Repository Already Exists
@@ -258,3 +258,4 @@ git credential reject
 - Migration success rate: 98%+ (after passing pre-flight)
 - Average setup time: 5 minutes
 - Community satisfaction: ⭐⭐⭐⭐⭐
+
