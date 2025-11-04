@@ -9,6 +9,22 @@
     
     CLI Mode: Use -Mode parameter with -Source and -Project for automation scenarios.
     Interactive Mode: Run without -Mode parameter to launch interactive menu (default).
+    
+    WHAT THIS TOOL DOES:
+    - Migrates Git repository with full history (commits, branches, tags)
+    - Converts GitLab branch protection to Azure DevOps branch policies
+    - Configures default branch and repository settings
+    - Provides comprehensive logging and audit trails
+    
+    WHAT THIS TOOL DOES NOT DO:
+    - Issues / Work Items (different data models, manual recreation required)
+    - Merge Requests / Pull Requests (close before migration)
+    - CI/CD Pipelines (recreate in Azure Pipelines)
+    - Wikis (planned for v3.0)
+    - Project settings, permissions, webhooks
+    - Incremental/delta migrations (one-time cutover only)
+    
+    For complete scope and limitations, see: docs/architecture/limitations.md
 
 .PARAMETER Mode
     CLI operation mode (CLI parameter set only):
