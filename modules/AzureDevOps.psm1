@@ -71,50 +71,65 @@ function Wait-AdoOperation {
 
 .DESCRIPTION
     Checks if project exists; creates with default Agile template if missing.
-    Idempotent - safe to call multiple times.
+    Idempotent - safe to call multiple times. Supports -WhatIf and -Confirm.
 
 .PARAMETER Name
     Project name.
+
+.PARAMETER ProcessTemplate
+    Process template GUID (default: Agile).
 
 .OUTPUTS
     Azure DevOps project object.
 
 .EXAMPLE
     Ensure-AdoProject "MyProject"
+
+.EXAMPLE
+    Ensure-AdoProject "MyProject" -WhatIf
 #>
 function Ensure-AdoProject {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact='Medium')]
     param(
         [Parameter(Mandatory)]
-        [string]$Name
+        [string]$Name,
+        
+        [string]$ProcessTemplate = "6b724908-ef14-45cf-84f8-768b5384da45" # Agile
     )
+    
+    Write-Verbose "[Ensure-AdoProject] Checking if project '$Name' exists..."
     
     $list = Invoke-AdoRest GET "/_apis/projects?`$top=5000"
     $p = $list.value | Where-Object { $_.name -eq $Name }
     
     if ($p) {
-        Write-Host "[INFO] Project '$Name' already exists" -ForegroundColor Green
+        Write-Verbose "[Ensure-AdoProject] Project '$Name' already exists (ID: $($p.id))"
+        Write-Host "[INFO] Project '$Name' already exists - no changes needed" -ForegroundColor Green
         return $p
     }
     
-    Write-Host "[INFO] Creating project '$Name'..."
-    $body = @{
-        name         = $Name
-        description  = "Provisioned by automation"
-        capabilities = @{
-            versioncontrol  = @{ sourceControlType = "Git" }
-            processTemplate = @{ templateTypeId = "6b724908-ef14-45cf-84f8-768b5384da45" } # Agile
+    if ($PSCmdlet.ShouldProcess($Name, "Create Azure DevOps project")) {
+        Write-Host "[INFO] Creating project '$Name'..." -ForegroundColor Cyan
+        
+        $body = @{
+            name         = $Name
+            description  = "Provisioned by GitLab to Azure DevOps migration"
+            capabilities = @{
+                versioncontrol  = @{ sourceControlType = "Git" }
+                processTemplate = @{ templateTypeId = $ProcessTemplate }
+            }
         }
+        
+        $resp = Invoke-AdoRest POST "/_apis/projects" -Body $body
+        $final = Wait-AdoOperation $resp.id
+        
+        if ($final.status -ne 'succeeded') {
+            throw "Project creation failed with status: $($final.status)"
+        }
+        
+        Write-Host "[SUCCESS] Project '$Name' created successfully" -ForegroundColor Green
+        return Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Name))"
     }
-    
-    $resp = Invoke-AdoRest POST "/_apis/projects" -Body $body
-    $final = Wait-AdoOperation $resp.id
-    
-    if ($final.status -ne 'succeeded') {
-        throw "Project creation failed."
-    }
-    
-    Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Name))"
 }
 
 <#
@@ -477,7 +492,7 @@ function Ensure-AdoTeamTemplates {
     Ensure-AdoRepository "MyProject" $projId "my-repo" -AllowExisting
 #>
 function Ensure-AdoRepository {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact='High')]
     param(
         [Parameter(Mandatory)]
         [string]$Project,
@@ -488,26 +503,73 @@ function Ensure-AdoRepository {
         [Parameter(Mandatory)]
         [string]$RepoName,
         
-        [switch]$AllowExisting
+        [switch]$AllowExisting,
+        
+        [switch]$Replace
     )
+    
+    Write-Verbose "[Ensure-AdoRepository] Checking if repository '$RepoName' exists..."
     
     $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories"
     $existing = $repos.value | Where-Object { $_.name -eq $RepoName }
     
     if ($existing) {
+        Write-Verbose "[Ensure-AdoRepository] Repository '$RepoName' exists (ID: $($existing.id))"
+        
+        # Check if repository has commits
+        try {
+            $commits = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$($existing.id)/commits?`$top=1"
+            $hasCommits = $commits.count -gt 0
+        }
+        catch {
+            $hasCommits = $false
+        }
+        
+        if ($hasCommits) {
+            Write-Verbose "[Ensure-AdoRepository] Repository has $($commits.count) commit(s)"
+            
+            if ($Replace) {
+                if ($PSCmdlet.ShouldProcess($RepoName, "DELETE and recreate repository (has existing commits)")) {
+                    Write-Warning "Repository '$RepoName' has commits. Deleting and recreating due to -Replace flag..."
+                    
+                    # Delete existing repository
+                    Invoke-AdoRest DELETE "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$($existing.id)"
+                    Start-Sleep -Seconds 2
+                    
+                    # Create new repository
+                    Write-Host "[INFO] Creating new repository: $RepoName" -ForegroundColor Cyan
+                    return Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/git/repositories" -Body @{
+                        name    = $RepoName
+                        project = @{ id = $ProjId }
+                    }
+                }
+            }
+            else {
+                $msg = "Repository '$RepoName' already exists with $($commits.count) commit(s). "
+                $msg += "Use -Replace to delete and recreate, or -AllowExisting to sync content."
+                throw $msg
+            }
+        }
+        
         if ($AllowExisting) {
             Write-Host "[INFO] Repository '$RepoName' already exists. Will sync/update content." -ForegroundColor Green
             return $existing
         }
         else {
+            Write-Host "[INFO] Repository '$RepoName' already exists (empty) - no changes needed" -ForegroundColor Green
             return $existing
         }
     }
     
-    Write-Host "[INFO] Creating new repository: $RepoName"
-    Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/git/repositories" -Body @{
-        name    = $RepoName
-        project = @{ id = $ProjId }
+    # Repository does not exist - create it
+    if ($PSCmdlet.ShouldProcess($RepoName, "Create new repository")) {
+        Write-Host "[INFO] Creating new repository: $RepoName" -ForegroundColor Cyan
+        $newRepo = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/git/repositories" -Body @{
+            name    = $RepoName
+            project = @{ id = $ProjId }
+        }
+        Write-Host "[SUCCESS] Repository '$RepoName' created successfully" -ForegroundColor Green
+        return $newRepo
     }
 }
 
@@ -579,7 +641,7 @@ function Get-AdoRepoDefaultBranch {
     Ensure-AdoBranchPolicies "MyProject" $repoId "refs/heads/main" -Min 2 -BuildId 10 -StatusContext "SonarQube"
 #>
 function Ensure-AdoBranchPolicies {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact='Medium')]
     param(
         [Parameter(Mandatory)]
         [string]$Project,
@@ -597,6 +659,8 @@ function Ensure-AdoBranchPolicies {
         [string]$StatusContext = ""
     )
     
+    Write-Verbose "[Ensure-AdoBranchPolicies] Checking existing policies for ref '$Ref'..."
+    
     $cfgs = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/policy/configurations"
     $scope = @{ repositoryId = $RepoId; refName = $Ref; matchKind = "exact" }
     
@@ -605,59 +669,85 @@ function Ensure-AdoBranchPolicies {
     }
     
     # Required reviewers policy
-    if (-not (Test-PolicyExists $script:POLICY_REQUIRED_REVIEWERS)) {
-        Write-Host "[INFO] Creating required reviewers policy"
-        Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/policy/configurations" -Body @{
-            isEnabled  = $true
-            isBlocking = $true
-            type       = @{ id = $script:POLICY_REQUIRED_REVIEWERS }
-            settings   = @{
-                minimumApproverCount = [Math]::Max(1, $Min)
-                creatorVoteCounts    = $false
-                allowDownvotes       = $true
-                resetOnSourcePush    = $false
-                scope                = @($scope)
-            }
-        } | Out-Null
+    $existing = Test-PolicyExists $script:POLICY_REQUIRED_REVIEWERS
+    if (-not $existing) {
+        if ($PSCmdlet.ShouldProcess($Ref, "Create required reviewers policy (min: $Min)")) {
+            Write-Host "[INFO] Creating required reviewers policy" -ForegroundColor Cyan
+            Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/policy/configurations" -Body @{
+                isEnabled  = $true
+                isBlocking = $true
+                type       = @{ id = $script:POLICY_REQUIRED_REVIEWERS }
+                settings   = @{
+                    minimumApproverCount = [Math]::Max(1, $Min)
+                    creatorVoteCounts    = $false
+                    allowDownvotes       = $true
+                    resetOnSourcePush    = $false
+                    scope                = @($scope)
+                }
+            } | Out-Null
+        }
+    }
+    else {
+        Write-Verbose "[Ensure-AdoBranchPolicies] Required reviewers policy already exists"
     }
     
     # Work item link policy
-    if (-not (Test-PolicyExists $script:POLICY_WORK_ITEM_LINK)) {
-        Write-Host "[INFO] Creating work item link policy"
-        Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/policy/configurations" -Body @{
-            isEnabled  = $true
-            isBlocking = $true
-            type       = @{ id = $script:POLICY_WORK_ITEM_LINK }
-            settings   = @{ scope = @($scope) }
-        } | Out-Null
+    $existing = Test-PolicyExists $script:POLICY_WORK_ITEM_LINK
+    if (-not $existing) {
+        if ($PSCmdlet.ShouldProcess($Ref, "Create work item link policy")) {
+            Write-Host "[INFO] Creating work item link policy" -ForegroundColor Cyan
+            Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/policy/configurations" -Body @{
+                isEnabled  = $true
+                isBlocking = $true
+                type       = @{ id = $script:POLICY_WORK_ITEM_LINK }
+                settings   = @{ scope = @($scope) }
+            } | Out-Null
+        }
+    }
+    else {
+        Write-Verbose "[Ensure-AdoBranchPolicies] Work item link policy already exists"
     }
     
     # Comment resolution policy
-    if (-not (Test-PolicyExists $script:POLICY_COMMENT_RESOLUTION)) {
-        Write-Host "[INFO] Creating comment resolution policy"
-        Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/policy/configurations" -Body @{
-            isEnabled  = $true
-            isBlocking = $true
-            type       = @{ id = $script:POLICY_COMMENT_RESOLUTION }
-            settings   = @{ scope = @($scope) }
-        } | Out-Null
+    $existing = Test-PolicyExists $script:POLICY_COMMENT_RESOLUTION
+    if (-not $existing) {
+        if ($PSCmdlet.ShouldProcess($Ref, "Create comment resolution policy")) {
+            Write-Host "[INFO] Creating comment resolution policy" -ForegroundColor Cyan
+            Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/policy/configurations" -Body @{
+                isEnabled  = $true
+                isBlocking = $true
+                type       = @{ id = $script:POLICY_COMMENT_RESOLUTION }
+                settings   = @{ scope = @($scope) }
+            } | Out-Null
+        }
+    }
+    else {
+        Write-Verbose "[Ensure-AdoBranchPolicies] Comment resolution policy already exists"
     }
     
     # Build validation policy
-    if ($BuildId -gt 0 -and -not (Test-PolicyExists $script:POLICY_BUILD_VALIDATION)) {
-        Write-Host "[INFO] Creating build validation policy"
-        Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/policy/configurations" -Body @{
-            isEnabled  = $true
-            isBlocking = $true
-            type       = @{ id = $script:POLICY_BUILD_VALIDATION }
-            settings   = @{
-                displayName             = "CI validation"
-                validDuration           = 0
-                queueOnSourceUpdateOnly = $false
-                buildDefinitionId       = $BuildId
-                scope                   = @($scope)
+    if ($BuildId -gt 0) {
+        $existing = Test-PolicyExists $script:POLICY_BUILD_VALIDATION
+        if (-not $existing) {
+            if ($PSCmdlet.ShouldProcess($Ref, "Create build validation policy (Build ID: $BuildId)")) {
+                Write-Host "[INFO] Creating build validation policy" -ForegroundColor Cyan
+                Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/policy/configurations" -Body @{
+                    isEnabled  = $true
+                    isBlocking = $true
+                    type       = @{ id = $script:POLICY_BUILD_VALIDATION }
+                    settings   = @{
+                        displayName             = "CI validation"
+                        validDuration           = 0
+                        queueOnSourceUpdateOnly = $false
+                        buildDefinitionId       = $BuildId
+                        scope                   = @($scope)
+                    }
+                } | Out-Null
             }
-        } | Out-Null
+        }
+        else {
+            Write-Verbose "[Ensure-AdoBranchPolicies] Build validation policy already exists"
+        }
     }
     
     # Status check policy

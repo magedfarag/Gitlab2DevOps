@@ -410,7 +410,11 @@ function Invoke-SingleMigration {
         [Parameter(Mandatory)]
         [string]$DestProject,
         
-        [switch]$AllowSync
+        [switch]$AllowSync,
+        
+        [switch]$Force,
+        
+        [switch]$Replace
     )
     
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
@@ -419,18 +423,32 @@ function Invoke-SingleMigration {
     
     Write-Host "[INFO] Starting migration: $SrcPath → $DestProject" -ForegroundColor Cyan
     
-    # ENFORCE PRE-MIGRATION REPORT REQUIREMENT
+    # ENFORCE PRE-MIGRATION REPORT REQUIREMENT (unless -Force)
     $repoName = ($SrcPath -split '/')[-1]
     try {
         $preReport = New-MigrationPreReport -GitLabPath $SrcPath -AdoProject $DestProject -AdoRepoName $repoName -AllowSync:$AllowSync
+        
+        # Check for blocking issues
+        if ($preReport.blocking_issues -gt 0 -and -not $Force) {
+            $msg = "Pre-migration validation found $($preReport.blocking_issues) blocking issue(s). "
+            $msg += "Review the preflight report or use -Force to proceed anyway."
+            throw $msg
+        }
+        
         Write-Host "[OK] Pre-migration validation passed" -ForegroundColor Green
         if ($AllowSync -and $preReport.ado_repo_exists) {
             Write-Host "[INFO] SYNC MODE: Will update existing repository with latest changes" -ForegroundColor Yellow
         }
     }
     catch {
-        Write-Host "[ERROR] Pre-migration validation failed: $_" -ForegroundColor Red
-        throw "Migration cannot proceed without successful pre-migration validation"
+        if ($Force) {
+            Write-Warning "Pre-migration validation failed, but -Force specified. Proceeding anyway..."
+            Write-Warning "Error was: $_"
+        }
+        else {
+            Write-Host "[ERROR] Pre-migration validation failed: $_" -ForegroundColor Red
+            throw "Migration cannot proceed without successful pre-migration validation. Use -Force to override."
+        }
     }
     
     # Get project paths
@@ -456,9 +474,16 @@ function Invoke-SingleMigration {
         # Check LFS
         if ($preflightData.lfs_enabled -and $preflightData.lfs_size_MB -gt 0) {
             if (-not (Get-Command git-lfs -ErrorAction SilentlyContinue)) {
-                throw "Git LFS required but not found. Repository has $($preflightData.lfs_size_MB) MB of LFS data."
+                if ($Force) {
+                    Write-Warning "Git LFS required but not found. Repository has $($preflightData.lfs_size_MB) MB of LFS data. Proceeding due to -Force..."
+                }
+                else {
+                    throw "Git LFS required but not found. Repository has $($preflightData.lfs_size_MB) MB of LFS data."
+                }
             }
-            Write-Host "[INFO] Git LFS detected: $($preflightData.lfs_size_MB) MB"
+            else {
+                Write-Host "[INFO] Git LFS detected: $($preflightData.lfs_size_MB) MB"
+            }
         }
         
         # Use cached data
@@ -475,9 +500,16 @@ function Invoke-SingleMigration {
         }
     }
     else {
-        Write-Host "[ERROR] No preflight report found" -ForegroundColor Red
-        Write-Host "        Run preparation first (Option 1)" -ForegroundColor Red
-        throw "Pre-migration validation required. Run preflight check first."
+        if ($Force) {
+            Write-Warning "No preflight report found, but -Force specified. Proceeding without validation..."
+            # Fetch minimal GitLab info on the fly
+            $gl = Get-GitLabProject -Path $SrcPath
+        }
+        else {
+            Write-Host "[ERROR] No preflight report found" -ForegroundColor Red
+            Write-Host "        Run preparation first (Option 1) or use -Force to bypass" -ForegroundColor Red
+            throw "Pre-migration validation required. Run preflight check first or use -Force."
+        }
     }
     
     # Ensure Azure DevOps project exists
@@ -500,7 +532,7 @@ function Invoke-SingleMigration {
     )
     
     # Ensure ADO repo exists
-    $repo = Ensure-AdoRepository $DestProject $projId $repoName -AllowExisting:$AllowSync
+    $repo = Ensure-AdoRepository $DestProject $projId $repoName -AllowExisting:$AllowSync -Replace:$Replace
     $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
     
     $isSync = $AllowSync -and $preReport.ado_repo_exists
