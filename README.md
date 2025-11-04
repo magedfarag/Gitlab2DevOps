@@ -10,6 +10,8 @@
 
 This PowerShell-based automation tool provides a comprehensive 3-step migration process from GitLab (self-managed or GitLab.com) to Azure DevOps Server (on-premises or cloud). The tool handles everything from initial project analysis to complete repository migration with full policy setup, security configurations, and enterprise-grade audit trails.
 
+**API Integration:** This script uses official [Microsoft Azure DevOps REST API](https://learn.microsoft.com/en-us/rest/api/azure/devops/) (versions 6.0, 7.0, and 7.1) and [GitLab REST API v4](https://docs.gitlab.com/ee/api/rest/) with valid Personal Access Tokens (PATs) required for authentication. All REST calls follow official API documentation and best practices.
+
 ### Why This Tool?
 
 - ✅ **Zero Credential Exposure**: Built with security-first approach

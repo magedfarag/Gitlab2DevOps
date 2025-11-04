@@ -326,7 +326,7 @@ function Ensure-RepoDeny([string]$ProjectId,[string]$RepoId,[string]$GroupDescri
 function Clear-GitCredentials {
   param(
     [Parameter(Mandatory)][string]$RepoPath,
-    [Parameter(Mandatory)][string]$RemoteName = "ado"
+    [string]$RemoteName = "ado"
   )
   <#
     Removes PAT credentials from Git config to prevent credential exposure.
@@ -756,9 +756,10 @@ function Migrate-One([string]$SrcPath,[string]$DestProject,[switch]$AllowSync) {
       if ($useLocalRepo) { Pop-Location }
     }
   } else {
-    Write-Host "[WARN] No preflight report found. Strongly recommend running Option 1 first."
-    Write-Host "[INFO] Fetching GitLab project data..."
-    $gl = Get-GitLabProject $SrcPath
+    Write-Host "[ERROR] No preflight report found at: $reportFile"
+    Write-Host "        Pre-migration validation is required before executing migration."
+    Write-Host "        Run preflight check first: .\devops.ps1 -Mode preflight -GitLabProject '$SrcPath' -AdoProject '$DestProject'"
+    throw "Pre-migration validation required. Run preflight check first (Option 1 or -Mode preflight)."
   }
 
   $proj = Ensure-Project $DestProject
@@ -1220,6 +1221,28 @@ function Bulk-Prepare-GitLab([array]$ProjectPaths, [string]$DestProjectName) {
 
 # --------------- BULK MIGRATION (multiple GitLab projects to one ADO project) ---------------
 function Bulk-Migrate-FromConfig([object]$config,[string]$DestProject,[switch]$AllowSync) {
+  <#
+    .SYNOPSIS
+    Executes bulk migration from a configuration object.
+    
+    .DESCRIPTION
+    Migrates multiple GitLab projects to Azure DevOps repositories based on configuration.
+    Supports both new format (targetAdoProject, migrations array) and legacy format (projects array).
+    Each project is migrated to the same destination Azure DevOps project.
+    
+    .PARAMETER config
+    Configuration object containing migration definitions. Can be loaded from JSON.
+    
+    .PARAMETER DestProject
+    Destination Azure DevOps project name. If not specified, uses targetAdoProject from config.
+    
+    .PARAMETER AllowSync
+    Allows updating existing repositories instead of blocking on existing repos.
+    
+    .EXAMPLE
+    $config = Get-Content "bulk-config.json" | ConvertFrom-Json
+    Bulk-Migrate-FromConfig -config $config -AllowSync
+  #>
   # Validate config object - support both old and new format
   $migrations = $null
   if ($config.migrations) {
