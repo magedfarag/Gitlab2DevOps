@@ -55,14 +55,14 @@ function Initialize-Telemetry {
     }
     
     $script:TelemetryEnabled = $true
-    $script:TelemetrySession = @{
+    $script:TelemetrySession = [PSCustomObject]@{
         SessionId     = [guid]::NewGuid().ToString()
         SessionName   = $SessionName
         StartTime     = Get-Date
-        Events        = @()
-        Metrics       = @()
-        Errors        = @()
-        ApiCalls      = @()
+        Events        = [System.Collections.ArrayList]@()
+        Metrics       = [System.Collections.ArrayList]@()
+        Errors        = [System.Collections.ArrayList]@()
+        ApiCalls      = [System.Collections.ArrayList]@()
     }
     
     Write-Host "[Telemetry] Session started: $SessionName (ID: $($script:TelemetrySession.SessionId))" -ForegroundColor Cyan
@@ -112,7 +112,7 @@ function Record-TelemetryEvent {
         Data      = $Data
     }
     
-    $script:TelemetrySession.Events += $event
+    [void]$script:TelemetrySession.Events.Add($event)
     Write-Verbose "[Telemetry] Event recorded: $EventType for $Project"
 }
 
@@ -164,7 +164,7 @@ function Record-TelemetryMetric {
         Tags       = $Tags
     }
     
-    $script:TelemetrySession.Metrics += $metric
+    [void]$script:TelemetrySession.Metrics.Add($metric)
     Write-Verbose "[Telemetry] Metric recorded: $MetricName = $Value $Unit"
 }
 
@@ -209,7 +209,7 @@ function Record-TelemetryError {
         Context      = $Context
     }
     
-    $script:TelemetrySession.Errors += $error
+    [void]$script:TelemetrySession.Errors.Add($error)
     Write-Verbose "[Telemetry] Error recorded: $ErrorType - $ErrorMessage"
 }
 
@@ -268,7 +268,7 @@ function Record-TelemetryApiCall {
         Success     = $Success.IsPresent
     }
     
-    $script:TelemetrySession.ApiCalls += $apiCall
+    [void]$script:TelemetrySession.ApiCalls.Add($apiCall)
     Write-Verbose "[Telemetry] API call recorded: $Method $Endpoint ($DurationMs ms)"
 }
 
@@ -387,20 +387,25 @@ function Get-TelemetryStatistics {
     $duration = (Get-Date) - $script:TelemetrySession.StartTime
     
     # Calculate API statistics
+    $successfulCalls = @($script:TelemetrySession.ApiCalls | Where-Object { $_.Success })
+    $failedCalls = @($script:TelemetrySession.ApiCalls | Where-Object { -not $_.Success })
+    
     $apiStats = @{
         TotalCalls      = $script:TelemetrySession.ApiCalls.Count
-        SuccessfulCalls = ($script:TelemetrySession.ApiCalls | Where-Object { $_.Success }).Count
-        FailedCalls     = ($script:TelemetrySession.ApiCalls | Where-Object { -not $_.Success }).Count
+        SuccessfulCalls = $successfulCalls.Count
+        FailedCalls     = $failedCalls.Count
         AvgDurationMs   = if ($script:TelemetrySession.ApiCalls.Count -gt 0) {
             [math]::Round(($script:TelemetrySession.ApiCalls | Measure-Object -Property DurationMs -Average).Average, 2)
         } else { 0 }
     }
     
     # Calculate error statistics
+    $errorGroups = @($script:TelemetrySession.Errors | Group-Object -Property ErrorType | 
+        ForEach-Object { @{ Type = $_.Name; Count = $_.Count } })
+    
     $errorStats = @{
         TotalErrors = $script:TelemetrySession.Errors.Count
-        ErrorTypes  = ($script:TelemetrySession.Errors | Group-Object -Property ErrorType | 
-            ForEach-Object { @{ Type = $_.Name; Count = $_.Count } })
+        ErrorTypes  = $errorGroups
     }
     
     return @{
