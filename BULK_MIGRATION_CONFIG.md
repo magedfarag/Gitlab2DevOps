@@ -170,6 +170,40 @@ GitLab (One Project)               Azure DevOps (One Project)
 Result: One project with one repo (default name same as project)
 ```
 
+## Two Migration Approaches
+
+### Approach 1: Direct Migration (Simple)
+Create your config file manually and run migration directly:
+```json
+{
+  "targetAdoProject": "MyProject",
+  "migrations": [
+    {"gitlabProject": "org/repo1", "adoRepository": "Repo1"},
+    {"gitlabProject": "org/repo2", "adoRepository": "Repo2"}
+  ]
+}
+```
+- ✅ Quick and straightforward
+- ✅ No preparation step needed
+- ❌ No pre-validation
+- ❌ No preparation status tracking
+
+### Approach 2: Prepared Migration (Recommended for Large Migrations)
+Use Option 4 (bulk preparation) to validate and prepare, which adds `preparation_status`:
+```json
+{
+  "targetAdoProject": "MyProject",
+  "migrations": [
+    {"gitlabProject": "org/repo1", "adoRepository": "Repo1", "preparation_status": "SUCCESS"},
+    {"gitlabProject": "org/repo2", "adoRepository": "Repo2", "preparation_status": "FAILED"}
+  ]
+}
+```
+- ✅ Pre-validation before migration
+- ✅ Automatic status tracking
+- ✅ Failed preparations are skipped
+- ✅ Safer for large migrations
+
 ## Important Notes
 
 ### Single Project, Multiple Repositories

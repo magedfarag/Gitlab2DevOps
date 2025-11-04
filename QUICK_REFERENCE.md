@@ -24,6 +24,9 @@ notepad setup-env.ps1  # Edit with your PATs
 
 # Execute migration
 .\devops.ps1 -Mode migrate -GitLabProject "myorg/myrepo" -AdoProject "MyRepo"
+
+# Sync existing repository with GitLab updates
+.\devops.ps1 -Mode migrate -GitLabProject "myorg/myrepo" -AdoProject "MyRepo" -AllowSync
 ```
 
 ### Bulk Migration
@@ -37,6 +40,9 @@ cp bulk-migration-config.template.json bulk-migration-config.json
 
 # Run bulk migration
 .\devops.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json"
+
+# Sync all repositories in bulk config with GitLab updates
+.\devops.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json" -AllowSync
 ```
 
 **Config Format:**
@@ -49,6 +55,25 @@ cp bulk-migration-config.template.json bulk-migration-config.json
   ]
 }
 ```
+
+### Sync Mode Operations
+```powershell
+# Re-sync a single repository (updates content, preserves ADO config)
+.\devops.ps1 -Mode migrate -GitLabProject "org/repo" -AdoProject "Project" -AllowSync
+
+# Re-sync all repositories from bulk config
+.\devops.ps1 -Mode bulkMigrate -ConfigFile "config.json" -AllowSync
+
+# Pre-flight check with sync (validates existing repo can be updated)
+.\devops.ps1 -Mode preflight -GitLabProject "org/repo" -AdoProject "Project" -AllowSync
+```
+
+**Sync Mode Behavior:**
+- ✅ Updates repository content from GitLab
+- ✅ Preserves Azure DevOps settings (policies, permissions)
+- ✅ Tracks migration history in summary JSON
+- ✅ Non-destructive (keeps existing ADO configuration)
+- ⚠️ Overwrites repository content with GitLab source
 
 ### Advanced Options
 ```powershell

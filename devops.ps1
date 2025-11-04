@@ -240,10 +240,18 @@ $POLICY_COMMENT_RESOLUTION= 'c6a1889d-b943-48DE-8ECA-6E5AC81B08B6'
 $POLICY_WORK_ITEM_LINK    = 'fd2167ab-b0be-447a-8ec8-39368250530e'
 $POLICY_STATUS_CHECK      = 'caae6c6e-4c53-40e6-94f0-6d7410830a9b'
 
-function Ensure-Repo([string]$Project,[string]$ProjId,[string]$RepoName) {
+function Ensure-Repo([string]$Project,[string]$ProjId,[string]$RepoName,[switch]$AllowExisting) {
   $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories"
   $existing = $repos.value | ? { $_.name -eq $RepoName }
-  if ($existing) { return $existing }
+  if ($existing) { 
+    if ($AllowExisting) {
+      Write-Host "[INFO] Repository '$RepoName' already exists. Will sync/update content."
+      return $existing
+    } else {
+      return $existing
+    }
+  }
+  Write-Host "[INFO] Creating new repository: $RepoName"
   Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/git/repositories" -Body @{ name=$RepoName; project=@{ id=$ProjId } }
 }
 
@@ -349,7 +357,8 @@ function New-MigrationPreReport {
     [Parameter(Mandatory)][string]$GitLabPath,
     [Parameter(Mandatory)][string]$AdoProject,
     [Parameter(Mandatory)][string]$AdoRepoName,
-    [string]$OutputPath = (Join-Path (Get-Location) "migration-precheck-$((Get-Date).ToString('yyyyMMdd-HHmmss')).json")
+    [string]$OutputPath = (Join-Path (Get-Location) "migration-precheck-$((Get-Date).ToString('yyyyMMdd-HHmmss')).json"),
+    [switch]$AllowSync
   )
 
   Write-Host "[INFO] Generating pre-migration report..."
@@ -379,7 +388,8 @@ function New-MigrationPreReport {
     ado_project_exists = [bool]$adoProj
     ado_repo_name      = $AdoRepoName
     ado_repo_exists    = [bool]$repoExists
-    ready_to_migrate   = ($adoProj -and -not $repoExists)
+    sync_mode          = $AllowSync
+    ready_to_migrate   = if ($AllowSync) { [bool]$adoProj } else { ($adoProj -and -not $repoExists) }
     blocking_issues    = @()
   }
 
@@ -387,8 +397,10 @@ function New-MigrationPreReport {
   if (-not $adoProj) {
     $report.blocking_issues += "Azure DevOps project '$AdoProject' does not exist"
   }
-  if ($repoExists) {
-    $report.blocking_issues += "Repository '$AdoRepoName' already exists in project '$AdoProject'"
+  if ($repoExists -and -not $AllowSync) {
+    $report.blocking_issues += "Repository '$AdoRepoName' already exists in project '$AdoProject'. Use -AllowSync to update existing repository."
+  } elseif ($repoExists -and $AllowSync) {
+    Write-Host "[INFO] Sync mode enabled: Repository '$AdoRepoName' will be updated with latest changes from GitLab"
   }
 
   $report | ConvertTo-Json -Depth 5 | Set-Content -Path $OutputPath -Encoding UTF8
@@ -656,19 +668,23 @@ function Init-Project([string]$DestProject,[string]$RepoName) {
   Write-Host "[OK] Project '$DestProject' initialized (RBAC, areas, wiki, templates, policies, repo '$RepoName')."
 }
 
-function Migrate-One([string]$SrcPath,[string]$DestProject) {
+function Migrate-One([string]$SrcPath,[string]$DestProject,[switch]$AllowSync) {
   <#
     Migrates a single GitLab project to Azure DevOps repository.
     Uses cached preparation data if available, applies policies and security restrictions.
-    Usage: Migrate-One "group/project" "DestinationProject"
+    Supports re-running to sync updates from GitLab.
+    Usage: Migrate-One "group/project" "DestinationProject" [-AllowSync]
   #>
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw "git not found on PATH." }
   
   # ENFORCE PRE-MIGRATION REPORT REQUIREMENT
   $repoName = ($SrcPath -split '/')[-1]
   try {
-    $preReport = New-MigrationPreReport -GitLabPath $SrcPath -AdoProject $DestProject -AdoRepoName $repoName
+    $preReport = New-MigrationPreReport -GitLabPath $SrcPath -AdoProject $DestProject -AdoRepoName $repoName -AllowSync:$AllowSync
     Write-Host "[OK] Pre-migration validation passed"
+    if ($AllowSync -and $preReport.ado_repo_exists) {
+      Write-Host "[INFO] SYNC MODE: Will update existing repository with latest changes"
+    }
   } catch {
     Write-Host "[ERROR] Pre-migration validation failed: $_"
     throw "Migration cannot proceed without successful pre-migration validation"
@@ -767,9 +783,15 @@ function Migrate-One([string]$SrcPath,[string]$DestProject) {
     "=== Migration Process ==="
   ) | Out-File -FilePath $logFile -Encoding utf8
 
-  # Ensure ADO repo exists
-  $repo = Ensure-Repo $DestProject $projId $repoName
+  # Ensure ADO repo exists (allow existing if sync mode)
+  $repo = Ensure-Repo $DestProject $projId $repoName -AllowExisting:$AllowSync
   $defaultRef = Get-RepoDefaultBranch $DestProject $repo.id
+  
+  $isSync = $AllowSync -and $preReport.ado_repo_exists
+  if ($isSync) {
+    Write-Host "[INFO] Sync mode: Updating existing repository"
+    "=== SYNC MODE: Updating existing repository ===" | Out-File -FilePath $logFile -Append -Encoding utf8
+  }
 
   try {
     if ($useLocalRepo) {
@@ -841,11 +863,45 @@ function Migrate-One([string]$SrcPath,[string]$DestProject) {
     
     # Create migration summary report
     $summaryFile = Join-Path $reportsDir "migration-summary.json"
+    
+    # Load existing summary if this is a sync operation
+    $previousMigrations = @()
+    if ($isSync -and (Test-Path $summaryFile)) {
+      try {
+        $existingSummary = Get-Content $summaryFile | ConvertFrom-Json
+        if ($existingSummary.previous_migrations) {
+          $previousMigrations = $existingSummary.previous_migrations
+        } elseif ($existingSummary.migration_start) {
+          # Convert single migration to array
+          $previousMigrations = @([pscustomobject]@{
+            migration_start = $existingSummary.migration_start
+            migration_end = $existingSummary.migration_end
+            duration_minutes = $existingSummary.duration_minutes
+            status = $existingSummary.status
+          })
+        }
+      } catch {
+        Write-Host "[WARN] Could not read previous migration history: $_"
+      }
+    }
+    
+    # Add current migration to history
+    if ($isSync) {
+      $previousMigrations += [pscustomobject]@{
+        migration_start = $startTime.ToString('yyyy-MM-dd HH:mm:ss')
+        migration_end = $endTime.ToString('yyyy-MM-dd HH:mm:ss')
+        duration_minutes = [math]::Round($duration.TotalMinutes, 2)
+        status = "SUCCESS"
+        type = "SYNC"
+      }
+    }
+    
     $summary = [pscustomobject]@{
       source_project = $gl.path_with_namespace
       source_url = $gl.http_url_to_repo
       destination_project = $DestProject
       destination_repo = $repoName
+      migration_type = if ($isSync) { "SYNC" } else { "INITIAL" }
       migration_start = $startTime.ToString('yyyy-MM-dd HH:mm:ss')
       migration_end = $endTime.ToString('yyyy-MM-dd HH:mm:ss')
       duration_minutes = [math]::Round($duration.TotalMinutes, 2)
@@ -853,6 +909,9 @@ function Migrate-One([string]$SrcPath,[string]$DestProject) {
       local_repo_path = if ($useLocalRepo) { $repoDir } else { $null }
       migration_log = $logFile
       status = "SUCCESS"
+      migration_count = if ($isSync) { $previousMigrations.Count } else { 1 }
+      previous_migrations = if ($isSync -and $previousMigrations.Count -gt 0) { $previousMigrations } else { $null }
+      last_sync = if ($isSync) { $endTime.ToString('yyyy-MM-dd HH:mm:ss') } else { $null }
     }
     $summary | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 $summaryFile
     
@@ -873,13 +932,20 @@ function Migrate-One([string]$SrcPath,[string]$DestProject) {
       "=== Migration Completed Successfully ==="
     ) | Out-File -FilePath $logFile -Append -Encoding utf8
 
-    Write-Host "[DONE] Migrated '$SrcPath' -> '$DestProject' repo '$repoName' (all refs mirrored)."
+    if ($isSync) {
+      Write-Host "[DONE] Synced '$SrcPath' -> '$DestProject' repo '$repoName' (sync #$($summary.migration_count))"
+    } else {
+      Write-Host "[DONE] Migrated '$SrcPath' -> '$DestProject' repo '$repoName' (all refs mirrored)"
+    }
     Write-Host "[INFO] Project folder: $projectDir"
     Write-Host "[INFO] Migration log: $logFile"
     Write-Host "[INFO] Summary report: $summaryFile"
     Write-Host "[INFO] Duration: $($duration.ToString('hh\:mm\:ss'))"
     if ($useLocalRepo) {
       Write-Host "[INFO] Local repository preserved at: $repoDir"
+    }
+    if ($isSync -and $summary.previous_migrations) {
+      Write-Host "[INFO] Previous migrations: $($summary.previous_migrations.Count)"
     }
     
   } catch {
@@ -1153,11 +1219,11 @@ function Bulk-Prepare-GitLab([array]$ProjectPaths, [string]$DestProjectName) {
 }
 
 # --------------- BULK MIGRATION (multiple GitLab projects to one ADO project) ---------------
-function Bulk-Migrate-FromConfig([object]$config,[string]$DestProject) {
+function Bulk-Migrate-FromConfig([object]$config,[string]$DestProject,[switch]$AllowSync) {
   # Validate config object - support both old and new format
   $migrations = $null
   if ($config.migrations) {
-    # New format: { targetAdoProject, migrations: [ {gitlabProject, adoRepository} ] }
+    # New format: { targetAdoProject, migrations: [ {gitlabProject, adoRepository, preparation_status} ] }
     $migrations = $config.migrations
     if (-not $DestProject -and $config.targetAdoProject) {
       $DestProject = $config.targetAdoProject
@@ -1173,6 +1239,10 @@ function Bulk-Migrate-FromConfig([object]$config,[string]$DestProject) {
   
   if ([string]::IsNullOrWhiteSpace($DestProject)) {
     throw "Destination project not specified. Set 'targetAdoProject' in config or provide -DestProject parameter."
+  }
+  
+  if ($AllowSync) {
+    Write-Host "[INFO] SYNC MODE ENABLED: Existing repositories will be updated with latest changes"
   }
   
   Write-Host "=== BULK MIGRATION STARTING ==="
@@ -1235,7 +1305,11 @@ function Bulk-Migrate-FromConfig([object]$config,[string]$DestProject) {
       # ENFORCE PRE-MIGRATION REPORT REQUIREMENT
       Write-Host "    Validating migration prerequisites..."
       try {
-        $preReport = New-MigrationPreReport -GitLabPath $srcPath -AdoProject $DestProject -AdoRepoName $repoName
+        $preReport = New-MigrationPreReport -GitLabPath $srcPath -AdoProject $DestProject -AdoRepoName $repoName -AllowSync:$AllowSync
+        if ($AllowSync -and $preReport.ado_repo_exists) {
+          Write-Host "    [SYNC] Will update existing repository"
+          "SYNC MODE: Will update existing repository" | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
+        }
         "Pre-migration validation passed" | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
       } catch {
         "Pre-migration validation failed: $_" | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
@@ -1258,9 +1332,15 @@ function Bulk-Migrate-FromConfig([object]$config,[string]$DestProject) {
       # Get project data
       $gl = Get-GitLabProject $srcPath
       
-      # Create repository with custom name if specified
-      Write-Host "    Creating repository: $repoName"
-      $repo = Ensure-Repo $DestProject $projId $repoName
+      # Create repository with custom name if specified (or use existing if sync mode)
+      $isSync = $AllowSync -and $preReport.ado_repo_exists
+      if ($isSync) {
+        Write-Host "    Updating existing repository: $repoName"
+        "SYNC: Updating existing repository" | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
+      } else {
+        Write-Host "    Creating repository: $repoName"
+      }
+      $repo = Ensure-Repo $DestProject $projId $repoName -AllowExisting:$AllowSync
       $defaultRef = Get-RepoDefaultBranch $DestProject $repo.id
       
       # Migrate repository
@@ -1401,11 +1481,12 @@ function Bulk-Migrate-FromConfig([object]$config,[string]$DestProject) {
   Write-Host "=========================="
 }
 
-function Bulk-Migrate([string]$ConfigFile,[string]$DestProject) {
+function Bulk-Migrate([string]$ConfigFile,[string]$DestProject,[switch]$AllowSync) {
   <#
     Executes bulk migration from a prepared template file.
     Skips projects that failed preparation and validates prerequisites.
-    Usage: Bulk-Migrate "bulk-migration-template.json" "MyDevOpsProject"
+    Supports re-running to sync updates from GitLab.
+    Usage: Bulk-Migrate "bulk-migration-template.json" "MyDevOpsProject" [-AllowSync]
   #>
   
   if (-not (Test-Path $ConfigFile)) {
@@ -1550,12 +1631,17 @@ function Bulk-Migrate([string]$ConfigFile,[string]$DestProject) {
       Write-Host "    ✅ Using prepared data from: $projectDir"
       "Using prepared data: $projectDir" | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
       
-      # Create Azure DevOps repository
-      Write-Host "    Creating repository in Azure DevOps..."
-      "Creating ADO repository: $repoName" | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
+      # Create Azure DevOps repository (or update existing if sync mode)
+      Write-Host "    Ensuring repository exists in Azure DevOps..."
+      "Ensuring ADO repository: $repoName" | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
       
-      $repo = Create-Repository $projId $repoName
+      $repo = Ensure-Repo $DestProject $projId $repoName -AllowExisting:$AllowSync
       $repoId = $repo.id
+      
+      if ($AllowSync) {
+        Write-Host "    [SYNC MODE] Repository will be updated with latest changes"
+        "SYNC MODE: Updating existing repository" | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
+      }
       
       Write-Host "    ✅ Repository created: $repoName (ID: $repoId)"
       
@@ -1735,7 +1821,14 @@ switch ($choice) {
   '3' { 
     $SourceProjectPath = Read-Host "Enter Source GitLab project path (e.g., group/my-project)"
     $DestProjectName = Read-Host "Enter Destination Azure DevOps project name (e.g., MyProject)"
-    Migrate-One $SourceProjectPath $DestProjectName 
+    $allowSyncInput = Read-Host "Allow sync of existing repository? (Y/N, default: N)"
+    $allowSyncFlag = $allowSyncInput -match '^[Yy]'
+    if ($allowSyncFlag) {
+      Write-Host "[INFO] Sync mode enabled - will update existing repository if it exists"
+      Migrate-One $SourceProjectPath $DestProjectName -AllowSync
+    } else {
+      Migrate-One $SourceProjectPath $DestProjectName
+    }
   }
   '4' {
     Write-Host ""
@@ -2028,10 +2121,22 @@ switch ($choice) {
       break
     }
     
+    # Ask about sync mode
+    $allowSyncInput = Read-Host "Allow sync of existing repositories? (Y/N, default: N)"
+    $allowSyncFlag = $allowSyncInput -match '^[Yy]'
+    
+    if ($allowSyncFlag) {
+      Write-Host "[INFO] Sync mode enabled - existing repositories will be updated"
+    }
+    
     # Final confirmation
     $confirm = Read-Host "Proceed with bulk migration? (y/N)"
     if ($confirm -match '^[Yy]') {
-      Bulk-Migrate $selectedTemplate $DestProjectName
+      if ($allowSyncFlag) {
+        Bulk-Migrate $selectedTemplate $DestProjectName -AllowSync
+      } else {
+        Bulk-Migrate $selectedTemplate $DestProjectName
+      }
     } else {
       Write-Host "Migration cancelled."
     }

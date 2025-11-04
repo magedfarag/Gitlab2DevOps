@@ -22,12 +22,19 @@ This release represents a complete security hardening and open source preparatio
 - **Graph Membership Handling**: Explicit 409 conflict handling in `Ensure-Membership` function
 - **Strict Mode**: PowerShell strict mode enabled for improved error detection
 - **Bulk Migration**: Configuration file support with `bulk-migration-config.template.json`
+- **Sync/Re-run Capability**: `-AllowSync` parameter enables updating existing repositories with GitLab changes
+- **Migration History Tracking**: Each sync operation tracked in `previous_migrations` array with timestamps and status
+- **Non-Destructive Updates**: Sync mode preserves Azure DevOps settings while updating repository content
+- **Improved Bulk Config Format**: Added `targetAdoProject` field and renamed `adoProject` to `adoRepository` for clarity
+- **Preparation Status Tracking**: `preparation_status` field in bulk config tracks SUCCESS/FAILED/PENDING states
 - **Comprehensive Documentation**: 
-  - Enhanced README with security features section
+  - Enhanced README with security features section and sync mode guide
   - CONTRIBUTING.md with development guidelines
   - LICENSE (MIT)
   - CHANGELOG.md
   - Code of conduct guidelines
+  - QUICK_REFERENCE.md with sync examples
+  - BULK_MIGRATION_CONFIG.md explaining config structure
 
 ### Changed
 - **Breaking**: All hardcoded credentials removed - must use environment variables or parameters

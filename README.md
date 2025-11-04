@@ -50,6 +50,7 @@ $env:GITLAB_PAT = "your-gitlab-token-here"
 - [Usage](#usage)
   - [Single Project Migration](#single-project-migration)
   - [Bulk Migration](#bulk-migration-workflow)
+  - [Re-running Migrations (Sync Mode)](#re-running-migrations-sync-mode)
 - [Project Structure](#project-structure)
 - [Pre-Migration Report Format](#pre-migration-report-format)
 - [Advanced Configuration](#advanced-configuration)
@@ -61,7 +62,8 @@ $env:GITLAB_PAT = "your-gitlab-token-here"
 ## Additional Documentation
 
 - 📖 [Quick Reference Guide](QUICK_REFERENCE.md) - Common commands and quick tips
-- 📦 [Bulk Migration Config](BULK_MIGRATION_CONFIG.md) - Detailed bulk configuration format
+- � [Sync Mode Guide](SYNC_MODE_GUIDE.md) - Re-running migrations to sync GitLab updates
+- �📦 [Bulk Migration Config](BULK_MIGRATION_CONFIG.md) - Detailed bulk configuration format
 - 📋 [Project Summary](PROJECT_SUMMARY.md) - Architecture and technical overview
 - 📝 [Changelog](CHANGELOG.md) - Version history and migration guides
 - 🤝 [Contributing](CONTRIBUTING.md) - How to contribute to this project
@@ -394,6 +396,87 @@ Gitlab2DevOps/
   "status": "SUCCESS"
 }
 ```
+
+## Re-running Migrations (Sync Mode)
+
+The tool supports re-running migrations to sync Azure DevOps repositories with updated GitLab sources. This is useful when:
+- The GitLab source project has been updated with new commits
+- Additional branches or tags have been added
+- You need to refresh the repository content while preserving Azure DevOps configurations
+
+### How Sync Mode Works
+
+**Sync mode preserves:**
+- All existing Azure DevOps repository settings
+- Branch policies and permissions
+- Work item templates and security groups
+- Migration history and configuration files in the `migrations/` folder
+
+**Sync mode updates:**
+- Repository content (commits, branches, tags)
+- Git references to match current GitLab state
+
+### Single Project Sync
+
+**Command Line:**
+```powershell
+.\devops.ps1 -Mode migrate -GitLabProject "org/my-repo" -AdoProject "ConsolidatedProject" -AllowSync
+```
+
+**Interactive Menu:**
+1. Choose option 3 (Single Migration)
+2. Enter your GitLab project path and Azure DevOps project name
+3. When prompted "Allow sync of existing repository? (Y/N)", answer `Y`
+
+### Bulk Migration Sync
+
+**Command Line:**
+```powershell
+.\devops.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json" -AllowSync
+```
+
+**Interactive Menu:**
+1. Choose option 6 (Execute Bulk Migration)
+2. Select your prepared template file
+3. When prompted "Allow sync of existing repositories? (Y/N)", answer `Y`
+
+### Migration History Tracking
+
+Each sync operation is tracked in the migration summary JSON file:
+
+```json
+{
+  "migration_type": "SYNC",
+  "migration_count": 3,
+  "last_sync": "2024-01-15T10:30:00",
+  "previous_migrations": [
+    {
+      "migration_start": "2024-01-01T09:00:00",
+      "migration_end": "2024-01-01T09:15:00",
+      "status": "SUCCESS",
+      "type": "INITIAL"
+    },
+    {
+      "migration_start": "2024-01-08T14:20:00",
+      "migration_end": "2024-01-08T14:28:00",
+      "status": "SUCCESS",
+      "type": "SYNC"
+    }
+  ]
+}
+```
+
+### When NOT to Use Sync Mode
+
+❌ **Do not use sync mode if:**
+- You want to prevent accidental overwrites of existing repositories
+- The Azure DevOps repository has local changes that shouldn't be overwritten
+- You're unsure if the target repository already exists
+
+✅ **Safe to use when:**
+- You intentionally want to update an existing repository
+- The Azure DevOps repository is purely a mirror of GitLab
+- You need to refresh content from the authoritative GitLab source
 
 ## Advanced Configuration
 
