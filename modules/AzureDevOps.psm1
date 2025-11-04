@@ -33,6 +33,84 @@ $script:GIT_BITS = @{
 
 <#
 .SYNOPSIS
+    Gets the list of Azure DevOps projects with caching.
+
+.DESCRIPTION
+    Retrieves all projects from Azure DevOps with optional in-memory caching
+    to reduce API calls during bulk operations. Cache is stored in Core.Rest module.
+
+.PARAMETER UseCache
+    If true, returns cached results if available. Default is true.
+
+.PARAMETER RefreshCache
+    If true, forces a refresh of the cached project list.
+
+.OUTPUTS
+    Array of project objects.
+
+.EXAMPLE
+    $projects = Get-AdoProjectList
+    
+.EXAMPLE
+    $projects = Get-AdoProjectList -RefreshCache
+#>
+function Get-AdoProjectList {
+    [CmdletBinding()]
+    [OutputType([array])]
+    param(
+        [switch]$UseCache = $true,
+        [switch]$RefreshCache
+    )
+    
+    # Get cache from Core.Rest module
+    $cache = Get-Variable -Name ProjectCache -Scope Script -ValueOnly -ErrorAction SilentlyContinue
+    if (-not $cache) {
+        Write-Verbose "[Get-AdoProjectList] Cache not initialized, creating new cache"
+        $cache = @{}
+        Set-Variable -Name ProjectCache -Scope Script -Value $cache
+    }
+    
+    $cacheKey = 'ado_projects'
+    $cacheExpiry = 'ado_projects_expiry'
+    $cacheDurationMinutes = 15
+    
+    # Check cache validity
+    $now = Get-Date
+    $cacheValid = $false
+    
+    if ($UseCache -and -not $RefreshCache -and $cache.ContainsKey($cacheKey)) {
+        if ($cache.ContainsKey($cacheExpiry)) {
+            $expiry = $cache[$cacheExpiry]
+            if ($now -lt $expiry) {
+                $cacheValid = $true
+                Write-Verbose "[Get-AdoProjectList] Using cached project list (expires: $expiry)"
+            }
+            else {
+                Write-Verbose "[Get-AdoProjectList] Cache expired, refreshing"
+            }
+        }
+    }
+    
+    if ($cacheValid) {
+        return $cache[$cacheKey]
+    }
+    
+    # Fetch fresh data from API
+    Write-Verbose "[Get-AdoProjectList] Fetching project list from Azure DevOps API..."
+    $list = Invoke-AdoRest GET "/_apis/projects?`$top=5000"
+    $projects = $list.value
+    
+    # Update cache
+    $cache[$cacheKey] = $projects
+    $cache[$cacheExpiry] = $now.AddMinutes($cacheDurationMinutes)
+    
+    Write-Verbose "[Get-AdoProjectList] Cached $($projects.Count) projects (expires: $($cache[$cacheExpiry]))"
+    
+    return $projects
+}
+
+<#
+.SYNOPSIS
     Waits for an Azure DevOps asynchronous operation to complete.
 
 .DESCRIPTION
@@ -99,8 +177,9 @@ function Ensure-AdoProject {
     
     Write-Verbose "[Ensure-AdoProject] Checking if project '$Name' exists..."
     
-    $list = Invoke-AdoRest GET "/_apis/projects?`$top=5000"
-    $p = $list.value | Where-Object { $_.name -eq $Name }
+    # Use cached project list for performance
+    $projects = Get-AdoProjectList -UseCache
+    $p = $projects | Where-Object { $_.name -eq $Name }
     
     if ($p) {
         Write-Verbose "[Ensure-AdoProject] Project '$Name' already exists (ID: $($p.id))"
@@ -126,6 +205,10 @@ function Ensure-AdoProject {
         if ($final.status -ne 'succeeded') {
             throw "Project creation failed with status: $($final.status)"
         }
+        
+        # Invalidate project cache after creating new project
+        Write-Verbose "[Ensure-AdoProject] Invalidating project cache after creation"
+        Get-AdoProjectList -RefreshCache | Out-Null
         
         Write-Host "[SUCCESS] Project '$Name' created successfully" -ForegroundColor Green
         return Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Name))"

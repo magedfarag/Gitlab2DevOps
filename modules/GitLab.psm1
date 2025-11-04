@@ -173,22 +173,49 @@ function Prepare-GitLab {
     $gitUrl = $p.http_url_to_repo -replace '^https://', "https://oauth2:$gitLabToken@"
     
     if (Test-Path $repoDir) {
-        Write-Host "[INFO] Repository directory exists, updating..."
+        Write-Host "[INFO] Repository directory exists, checking status..."
+        
+        # Check if it's a valid git repository
+        $isValidRepo = $false
         Push-Location $repoDir
         try {
-            # Fetch latest changes
-            git remote set-url origin $gitUrl
-            git fetch --all --prune
-            Write-Host "[OK] Repository updated successfully"
+            $null = git rev-parse --git-dir 2>$null
+            $isValidRepo = $?
         }
         catch {
-            Write-Host "[WARN] Failed to update existing repository: $_"
-            Write-Host "[INFO] Will re-clone repository..."
-            Pop-Location
-            Remove-Item -Recurse -Force $repoDir
-            $needsClone = $true
+            $isValidRepo = $false
         }
-        if (-not $needsClone) { Pop-Location }
+        Pop-Location
+        
+        if ($isValidRepo) {
+            Write-Host "[INFO] Valid repository found, updating..."
+            Push-Location $repoDir
+            try {
+                # Fetch latest changes
+                git remote set-url origin $gitUrl 2>$null
+                git fetch --all --prune
+                $fetchSuccess = $?
+                
+                if ($fetchSuccess) {
+                    Write-Host "[SUCCESS] Repository updated successfully (reused existing clone)" -ForegroundColor Green
+                }
+                else {
+                    throw "git fetch failed"
+                }
+            }
+            catch {
+                Write-Host "[WARN] Failed to update existing repository: $_"
+                Write-Host "[INFO] Will re-clone repository..."
+                Pop-Location
+                Remove-Item -Recurse -Force $repoDir
+                $needsClone = $true
+            }
+            if (-not $needsClone) { Pop-Location }
+        }
+        else {
+            Write-Host "[WARN] Directory exists but is not a valid git repository, removing..."
+            Remove-Item -Recurse -Force $repoDir
+        }
     }
     
     if (-not (Test-Path $repoDir)) {
