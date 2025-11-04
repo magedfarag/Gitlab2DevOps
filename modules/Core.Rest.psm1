@@ -5,7 +5,7 @@
 .DESCRIPTION
     This module provides foundational REST API functions used by both GitLab
     and Azure DevOps modules. Includes authentication, HTTP request wrappers,
-    and common utilities.
+    retry logic, error normalization, and common utilities.
 
 .NOTES
     Part of Gitlab2DevOps migration toolkit.
@@ -16,6 +16,9 @@
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
 
+# Script version (written to all reports and manifests)
+$script:ModuleVersion = "2.0.0"
+
 # Module-level variables (set by Initialize-CoreRest)
 $script:CollectionUrl = $null
 $script:AdoPat = $null
@@ -24,6 +27,11 @@ $script:GitLabToken = $null
 $script:AdoApiVersion = $null
 $script:SkipCertificateCheck = $false
 $script:AdoHeaders = $null
+$script:RetryAttempts = 3
+$script:RetryDelaySeconds = 5
+$script:MaskSecrets = $true
+$script:LogRestCalls = $false
+$script:ProjectCache = @{}
 
 <#
 .SYNOPSIS
@@ -51,8 +59,20 @@ $script:AdoHeaders = $null
 .PARAMETER SkipCertificateCheck
     Skip TLS certificate validation (not recommended for production).
 
+.PARAMETER RetryAttempts
+    Number of retry attempts for failed REST calls (default: 3).
+
+.PARAMETER RetryDelaySeconds
+    Initial delay between retries in seconds (exponential backoff, default: 5).
+
+.PARAMETER MaskSecrets
+    Mask tokens and secrets in logs (default: $true).
+
+.PARAMETER LogRestCalls
+    Log all REST API calls with URLs and responses (default: $false).
+
 .EXAMPLE
-    Initialize-CoreRest -CollectionUrl "https://dev.azure.com/org" -AdoPat $pat
+    Initialize-CoreRest -CollectionUrl "https://dev.azure.com/org" -AdoPat $pat -LogRestCalls
 #>
 function Initialize-CoreRest {
     [CmdletBinding()]
@@ -71,7 +91,15 @@ function Initialize-CoreRest {
         
         [string]$AdoApiVersion = "7.1",
         
-        [switch]$SkipCertificateCheck
+        [switch]$SkipCertificateCheck,
+        
+        [int]$RetryAttempts = 3,
+        
+        [int]$RetryDelaySeconds = 5,
+        
+        [bool]$MaskSecrets = $true,
+        
+        [switch]$LogRestCalls
     )
     
     $script:CollectionUrl = $CollectionUrl
@@ -80,11 +108,248 @@ function Initialize-CoreRest {
     $script:GitLabToken = $GitLabToken
     $script:AdoApiVersion = $AdoApiVersion
     $script:SkipCertificateCheck = $SkipCertificateCheck
+    $script:RetryAttempts = $RetryAttempts
+    $script:RetryDelaySeconds = $RetryDelaySeconds
+    $script:MaskSecrets = $MaskSecrets
+    $script:LogRestCalls = $LogRestCalls
+    $script:ProjectCache = @{}
     
     # Initialize ADO headers
     $script:AdoHeaders = New-AuthHeader -Pat $AdoPat
     
-    Write-Verbose "[Core.Rest] Module initialized"
+    Write-Verbose "[Core.Rest] Module initialized (v$script:ModuleVersion)"
+    Write-Verbose "[Core.Rest] ADO API Version: $AdoApiVersion"
+    Write-Verbose "[Core.Rest] Retry: $RetryAttempts attempts, ${RetryDelaySeconds}s delay"
+}
+
+<#
+.SYNOPSIS
+    Gets the module version.
+
+.DESCRIPTION
+    Returns the current module version string.
+
+.OUTPUTS
+    String version number.
+
+.EXAMPLE
+    $version = Get-CoreRestVersion
+#>
+function Get-CoreRestVersion {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    
+    return $script:ModuleVersion
+}
+
+<#
+.SYNOPSIS
+    Masks secrets in a URL or string.
+
+.DESCRIPTION
+    Replaces tokens and sensitive data with asterisks for safe logging.
+
+.PARAMETER Text
+    Text to mask.
+
+.OUTPUTS
+    Masked string.
+
+.EXAMPLE
+    $safe = Hide-Secret -Text "https://api.com?token=glpat-abc123"
+#>
+function Hide-Secret {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]$Text
+    )
+    
+    if (-not $script:MaskSecrets -or [string]::IsNullOrEmpty($Text)) {
+        return $Text
+    }
+    
+    # Mask common token patterns
+    $masked = $Text
+    $masked = $masked -replace 'glpat-[a-zA-Z0-9_\-]+', 'glpat-***'
+    $masked = $masked -replace 'ado_pat=[^&\s]+', 'ado_pat=***'
+    $masked = $masked -replace 'Authorization: Basic [A-Za-z0-9+/=]+', 'Authorization: Basic ***'
+    $masked = $masked -replace 'PRIVATE-TOKEN[''"]?\s*[:=]\s*[''"]?[a-zA-Z0-9_\-]+', 'PRIVATE-TOKEN: ***'
+    $masked = $masked -replace ':[a-zA-Z0-9_\-]{20,}@', ':***@'
+    
+    return $masked
+}
+
+<#
+.SYNOPSIS
+    Normalizes an error response from ADO or GitLab.
+
+.DESCRIPTION
+    Converts raw HTTP exceptions into a standardized error object.
+
+.PARAMETER Exception
+    The exception object from Invoke-RestMethod.
+
+.PARAMETER Side
+    The API side ('ado' or 'gitlab').
+
+.PARAMETER Endpoint
+    The endpoint that failed.
+
+.OUTPUTS
+    Hashtable with side, endpoint, status, message properties.
+
+.EXAMPLE
+    $error = New-NormalizedError -Exception $_ -Side 'ado' -Endpoint '/_apis/projects'
+#>
+function New-NormalizedError {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)]
+        $Exception,
+        
+        [Parameter(Mandatory)]
+        [ValidateSet('ado', 'gitlab')]
+        [string]$Side,
+        
+        [Parameter(Mandatory)]
+        [string]$Endpoint
+    )
+    
+    $status = 0
+    $message = $Exception.Message
+    
+    if ($Exception.Exception.Response) {
+        $status = [int]$Exception.Exception.Response.StatusCode.value__
+        
+        # Try to extract error message from response body
+        try {
+            $reader = New-Object System.IO.StreamReader($Exception.Exception.Response.GetResponseStream())
+            $reader.BaseStream.Position = 0
+            $body = $reader.ReadToEnd() | ConvertFrom-Json -ErrorAction SilentlyContinue
+            
+            if ($body.message) {
+                $message = $body.message
+            }
+            elseif ($body.error) {
+                $message = $body.error
+            }
+        }
+        catch {
+            # Keep original message
+        }
+    }
+    
+    return @{
+        side     = $Side
+        endpoint = Hide-Secret -Text $Endpoint
+        status   = $status
+        message  = $message
+    }
+}
+
+<#
+.SYNOPSIS
+    Invokes a REST call with retry logic and exponential backoff.
+
+.DESCRIPTION
+    Wraps Invoke-RestMethod with automatic retry on transient failures (500, 503, 429).
+
+.PARAMETER Method
+    HTTP method.
+
+.PARAMETER Uri
+    Full URI.
+
+.PARAMETER Headers
+    Request headers.
+
+.PARAMETER Body
+    Request body.
+
+.PARAMETER Side
+    API side for error normalization ('ado' or 'gitlab').
+
+.OUTPUTS
+    API response object.
+
+.EXAMPLE
+    $result = Invoke-RestWithRetry -Method GET -Uri $uri -Headers $headers -Side 'ado'
+#>
+function Invoke-RestWithRetry {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Method,
+        
+        [Parameter(Mandatory)]
+        [string]$Uri,
+        
+        [Parameter(Mandatory)]
+        [hashtable]$Headers,
+        
+        [object]$Body = $null,
+        
+        [Parameter(Mandatory)]
+        [ValidateSet('ado', 'gitlab')]
+        [string]$Side
+    )
+    
+    $attempt = 0
+    $maxAttempts = $script:RetryAttempts + 1
+    
+    while ($attempt -lt $maxAttempts) {
+        $attempt++
+        
+        try {
+            $invokeParams = @{
+                Method  = $Method
+                Uri     = $Uri
+                Headers = $Headers
+                Body    = $Body
+            }
+            
+            if ($script:SkipCertificateCheck) {
+                $invokeParams.SkipCertificateCheck = $true
+            }
+            
+            if ($script:LogRestCalls) {
+                $maskedUri = Hide-Secret -Text $Uri
+                Write-Verbose "[REST] $Side $Method $maskedUri (attempt $attempt/$maxAttempts)"
+            }
+            
+            $response = Invoke-RestMethod @invokeParams
+            
+            if ($script:LogRestCalls) {
+                Write-Verbose "[REST] $side $Method -> HTTP 200 OK"
+            }
+            
+            return $response
+        }
+        catch {
+            $normalizedError = New-NormalizedError -Exception $_ -Side $Side -Endpoint $Uri
+            $status = $normalizedError.status
+            
+            # Retry on transient failures
+            $shouldRetry = $status -in @(429, 500, 502, 503, 504) -and $attempt -lt $maxAttempts
+            
+            if ($shouldRetry) {
+                $delay = $script:RetryDelaySeconds * [Math]::Pow(2, $attempt - 1)
+                Write-Warning "[$Side] HTTP $status - Retrying in ${delay}s (attempt $attempt/$maxAttempts)"
+                Start-Sleep -Seconds $delay
+            }
+            else {
+                # Final failure or non-retryable error
+                $maskedEndpoint = $normalizedError.endpoint
+                Write-Error "[$Side] REST $Method $maskedEndpoint -> HTTP $status : $($normalizedError.message)"
+                throw
+            }
+        }
+    }
 }
 
 <#
@@ -126,7 +391,7 @@ function New-AuthHeader {
 
 .DESCRIPTION
     Wrapper around Invoke-RestMethod with ADO-specific error handling,
-    authentication, and API versioning.
+    authentication, API versioning, and automatic retry logic.
 
 .PARAMETER Method
     HTTP method (GET, POST, PUT, PATCH, DELETE).
@@ -170,28 +435,7 @@ function Invoke-AdoRest {
         $Body = ($Body | ConvertTo-Json -Depth 100)
     }
     
-    $invokeParams = @{
-        Method  = $Method
-        Uri     = $uri
-        Headers = $script:AdoHeaders
-        Body    = $Body
-    }
-    
-    if ($script:SkipCertificateCheck) {
-        $invokeParams.SkipCertificateCheck = $true
-    }
-    
-    try {
-        $response = Invoke-RestMethod @invokeParams
-        Write-Verbose "[ADO REST] $Method $Path -> SUCCESS"
-        return $response
-    }
-    catch {
-        $statusCode = $_.Exception.Response.StatusCode.value__
-        $statusDesc = $_.Exception.Response.StatusDescription
-        Write-Host "[ERROR] ADO REST $Method $Path -> HTTP $statusCode $statusDesc" -ForegroundColor Red
-        throw
-    }
+    return Invoke-RestWithRetry -Method $Method -Uri $uri -Headers $script:AdoHeaders -Body $Body -Side 'ado'
 }
 
 <#
@@ -235,27 +479,7 @@ function Invoke-GitLabRest {
         $invokeParams.SkipCertificateCheck = $true
     }
     
-    try {
-        Invoke-RestMethod @invokeParams
-    }
-    catch {
-        # If GitLab returns a structured error (JSON), surface it more clearly
-        $resp = $_.Exception.Response
-        if ($null -ne $resp) {
-            try {
-                $reader = New-Object System.IO.StreamReader($resp.GetResponseStream())
-                $body = $reader.ReadToEnd() | ConvertFrom-Json -ErrorAction SilentlyContinue
-            }
-            catch {
-                $body = $null
-            }
-            $status = $resp.StatusCode.value__ 2>$null
-            $statusText = $resp.StatusDescription 2>$null
-            $msg = if ($body -and $body.message) { $body.message } else { $body }
-            throw "GitLab API error GET $uri -> HTTP $status $statusText : $msg"
-        }
-        throw
-    }
+    return Invoke-RestWithRetry -Method 'GET' -Uri $uri -Headers $headers -Body $null -Side 'gitlab'
 }
 
 <#
@@ -290,8 +514,8 @@ function Clear-GitCredentials {
         git credential-manager delete $remoteUrl 2>$null
         
         # Git credential helper
-        $input = "url=$remoteUrl`n`n"
-        $input | git credential reject 2>$null
+        $credInput = "url=$remoteUrl`n`n"
+        $credInput | git credential reject 2>$null
         
         Write-Host "[INFO] Credentials cleared successfully"
     }
@@ -303,6 +527,8 @@ function Clear-GitCredentials {
 # Export public functions
 Export-ModuleMember -Function @(
     'Initialize-CoreRest',
+    'Get-CoreRestVersion',
+    'Hide-Secret',
     'New-AuthHeader',
     'Invoke-AdoRest',
     'Invoke-GitLabRest',

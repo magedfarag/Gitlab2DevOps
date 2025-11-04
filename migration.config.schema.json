@@ -1,0 +1,206 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GitLab to Azure DevOps Migration Configuration",
+  "description": "Configuration schema for Gitlab2DevOps migration tool",
+  "type": "object",
+  "required": ["version", "gitlab", "azureDevOps"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path to this JSON schema"
+    },
+    "version": {
+      "type": "string",
+      "description": "Configuration file version",
+      "pattern": "^\\d+\\.\\d+$"
+    },
+    "gitlab": {
+      "type": "object",
+      "required": ["baseUrl"],
+      "properties": {
+        "baseUrl": {
+          "type": "string",
+          "description": "GitLab instance base URL"
+        },
+        "apiVersion": {
+          "type": "string",
+          "description": "GitLab API version",
+          "default": "v4"
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "API timeout in seconds",
+          "default": 300
+        }
+      }
+    },
+    "azureDevOps": {
+      "type": "object",
+      "required": ["collectionUrl"],
+      "properties": {
+        "collectionUrl": {
+          "type": "string",
+          "description": "Azure DevOps organization URL"
+        },
+        "apiVersion": {
+          "type": "string",
+          "description": "Azure DevOps API version",
+          "default": "7.1"
+        },
+        "defaultProcessTemplate": {
+          "type": "string",
+          "description": "Default process template for new projects",
+          "enum": ["Agile", "Scrum", "CMMI", "Basic"],
+          "default": "Agile"
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "API timeout in seconds",
+          "default": 300
+        }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "properties": {
+        "enforcePreflightChecks": {
+          "type": "boolean",
+          "description": "Require preflight checks before migration",
+          "default": true
+        },
+        "allowForceOverride": {
+          "type": "boolean",
+          "description": "Allow -Force to bypass preflight checks",
+          "default": true
+        },
+        "defaultSyncMode": {
+          "type": "boolean",
+          "description": "Enable sync mode by default",
+          "default": false
+        },
+        "retryAttempts": {
+          "type": "integer",
+          "description": "Number of retry attempts for failed REST calls",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 3
+        },
+        "retryDelaySeconds": {
+          "type": "integer",
+          "description": "Initial delay between retries (exponential backoff)",
+          "minimum": 1,
+          "maximum": 60,
+          "default": 5
+        },
+        "parallelOperations": {
+          "type": "boolean",
+          "description": "Enable parallel processing for bulk operations (PowerShell 7+)",
+          "default": false
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "branchPolicies": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "requireReviewers": {
+              "type": "boolean",
+              "default": true
+            },
+            "requireWorkItem": {
+              "type": "boolean",
+              "default": true
+            },
+            "requireCommentResolution": {
+              "type": "boolean",
+              "default": true
+            },
+            "requireBuildValidation": {
+              "type": "boolean",
+              "default": false
+            },
+            "requireStatusChecks": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        },
+        "security": {
+          "type": "object",
+          "properties": {
+            "createCustomGroups": {
+              "type": "boolean",
+              "default": true
+            },
+            "applyRepoDeny": {
+              "type": "boolean",
+              "default": true
+            },
+            "inheritPermissions": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        "workItems": {
+          "type": "object",
+          "properties": {
+            "createTemplates": {
+              "type": "boolean",
+              "default": true
+            },
+            "initializeAreas": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        "wiki": {
+          "type": "object",
+          "properties": {
+            "initialize": {
+              "type": "boolean",
+              "default": true
+            },
+            "createHomePage": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "string",
+          "description": "Minimum log level to display",
+          "enum": ["DEBUG", "INFO", "WARN", "ERROR"],
+          "default": "INFO"
+        },
+        "maskSecrets": {
+          "type": "boolean",
+          "description": "Mask tokens and secrets in logs",
+          "default": true
+        },
+        "logRestCalls": {
+          "type": "boolean",
+          "description": "Log all REST API calls with URLs and responses",
+          "default": false
+        },
+        "saveManifest": {
+          "type": "boolean",
+          "description": "Save run manifest with metadata",
+          "default": true
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "./migration.config.schema.json",
+  "version": "1.0",
+  "gitlab": {
+    "baseUrl": "https://gitlab.example.com",
+    "apiVersion": "v4",
+    "timeout": 300
+  },
+  "azureDevOps": {
+    "collectionUrl": "https://dev.azure.com/example",
+    "apiVersion": "7.1",
+    "defaultProcessTemplate": "Agile",
+    "timeout": 300
+  },
+  "migration": {
+    "enforcePreflightChecks": true,
+    "allowForceOverride": true,
+    "defaultSyncMode": false,
+    "retryAttempts": 3,
+    "retryDelaySeconds": 5,
+    "parallelOperations": false
+  },
+  "defaults": {
+    "branchPolicies": {
+      "enabled": true,
+      "requireReviewers": true,
+      "requireWorkItem": true,
+      "requireCommentResolution": true,
+      "requireBuildValidation": false,
+      "requireStatusChecks": false
+    },
+    "security": {
+      "createCustomGroups": true,
+      "applyRepoDeny": true,
+      "inheritPermissions": true
+    },
+    "workItems": {
+      "createTemplates": true,
+      "initializeAreas": true
+    },
+    "wiki": {
+      "initialize": true,
+      "createHomePage": true
+    }
+  },
+  "logging": {
+    "level": "INFO",
+    "maskSecrets": true,
+    "logRestCalls": false,
+    "saveManifest": true
+  }
+}
