@@ -38,6 +38,8 @@ Migrate Git repositories with full history, branch policies, and comprehensive a
 - [Configuration Reference](docs/configuration.md)
 - [Interactive Mode](docs/interactive-mode.md)
 - [Bulk Migrations](docs/bulk-migrations.md)
+- [Advanced Features](examples/advanced-features.md) - Progress tracking, telemetry, dry-run
+- [API Error Catalog](docs/api-errors.md) - Troubleshooting guide
 - [API Reference](docs/api-reference.md)
 - [Architecture Overview](docs/architecture/modules.md)
 
@@ -99,6 +101,10 @@ Migrate Git repositories with full history, branch policies, and comprehensive a
 
 - **Idempotent Operations**: Safe to re-run with `-Force` and `-Replace` flags
 - **CLI Automation**: 5 modes (Preflight, Initialize, Migrate, BulkPrepare, BulkMigrate)
+- **Progress Tracking**: Visual progress bars with ETA for long-running operations
+- **Telemetry Analytics**: Opt-in metrics collection for performance analysis (local only)
+- **Dry-Run Preview**: Generate HTML/JSON reports before migration with size estimates
+- **API Error Catalog**: Comprehensive troubleshooting guide with 25+ documented errors
 - **Performance Caching**: 15-minute project cache, repository reuse
 - **Audit Trails**: Run manifests with execution metadata
 - **REST Observability**: Timing measurements, status code logging
