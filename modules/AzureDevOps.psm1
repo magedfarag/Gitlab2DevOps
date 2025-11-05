@@ -202,14 +202,39 @@ function Wait-AdoOperation {
         [string]$Id
     )
     
+    Write-Verbose "[Wait-AdoOperation] Waiting for operation $Id to complete..."
+    
     for ($i = 0; $i -lt 60; $i++) {
-        $op = Invoke-AdoRest GET "/_apis/operations/$Id"
-        if ($op.status -in 'succeeded', 'failed', 'cancelled') {
-            return $op
+        try {
+            Write-Verbose "[Wait-AdoOperation] Polling attempt $($i + 1)/60"
+            $op = Invoke-AdoRest GET "/_apis/operations/$Id"
+            
+            Write-Verbose "[Wait-AdoOperation] Operation status: $($op.status)"
+            
+            if ($op.status -in 'succeeded', 'failed', 'cancelled') {
+                Write-Verbose "[Wait-AdoOperation] Operation completed with status: $($op.status)"
+                return $op
+            }
+            
+            Write-Verbose "[Wait-AdoOperation] Operation still in progress, waiting 3 seconds..."
+            Start-Sleep 3
         }
-        Start-Sleep 3
+        catch {
+            Write-Warning "[Wait-AdoOperation] Poll failed (attempt $($i + 1)): $_"
+            
+            # If it's a connection error, retry with shorter delay
+            if ($_.Exception.Message -match "connection was forcibly closed|Unable to read data") {
+                Write-Verbose "[Wait-AdoOperation] Connection error, retrying in 2 seconds..."
+                Start-Sleep 2
+            }
+            else {
+                # For other errors, throw immediately
+                throw
+            }
+        }
     }
-    throw "Timeout waiting for operation $Id"
+    
+    throw "Timeout waiting for operation $Id after 60 attempts"
 }
 
 <#
@@ -268,18 +293,29 @@ function Ensure-AdoProject {
             }
         }
         
+        Write-Verbose "[Ensure-AdoProject] Sending POST request to create project..."
         $resp = Invoke-AdoRest POST "/_apis/projects" -Body $body
+        
+        Write-Verbose "[Ensure-AdoProject] Project creation initiated, operation ID: $($resp.id)"
+        Write-Host "[INFO] Project creation operation started (ID: $($resp.id))" -ForegroundColor Cyan
+        Write-Host "[INFO] Waiting for operation to complete..." -ForegroundColor Cyan
+        
         $final = Wait-AdoOperation $resp.id
         
         if ($final.status -ne 'succeeded') {
+            Write-Error "[Ensure-AdoProject] Project creation failed with status: $($final.status)"
             throw "Project creation failed with status: $($final.status)"
         }
+        
+        Write-Verbose "[Ensure-AdoProject] Project creation completed successfully"
         
         # Invalidate project cache after creating new project
         Write-Verbose "[Ensure-AdoProject] Invalidating project cache after creation"
         Get-AdoProjectList -RefreshCache | Out-Null
         
         Write-Host "[SUCCESS] Project '$Name' created successfully" -ForegroundColor Green
+        
+        Write-Verbose "[Ensure-AdoProject] Fetching project details..."
         return Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Name))"
     }
 }

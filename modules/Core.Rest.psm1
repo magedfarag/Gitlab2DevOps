@@ -412,9 +412,8 @@ function Invoke-RestWithRetry {
             
             if ($script:SkipCertificateCheck -and $status -eq 0 -and $isConnectionError) {
                 
-                if ($attempt -eq 1) {
-                    Write-Warning "[$Side] Invoke-RestMethod connection issue detected - falling back to curl"
-                }
+                Write-Warning "[$Side] Invoke-RestMethod failed: $($_.Exception.Message)"
+                Write-Warning "[$Side] Falling back to curl for this request"
                 
                 try {
                     # Build curl command
