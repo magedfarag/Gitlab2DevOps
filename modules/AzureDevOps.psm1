@@ -927,38 +927,44 @@ function Ensure-AdoTeamTemplates {
             fields = @{
                 'System.Title' = 'As a <role>, I want <capability> so that <outcome>'
                 'System.Description' = @"
-## User Story Context
+<h2>User Story Context</h2>
+<p><strong>Business Value:</strong> Why is this story important?</p>
+<p><strong>Assumptions:</strong> What assumptions are we making?</p>
 
-**Business Value**: Why is this story important?
+<h2>Definition of Ready</h2>
+<ul>
+<li>☐ Story is well-defined and understood</li>
+<li>☐ Acceptance criteria are clear and testable</li>
+<li>☐ Dependencies identified and resolved</li>
+<li>☐ Story is appropriately sized (fits in one sprint)</li>
+<li>☐ UI/UX designs available (if applicable)</li>
+</ul>
 
-**Assumptions**: What assumptions are we making?
-
-## Definition of Ready
-- [ ] Story is well-defined and understood
-- [ ] Acceptance criteria are clear and testable
-- [ ] Dependencies identified and resolved
-- [ ] Story is appropriately sized (fits in one sprint)
-- [ ] UI/UX designs available (if applicable)
-
-## Definition of Done
-- [ ] Code is complete and peer reviewed
-- [ ] Unit tests written and passing
-- [ ] Integration tests passing
-- [ ] Documentation updated
-- [ ] Deployed to test environment
-- [ ] Acceptance criteria verified
-- [ ] Product Owner acceptance
+<h2>Definition of Done</h2>
+<ul>
+<li>☐ Code is complete and peer reviewed</li>
+<li>☐ Unit tests written and passing</li>
+<li>☐ Integration tests passing</li>
+<li>☐ Documentation updated</li>
+<li>☐ Deployed to test environment</li>
+<li>☐ Acceptance criteria verified</li>
+<li>☐ Product Owner acceptance</li>
+</ul>
 "@
                 'Microsoft.VSTS.Common.AcceptanceCriteria' = @"
-**Scenario 1**: Happy path
-- **Given** I am a <user type>
-- **When** I <action>
-- **Then** I should <expected result>
+<p><strong>Scenario 1:</strong> Happy path</p>
+<ul>
+<li><strong>Given</strong> I am a &lt;user type&gt;</li>
+<li><strong>When</strong> I &lt;action&gt;</li>
+<li><strong>Then</strong> I should &lt;expected result&gt;</li>
+</ul>
 
-**Scenario 2**: Edge case
-- **Given** <precondition>
-- **When** <action>
-- **Then** <expected result>
+<p><strong>Scenario 2:</strong> Edge case</p>
+<ul>
+<li><strong>Given</strong> &lt;precondition&gt;</li>
+<li><strong>When</strong> &lt;action&gt;</li>
+<li><strong>Then</strong> &lt;expected result&gt;</li>
+</ul>
 "@
                 'Microsoft.VSTS.Common.Priority' = 2
                 'Microsoft.VSTS.Scheduling.StoryPoints' = 3
@@ -972,29 +978,33 @@ function Ensure-AdoTeamTemplates {
             fields = @{
                 'System.Title' = '[TASK] <brief description of work>'
                 'System.Description' = @"
-## Task Description
+<h2>Task Description</h2>
+<p><strong>Objective:</strong> What needs to be accomplished?</p>
+<p><strong>Technical Approach:</strong> Brief overview of implementation approach</p>
 
-**Objective**: What needs to be accomplished?
+<h2>Implementation Checklist</h2>
+<ul>
+<li>☐ Design approach reviewed</li>
+<li>☐ Implementation completed</li>
+<li>☐ Code follows team standards</li>
+<li>☐ Unit tests written and passing</li>
+<li>☐ Code reviewed and approved</li>
+<li>☐ Documentation updated</li>
+<li>☐ Integration testing completed</li>
+</ul>
 
-**Technical Approach**: Brief overview of implementation approach
+<h2>Dependencies</h2>
+<ul>
+<li><strong>Depends on:</strong> &lt;list any blocking work items&gt;</li>
+<li><strong>Blocks:</strong> &lt;list any work items waiting on this&gt;</li>
+</ul>
 
-## Implementation Checklist
-- [ ] Design approach reviewed
-- [ ] Implementation completed
-- [ ] Code follows team standards
-- [ ] Unit tests written and passing
-- [ ] Code reviewed and approved
-- [ ] Documentation updated
-- [ ] Integration testing completed
-
-## Dependencies
-- Depends on: <list any blocking work items>
-- Blocks: <list any work items waiting on this>
-
-## Acceptance Criteria
-- [ ] <specific deliverable 1>
-- [ ] <specific deliverable 2>
-- [ ] <specific deliverable 3>
+<h2>Acceptance Criteria</h2>
+<ul>
+<li>☐ &lt;specific deliverable 1&gt;</li>
+<li>☐ &lt;specific deliverable 2&gt;</li>
+<li>☐ &lt;specific deliverable 3&gt;</li>
+</ul>
 "@
                 'Microsoft.VSTS.Common.Priority' = 2
                 'Microsoft.VSTS.Scheduling.RemainingWork' = 8
@@ -1008,27 +1018,33 @@ function Ensure-AdoTeamTemplates {
             fields = @{
                 'System.Title' = '[BUG] <brief description of the issue>'
                 'Microsoft.VSTS.TCM.ReproSteps' = @"
-## Environment
-- **Browser/OS**: 
-- **Application Version**: 
-- **User Role**: 
+<h2>Environment</h2>
+<ul>
+<li><strong>Browser/OS:</strong> </li>
+<li><strong>Application Version:</strong> </li>
+<li><strong>User Role:</strong> </li>
+</ul>
 
-## Steps to Reproduce
-1. Navigate to <URL or screen>
-2. Click on <element>
-3. Enter <data>
-4. Observe the result
+<h2>Steps to Reproduce</h2>
+<ol>
+<li>Navigate to &lt;URL or screen&gt;</li>
+<li>Click on &lt;element&gt;</li>
+<li>Enter &lt;data&gt;</li>
+<li>Observe the result</li>
+</ol>
 
-## Expected Behavior
-Describe what should happen
+<h2>Expected Behavior</h2>
+<p>Describe what should happen</p>
 
-## Actual Behavior
-Describe what actually happens
+<h2>Actual Behavior</h2>
+<p>Describe what actually happens</p>
 
-## Additional Information
-- **Frequency**: Always / Sometimes / Rarely
-- **Impact**: <business impact description>
-- **Workaround**: <any known workarounds>
+<h2>Additional Information</h2>
+<ul>
+<li><strong>Frequency:</strong> Always / Sometimes / Rarely</li>
+<li><strong>Impact:</strong> &lt;business impact description&gt;</li>
+<li><strong>Workaround:</strong> &lt;any known workarounds&gt;</li>
+</ul>
 "@
                 'Microsoft.VSTS.Common.Severity' = '3 - Medium'
                 'Microsoft.VSTS.Common.Priority' = 2
@@ -1042,35 +1058,46 @@ Describe what actually happens
             fields = @{
                 'System.Title' = '[EPIC] <strategic initiative name>'
                 'System.Description' = @"
-## Epic Overview
+<h2>Epic Overview</h2>
+<p><strong>Business Objective:</strong> High-level business goal this epic addresses</p>
 
-**Business Objective**: High-level business goal this epic addresses
+<p><strong>Success Metrics:</strong> How will we measure success?</p>
+<ul>
+<li>Metric 1: &lt;measurable outcome&gt;</li>
+<li>Metric 2: &lt;measurable outcome&gt;</li>
+</ul>
 
-**Success Metrics**: How will we measure success?
-- Metric 1: <measurable outcome>
-- Metric 2: <measurable outcome>
+<h2>Scope &amp; Features</h2>
+<h3>In Scope</h3>
+<ul>
+<li>Feature 1: &lt;description&gt;</li>
+<li>Feature 2: &lt;description&gt;</li>
+</ul>
 
-## Scope & Features
-### In Scope
-- Feature 1: <description>
-- Feature 2: <description>
+<h3>Out of Scope</h3>
+<ul>
+<li>&lt;what's explicitly not included&gt;</li>
+</ul>
 
-### Out of Scope
-- <what's explicitly not included>
+<h2>Dependencies &amp; Risks</h2>
+<h3>Dependencies</h3>
+<ul>
+<li>External dependency 1</li>
+<li>Internal dependency 2</li>
+</ul>
 
-## Dependencies & Risks
-### Dependencies
-- External dependency 1
-- Internal dependency 2
+<h3>Risks</h3>
+<ul>
+<li>Risk 1: &lt;description and mitigation&gt;</li>
+<li>Risk 2: &lt;description and mitigation&gt;</li>
+</ul>
 
-### Risks
-- Risk 1: <description and mitigation>
-- Risk 2: <description and mitigation>
-
-## Timeline & Milestones
-- **Phase 1**: <milestone> - <target date>
-- **Phase 2**: <milestone> - <target date>
-- **Go Live**: <target date>
+<h2>Timeline &amp; Milestones</h2>
+<ul>
+<li><strong>Phase 1:</strong> &lt;milestone&gt; - &lt;target date&gt;</li>
+<li><strong>Phase 2:</strong> &lt;milestone&gt; - &lt;target date&gt;</li>
+<li><strong>Go Live:</strong> &lt;target date&gt;</li>
+</ul>
 "@
                 'Microsoft.VSTS.Common.Priority' = 1
                 'Microsoft.VSTS.Scheduling.Effort' = 20
@@ -1084,37 +1111,45 @@ Describe what actually happens
             fields = @{
                 'System.Title' = '[FEATURE] <feature name>'
                 'System.Description' = @"
-## Feature Summary
+<h2>Feature Summary</h2>
+<p><strong>User Value:</strong> What value does this feature provide to users?</p>
+<p><strong>Target Users:</strong> Who will use this feature?</p>
 
-**User Value**: What value does this feature provide to users?
+<h2>Functional Requirements</h2>
+<h3>Core Capabilities</h3>
+<ul>
+<li>Capability 1: &lt;description&gt;</li>
+<li>Capability 2: &lt;description&gt;</li>
+</ul>
 
-**Target Users**: Who will use this feature?
+<h3>User Experience</h3>
+<ul>
+<li>&lt;key UX considerations&gt;</li>
+</ul>
 
-## Functional Requirements
-### Core Capabilities
-- Capability 1: <description>
-- Capability 2: <description>
+<h2>Technical Requirements</h2>
+<h3>Performance</h3>
+<ul>
+<li>Response time: &lt;requirement&gt;</li>
+<li>Capacity: &lt;requirement&gt;</li>
+</ul>
 
-### User Experience
-- <key UX considerations>
+<h3>Security</h3>
+<ul>
+<li>Authentication: &lt;requirements&gt;</li>
+<li>Authorization: &lt;requirements&gt;</li>
+</ul>
 
-## Technical Requirements
-### Performance
-- Response time: <requirement>
-- Capacity: <requirement>
+<h2>Success Criteria</h2>
+<ul>
+<li>☐ Feature delivers intended user value</li>
+<li>☐ Performance requirements met</li>
+<li>☐ Security requirements satisfied</li>
+<li>☐ User acceptance testing passed</li>
+</ul>
 
-### Security
-- Authentication: <requirements>
-- Authorization: <requirements>
-
-## Success Criteria
-- [ ] Feature delivers intended user value
-- [ ] Performance requirements met
-- [ ] Security requirements satisfied
-- [ ] User acceptance testing passed
-
-## Child Stories
-- Link related User Stories here
+<h2>Child Stories</h2>
+<p>Link related User Stories here</p>
 "@
                 'Microsoft.VSTS.Common.Priority' = 2
                 'Microsoft.VSTS.Scheduling.Effort' = 13
@@ -1128,36 +1163,43 @@ Describe what actually happens
             fields = @{
                 'System.Title' = '[TEST] <test scenario name>'
                 'System.Description' = @"
-## Test Objective
-**Purpose**: What are we validating with this test?
+<h2>Test Objective</h2>
+<p><strong>Purpose:</strong> What are we validating with this test?</p>
+<p><strong>Test Type:</strong> Unit / Integration / System / User Acceptance</p>
 
-**Test Type**: Unit / Integration / System / User Acceptance
+<h2>Prerequisites</h2>
+<ul>
+<li>Precondition 1</li>
+<li>Precondition 2</li>
+</ul>
 
-## Prerequisites
-- Precondition 1
-- Precondition 2
+<h2>Test Data Requirements</h2>
+<ul>
+<li>Data set 1: &lt;description&gt;</li>
+<li>Data set 2: &lt;description&gt;</li>
+</ul>
 
-## Test Data Requirements
-- Data set 1: <description>
-- Data set 2: <description>
+<h2>Expected Results</h2>
+<p><strong>Success Criteria:</strong></p>
+<ul>
+<li>Result 1: &lt;expected outcome&gt;</li>
+<li>Result 2: &lt;expected outcome&gt;</li>
+</ul>
 
-## Expected Results
-**Success Criteria**: 
-- Result 1: <expected outcome>
-- Result 2: <expected outcome>
-
-## Test Environment
-- Environment: <Dev/Test/Staging>
-- Configuration: <any special setup>
+<h2>Test Environment</h2>
+<ul>
+<li>Environment: &lt;Dev/Test/Staging&gt;</li>
+<li>Configuration: &lt;any special setup&gt;</li>
+</ul>
 "@
                 'Microsoft.VSTS.TCM.Steps' = @"
 <steps id="0" last="2">
   <step id="2" type="ValidateStep">
     <parameterizedString isformatted="true">
-      <DIV><P>1. <action description></P></DIV>
+      <DIV><P>1. &lt;action description&gt;</P></DIV>
     </parameterizedString>
     <parameterizedString isformatted="true">
-      <DIV><P><expected result></P></DIV>
+      <DIV><P>&lt;expected result&gt;</P></DIV>
     </parameterizedString>
     <description/>
   </step>
@@ -1218,12 +1260,58 @@ Describe what actually happens
         }
     }
     
+    # Set templates as team defaults
+    Write-Host ""
+    Write-Host "[INFO] Setting templates as team defaults..." -ForegroundColor Cyan
+    
+    $setDefaultCount = 0
+    foreach ($workItemType in $availableTypes) {
+        if ($templateDefinitions.ContainsKey($workItemType)) {
+            $template = $templateDefinitions[$workItemType]
+            
+            try {
+                # Get the template ID
+                $templateToSet = $byName[$template.name]
+                if (-not $templateToSet) {
+                    # Try to get updated list of templates
+                    $existing = Invoke-AdoRest GET $base
+                    $byName = @{}
+                    $existing.value | ForEach-Object { $byName[$_.name] = $_ }
+                    $templateToSet = $byName[$template.name]
+                }
+                
+                if ($templateToSet) {
+                    Write-Verbose "[Ensure-AdoTeamTemplates] Setting template as default: $($template.name) (ID: $($templateToSet.id))"
+                    
+                    # Set as team default using PATCH request
+                    $patchBody = @{
+                        id = $templateToSet.id
+                        name = $templateToSet.name
+                        workItemTypeName = $workItemType
+                        isDefault = $true
+                    }
+                    
+                    Invoke-AdoRest PATCH "$base/$($templateToSet.id)" -Body $patchBody | Out-Null
+                    Write-Host "[SUCCESS] Set $workItemType template as team default" -ForegroundColor Green
+                    $setDefaultCount++
+                }
+            }
+            catch {
+                Write-Warning "Failed to set $workItemType template as default: $_"
+                Write-Verbose "[AzureDevOps] This is usually not critical - templates can still be used manually"
+            }
+        }
+    }
+    
     # Summary
     Write-Host ""
-    Write-Host "[INFO] Work item template creation summary:" -ForegroundColor Cyan
+    Write-Host "[INFO] Work item template configuration summary:" -ForegroundColor Cyan
     Write-Host "  ✅ Created: $createdCount templates" -ForegroundColor Green
     Write-Host "  ⏭️ Skipped: $skippedCount templates (already exist)" -ForegroundColor Yellow
+    Write-Host "  🎯 Set as default: $setDefaultCount templates" -ForegroundColor Green
     Write-Host "  📋 Available work item types: $($availableTypes -join ', ')" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "[INFO] Templates will auto-populate when creating new work items!" -ForegroundColor Cyan
 }
 
 <#
