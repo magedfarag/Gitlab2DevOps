@@ -145,6 +145,32 @@ function Get-CoreRestVersion {
 
 <#
 .SYNOPSIS
+    Gets the GitLab token for authentication.
+
+.DESCRIPTION
+    Returns the GitLab PAT token that was configured during module initialization.
+    Used internally by other modules that need to authenticate with GitLab (e.g., git clone).
+
+.OUTPUTS
+    String GitLab personal access token.
+
+.EXAMPLE
+    $token = Get-GitLabToken
+#>
+function Get-GitLabToken {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    
+    if ([string]::IsNullOrWhiteSpace($script:GitLabToken)) {
+        throw "GitLab token not available. Call Initialize-CoreRest first."
+    }
+    
+    return $script:GitLabToken
+}
+
+<#
+.SYNOPSIS
     Masks secrets in a URL or string.
 
 .DESCRIPTION
@@ -574,6 +600,7 @@ function Clear-GitCredentials {
 Export-ModuleMember -Function @(
     'Initialize-CoreRest',
     'Get-CoreRestVersion',
+    'Get-GitLabToken',
     'Hide-Secret',
     'New-AuthHeader',
     'Invoke-AdoRest',

@@ -150,19 +150,19 @@ param(
     # Common Parameters (both parameter sets)
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
-    [string]$CollectionUrl = ($env:ADO_COLLECTION_URL -or "https://devops.example.com/DefaultCollection"),
+    [string]$CollectionUrl = "",
     
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
-    [string]$AdoPat = ($env:ADO_PAT -or ""),
+    [string]$AdoPat = "",
     
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
-    [string]$GitLabBaseUrl = ($env:GITLAB_BASE_URL -or "https://gitlab.example.com"),
+    [string]$GitLabBaseUrl = "",
     
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
-    [string]$GitLabToken = ($env:GITLAB_PAT -or ""),
+    [string]$GitLabToken = "",
     
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
@@ -223,10 +223,10 @@ if ($envFiles.Count -gt 0) {
             if ([string]::IsNullOrWhiteSpace($GitLabToken) -and $envConfig.ContainsKey('GITLAB_PAT')) {
                 $GitLabToken = $envConfig.GITLAB_PAT
             }
-            if ($CollectionUrl -eq "https://devops.example.com/DefaultCollection" -and $envConfig.ContainsKey('ADO_COLLECTION_URL')) {
+            if ([string]::IsNullOrWhiteSpace($CollectionUrl) -and $envConfig.ContainsKey('ADO_COLLECTION_URL')) {
                 $CollectionUrl = $envConfig.ADO_COLLECTION_URL
             }
-            if ($GitLabBaseUrl -eq "https://gitlab.example.com" -and $envConfig.ContainsKey('GITLAB_BASE_URL')) {
+            if ([string]::IsNullOrWhiteSpace($GitLabBaseUrl) -and $envConfig.ContainsKey('GITLAB_BASE_URL')) {
                 $GitLabBaseUrl = $envConfig.GITLAB_BASE_URL
             }
             if ($envConfig.ContainsKey('ADO_API_VERSION')) {
@@ -237,6 +237,20 @@ if ($envFiles.Count -gt 0) {
             }
         }
     }
+}
+
+# Apply defaults if still empty (after .env loading)
+if ([string]::IsNullOrWhiteSpace($CollectionUrl)) {
+    $CollectionUrl = if ($env:ADO_COLLECTION_URL) { $env:ADO_COLLECTION_URL } else { "https://devops.example.com/DefaultCollection" }
+}
+if ([string]::IsNullOrWhiteSpace($GitLabBaseUrl)) {
+    $GitLabBaseUrl = if ($env:GITLAB_BASE_URL) { $env:GITLAB_BASE_URL } else { "https://gitlab.example.com" }
+}
+if ([string]::IsNullOrWhiteSpace($AdoPat)) {
+    $AdoPat = if ($env:ADO_PAT) { $env:ADO_PAT } else { "" }
+}
+if ([string]::IsNullOrWhiteSpace($GitLabToken)) {
+    $GitLabToken = if ($env:GITLAB_PAT) { $env:GITLAB_PAT } else { "" }
 }
 
 # Import modules

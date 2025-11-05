@@ -164,8 +164,10 @@ function Prepare-GitLab {
     Write-Host "[OK] Preflight report written: $reportFile"
     
     # Get GitLab token from Core.Rest module
-    $gitLabToken = Get-Variable -Name GitLabToken -Scope Script -ValueOnly -ErrorAction SilentlyContinue
-    if (-not $gitLabToken) {
+    try {
+        $gitLabToken = Get-GitLabToken
+    }
+    catch {
         throw "GitLab token not available. Initialize Core.Rest module first."
     }
     
