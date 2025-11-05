@@ -195,7 +195,15 @@ function Prepare-GitLab {
             try {
                 # Fetch latest changes
                 git remote set-url origin $gitUrl 2>$null
-                git fetch --all --prune
+                # Respect invalid certificate setting for on-prem GitLab
+                $skipCert = $false
+                try { $skipCert = (Get-SkipCertificateCheck) } catch { $skipCert = $false }
+                if ($skipCert) {
+                    git -c http.sslVerify=false fetch --all --prune
+                }
+                else {
+                    git fetch --all --prune
+                }
                 $fetchSuccess = $?
                 
                 if ($fetchSuccess) {
@@ -231,7 +239,15 @@ function Prepare-GitLab {
         }
         
         try {
-            git clone --mirror $gitUrl $repoDir
+            # Respect invalid certificate setting for on-prem GitLab
+            $skipCert = $false
+            try { $skipCert = (Get-SkipCertificateCheck) } catch { $skipCert = $false }
+            if ($skipCert) {
+                git -c http.sslVerify=false clone --mirror $gitUrl $repoDir
+            }
+            else {
+                git clone --mirror $gitUrl $repoDir
+            }
             Write-Host "[OK] Repository downloaded to: $repoDir"
             
             # Update report with local repository info
@@ -270,7 +286,14 @@ function Prepare-GitLab {
     
     # Validate Git access (quick check)
     Write-Host "[INFO] Validating Git access..."
-    git ls-remote $gitUrl HEAD | Out-Null
+    # Validate Git access; respect invalid certificate setting
+    try { $skipCert = (Get-SkipCertificateCheck) } catch { $skipCert = $false }
+    if ($skipCert) {
+        git -c http.sslVerify=false ls-remote $gitUrl HEAD | Out-Null
+    }
+    else {
+        git ls-remote $gitUrl HEAD | Out-Null
+    }
     Write-Host "[OK] Git access validated."
     
     # Summary

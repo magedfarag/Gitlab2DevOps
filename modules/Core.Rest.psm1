@@ -215,19 +215,31 @@ function Hide-Secret {
     param(
         [Parameter(Mandatory)]
         [AllowEmptyString()]
-        [string]$Text
+        [string]$Text,
+        
+        # Optional explicit secret to mask for compatibility with older tests
+        [string]$Secret
     )
     
     if (-not $script:MaskSecrets -or [string]::IsNullOrEmpty($Text)) {
         return $Text
     }
     
-    # Mask common token patterns
     $masked = $Text
+    
+    # If an explicit secret was provided, mask it first (URL userinfo and plain text)
+    if ($Secret) {
+        $safeSecret = [Regex]::Escape($Secret)
+        $masked = [Regex]::Replace($masked, $safeSecret, '***')
+        # Also handle userinfo form oauth2:token@host
+        $masked = $masked -replace ":$safeSecret@", ':***@'
+    }
+    
+    # Mask common token patterns
     $masked = $masked -replace 'glpat-[a-zA-Z0-9_\-]+', 'glpat-***'
     $masked = $masked -replace 'ado_pat=[^&\s]+', 'ado_pat=***'
     $masked = $masked -replace 'Authorization: Basic [A-Za-z0-9+/=]+', 'Authorization: Basic ***'
-    $masked = $masked -replace 'PRIVATE-TOKEN[''"]?\s*[:=]\s*[''"]?[a-zA-Z0-9_\-]+', 'PRIVATE-TOKEN: ***'
+    $masked = $masked -replace 'PRIVATE-TOKEN[''\"]?\s*[:=]\s*[''\"]?[a-zA-Z0-9_\-]+', 'PRIVATE-TOKEN: ***'
     $masked = $masked -replace ':[a-zA-Z0-9_\-]{20,}@', ':***@'
     
     return $masked
@@ -274,15 +286,19 @@ function New-NormalizedError {
     $message = "Unknown error"
     
     # Handle different error object types
-    if ($Exception -is [System.Management.Automation.ErrorRecord]) {
+    if ($Exception -is [string]) {
+        $message = [string]$Exception
+        $actualException = $null
+    }
+    elseif ($Exception -is [System.Management.Automation.ErrorRecord]) {
         $message = $Exception.Exception.Message
         $actualException = $Exception.Exception
     }
-    elseif ($Exception.Message) {
+    elseif ($Exception -and ($Exception | Get-Member -Name 'Message' -MemberType Properties -ErrorAction SilentlyContinue)) {
         $message = $Exception.Message
         $actualException = $Exception
     }
-    elseif ($Exception.Exception) {
+    elseif ($Exception -and ($Exception | Get-Member -Name 'Exception' -MemberType Properties -ErrorAction SilentlyContinue)) {
         $message = $Exception.Exception.Message
         $actualException = $Exception.Exception
     }
@@ -379,15 +395,19 @@ function Invoke-RestWithRetry {
         
         [object]$Body = $null,
         
-        [Parameter(Mandatory)]
         [ValidateSet('ado', 'gitlab')]
-        [string]$Side
+        [string]$Side = 'ado',
+        
+        # Optional overrides for retry behavior (for testing or advanced scenarios)
+        [int]$MaxAttempts,
+        [int]$DelaySeconds
     )
     
     $attempt = 0
-    $maxAttempts = $script:RetryAttempts + 1
+    $effectiveMaxAttempts = if ($PSBoundParameters.ContainsKey('MaxAttempts')) { [Math]::Max(1, $MaxAttempts) } else { $script:RetryAttempts + 1 }
+    $baseDelay = if ($PSBoundParameters.ContainsKey('DelaySeconds')) { [Math]::Max(0, $DelaySeconds) } else { $script:RetryDelaySeconds }
     
-    while ($attempt -lt $maxAttempts) {
+    while ($attempt -lt $effectiveMaxAttempts) {
         $attempt++
         
         try {
@@ -406,16 +426,32 @@ function Invoke-RestWithRetry {
             # This MUST be present for every request to on-premise servers with self-signed certs
             if ($script:SkipCertificateCheck -eq $true) {
                 $invokeParams.SkipCertificateCheck = $true
-                Write-Host "[DEBUG] ✓ SkipCertificateCheck=TRUE added to request" -ForegroundColor Green
+                Write-Verbose "[Core.Rest] ✓ SkipCertificateCheck=TRUE added to request"
             }
             else {
-                Write-Host "[DEBUG] ✗ SkipCertificateCheck=FALSE (script var = $script:SkipCertificateCheck)" -ForegroundColor Red
+                Write-Verbose "[Core.Rest] ✗ SkipCertificateCheck=FALSE (script var = $script:SkipCertificateCheck)"
             }
             
+            # Log request before sending
+            $maskedUri = Hide-Secret -Text $Uri
+            $skipCertStatus = if ($invokeParams.ContainsKey('SkipCertificateCheck')) { "SSL:Skip" } else { "SSL:Verify" }
+            $methodColor = switch ($Method) {
+                'GET' { 'Cyan' }
+                'POST' { 'Green' }
+                'PUT' { 'Yellow' }
+                'PATCH' { 'Magenta' }
+                'DELETE' { 'Red' }
+                default { 'White' }
+            }
+            
+            Write-Host "[$Side] → $Method $maskedUri" -ForegroundColor $methodColor -NoNewline
             if ($script:LogRestCalls) {
-                $maskedUri = Hide-Secret -Text $Uri
-                $skipCertStatus = if ($invokeParams.ContainsKey('SkipCertificateCheck')) { "SkipCert=TRUE" } else { "SkipCert=FALSE" }
-                Write-Verbose "[REST] $Side $Method $maskedUri ($skipCertStatus, attempt $attempt/$maxAttempts)"
+                Write-Host " ($skipCertStatus, attempt $attempt/$effectiveMaxAttempts)" -ForegroundColor Gray
+                if ($Body -and $Method -in @('POST', 'PUT', 'PATCH')) {
+                    Write-Verbose "[REST] Request body: $($Body.Substring(0, [Math]::Min(500, $Body.Length)))..."
+                }
+            } else {
+                Write-Host ""
             }
             
             # Measure request duration
@@ -423,10 +459,24 @@ function Invoke-RestWithRetry {
             $response = Invoke-RestMethod @invokeParams
             $stopwatch.Stop()
             
+            # Log response summary
+            $durationMs = [int]$stopwatch.ElapsedMilliseconds
+            $durationColor = if ($durationMs -lt 500) { 'Green' } elseif ($durationMs -lt 2000) { 'Yellow' } else { 'Red' }
+            Write-Host "[$Side] ← 200 OK " -ForegroundColor Green -NoNewline
+            Write-Host "($durationMs ms)" -ForegroundColor $durationColor
+            
             if ($script:LogRestCalls) {
-                $durationMs = [int]$stopwatch.ElapsedMilliseconds
-                $maskedUri = Hide-Secret -Text $Uri
-                Write-Verbose "[REST] ✓ $Side $Method $maskedUri → 200 ($durationMs ms)"
+                # Log response highlights
+                $responseType = $response.GetType().Name
+                if ($response.PSObject.Properties['value'] -and $response.value -is [array]) {
+                    Write-Verbose "[REST] Response: $($response.value.Count) items in array"
+                } elseif ($response -is [array]) {
+                    Write-Verbose "[REST] Response: $($response.Count) items"
+                } elseif ($response.PSObject.Properties['count']) {
+                    Write-Verbose "[REST] Response: count=$($response.count)"
+                } else {
+                    Write-Verbose "[REST] Response: $responseType"
+                }
             }
             
             return $response
@@ -436,34 +486,52 @@ function Invoke-RestWithRetry {
             $status = $normalizedError.status
             $errorMsg = $_.Exception.Message
             
-            # Log failed REST call
-            if ($script:LogRestCalls) {
-                $maskedUri = Hide-Secret -Text $Uri
-                Write-Verbose "[REST] ✗ $Side $Method $maskedUri → $status"
+            # Log failed REST call with status code
+            # Use less alarming colors for expected errors (404 on GET, retryable errors)
+            $statusColor = if ($status -in @(429, 500, 502, 503, 504)) { 
+                'Yellow'  # Retryable errors
+            } elseif ($status -eq 404 -and $Method -eq 'GET') { 
+                'DarkYellow'  # Expected 404s on GET (idempotent checks)
+            } else { 
+                'Red'  # Real errors
             }
             
-            # Debug: Show curl fallback decision criteria
+            if ($status -gt 0) {
+                Write-Host "[$Side] ← $status ERROR" -ForegroundColor $statusColor -NoNewline
+                Write-Host " ($($normalizedError.message.Substring(0, [Math]::Min(80, $normalizedError.message.Length))))" -ForegroundColor Gray
+            } else {
+                Write-Host "[$Side] ✗ Connection error: $($errorMsg.Substring(0, [Math]::Min(80, $errorMsg.Length)))" -ForegroundColor Red
+            }
+            
+            if ($script:LogRestCalls) {
+                Write-Verbose "[REST] Full error: $($normalizedError.message)"
+            }
+            
+            # Detect connection errors for curl fallback decision
             $isConnectionError = $errorMsg -match "connection was forcibly closed|Unable to read data from the transport|SSL|certificate|An error occurred while sending the request"
-            Write-Host "[DEBUG] Curl fallback check: SkipCert=$script:SkipCertificateCheck, Status=$status, IsConnErr=$isConnectionError" -ForegroundColor Magenta
-            Write-Host "[DEBUG] Error message: $errorMsg" -ForegroundColor Magenta
+            Write-Verbose "[Core.Rest] Curl fallback check: SkipCert=$script:SkipCertificateCheck, Status=$status, IsConnErr=$isConnectionError"
+            Write-Verbose "[Core.Rest] Error message: $errorMsg"
             
             # Fallback to curl for connection issues when SkipCertificateCheck is enabled
             # PowerShell's Invoke-RestMethod sometimes fails with SSL even with -SkipCertificateCheck
             if ($script:SkipCertificateCheck -eq $true -and $isConnectionError) {
                 
                 if ($attempt -eq 1) {
-                    Write-Host "[WARN] PowerShell SSL/TLS issue detected - using curl fallback" -ForegroundColor Yellow
+                    Write-Host "[$Side] ⚠ SSL/TLS fallback to curl" -ForegroundColor Yellow
                     Write-Verbose "[$Side] Original error: $($_.Exception.Message)"
                 }
                 
                 try {
+                    # Log curl request
+                    Write-Host "[$Side] → $Method $maskedUri (curl -k)" -ForegroundColor DarkCyan
                     # Build curl command
                     # -k: skip SSL verification
                     # -s: silent (no progress bar)
                     # -S: show errors even in silent mode
                     # -i: include HTTP headers in output (to see response code)
                     # -w: write out HTTP code at the end
-                    $curlArgs = @('-k', '-s', '-S', '-i', '-w', '\nHTTP_CODE:%{http_code}', '-X', $Method, '--max-time', '30')
+                    # Use an easily-parsable trailer line for HTTP code
+                    $curlArgs = @('-k', '-s', '-S', '-i', '-w', 'HTTP_CODE:%{http_code}', '-X', $Method, '--max-time', '30')
                     
                     # For Azure DevOps, use Basic auth with PAT
                     # For GitLab, use headers
@@ -474,7 +542,7 @@ function Invoke-RestWithRetry {
                         $curlArgs += ":$($script:AdoPat)"
                         $curlArgs += '-H'
                         $curlArgs += 'Content-Type: application/json'
-                        Write-Host "[DEBUG] Using curl with Basic auth, PAT length: $($script:AdoPat.Length) chars" -ForegroundColor Cyan
+                        Write-Verbose "[Core.Rest] Using curl with Basic auth, PAT length: $($script:AdoPat.Length) chars"
                     }
                     else {
                         # GitLab uses PRIVATE-TOKEN header
@@ -492,38 +560,34 @@ function Invoke-RestWithRetry {
                         }
                         $curlArgs += '-d'
                         $curlArgs += $Body
-                        Write-Host "[DEBUG] POST body length: $($Body.Length) chars" -ForegroundColor Cyan
-                        Write-Host "[DEBUG] POST body preview: $($Body.Substring(0, [Math]::Min(150, $Body.Length)))..." -ForegroundColor Cyan
+                        Write-Verbose "[Core.Rest] POST body length: $($Body.Length) chars"
                     }
                     
                     $curlArgs += $Uri
                     
-                    $maskedUri = Hide-Secret -Text $Uri
-                    Write-Host "[DEBUG] curl command: curl -k -s -X $Method -u ':***' '$maskedUri'" -ForegroundColor DarkGray
-                    if ($Body) {
-                        Write-Host "[DEBUG] with body: -d '<JSON payload>'" -ForegroundColor DarkGray
-                    }
-                    Write-Verbose "[REST] curl fallback: $Method $maskedUri"
+                    Write-Verbose "[Core.Rest] curl command: curl -k -s -X $Method '$maskedUri'"
                     
                     # Execute curl - capture ALL output including errors
+                    $curlStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
                     $curlOutput = & curl @curlArgs 2>&1
+                    $curlStopwatch.Stop()
                     
                     # Safely handle output (may be single object or array)
                     $outputArray = @($curlOutput)
                     $outputCount = if ($curlOutput) { $outputArray.Count } else { 0 }
-                    Write-Host "[DEBUG] curl raw output ($outputCount items):" -ForegroundColor DarkGray
-                    $outputArray | Select-Object -First 10 | ForEach-Object { 
-                        Write-Host "[DEBUG]   $_" -ForegroundColor DarkGray
-                    }
+                    Write-Verbose "[Core.Rest] curl raw output lines: $outputCount"
                     
                     # Convert to string array
                     $outputLines = $outputArray | Where-Object { $_ -is [string] } | ForEach-Object { $_.ToString() }
                     
                     # Extract HTTP status code from the write-out line
-                    $httpCodeLine = $outputLines | Where-Object { $_ -match '^HTTP_CODE:(\d+)' }
-                    $httpCode = if ($httpCodeLine -and $Matches[1]) { [int]$Matches[1] } else { 0 }
+                    # HTTP code marker might be on the last line or appended to body; search anywhere
+                    $httpCode = 0
+                    foreach ($line in $outputLines) {
+                        if ($line -match 'HTTP_CODE:(\d{3})') { $httpCode = [int]$Matches[1] }
+                    }
                     
-                    Write-Host "[DEBUG] curl HTTP code: $httpCode" -ForegroundColor Cyan
+                    Write-Verbose "[Core.Rest] curl HTTP code: $httpCode"
                     
                     # Find where the JSON body starts (after headers, after blank line)
                     $bodyStartIndex = -1
@@ -546,7 +610,17 @@ function Invoke-RestWithRetry {
                     
                     $jsonString = $jsonLines -join "`n"
                     
-                    Write-Host "[DEBUG] Extracted JSON length: $($jsonString.Length) chars" -ForegroundColor Cyan
+                    Write-Verbose "[Core.Rest] Extracted JSON length: $($jsonString.Length) chars"
+                    
+                    # Log curl response
+                    $curlDurationMs = [int]$curlStopwatch.ElapsedMilliseconds
+                    if ($httpCode -ge 200 -and $httpCode -lt 300) {
+                        Write-Host "[$Side] ← $httpCode OK (curl, $curlDurationMs ms)" -ForegroundColor Green
+                    } elseif ($httpCode -ge 400) {
+                        Write-Host "[$Side] ← $httpCode ERROR (curl, $curlDurationMs ms)" -ForegroundColor Red
+                    } else {
+                        Write-Host "[$Side] ← $httpCode (curl, $curlDurationMs ms)" -ForegroundColor Yellow
+                    }
                     
                     if ([string]::IsNullOrWhiteSpace($jsonString)) {
                         Write-Warning "[$Side] curl HTTP $httpCode with empty body"
@@ -575,7 +649,16 @@ function Invoke-RestWithRetry {
                     
                     $response = $jsonString | ConvertFrom-Json
                     
-                    Write-Verbose "[REST] ✓ $Side $Method (curl) → HTTP $httpCode"
+                    if ($script:LogRestCalls) {
+                        # Log response highlights for curl
+                        if ($response.PSObject.Properties['value'] -and $response.value -is [array]) {
+                            Write-Verbose "[REST] Response: $($response.value.Count) items in array"
+                        } elseif ($response -is [array]) {
+                            Write-Verbose "[REST] Response: $($response.Count) items"
+                        } else {
+                            Write-Verbose "[REST] Response: $($response.GetType().Name)"
+                        }
+                    }
                     
                     return $response
                 }
@@ -587,17 +670,29 @@ function Invoke-RestWithRetry {
             }
             
             # Retry on transient failures
-            $shouldRetry = $status -in @(429, 500, 502, 503, 504) -and $attempt -lt $maxAttempts
+            $shouldRetry = $status -in @(429, 500, 502, 503, 504) -and $attempt -lt $effectiveMaxAttempts
             
             if ($shouldRetry) {
-                $delay = $script:RetryDelaySeconds * [Math]::Pow(2, $attempt - 1)
-                Write-Warning "[$Side] HTTP $status - Retrying in ${delay}s (attempt $attempt/$maxAttempts)"
-                Start-Sleep -Seconds $delay
+                # Exponential backoff with jitter to avoid thundering herd
+                $delayBase = $baseDelay * [Math]::Pow(2, $attempt - 1)
+                $jitter = Get-Random -Minimum 0 -Maximum ([Math]::Max(1, [int]($delayBase * 0.2)))
+                $delay = [int]$delayBase + $jitter
+                Write-Host "[$Side] ⟳ Retry in ${delay}s (attempt $attempt/$effectiveMaxAttempts)" -ForegroundColor Yellow
+                if ($delay -gt 0) { Start-Sleep -Seconds $delay }
             }
             else {
                 # Final failure or non-retryable error
-                $maskedEndpoint = $normalizedError.endpoint
-                Write-Error "[$Side] ✗ REST $Method $maskedEndpoint → HTTP $status : $($normalizedError.message)"
+                # 404 on GET is often expected (idempotent checks), so show less alarming message
+                if ($Method -eq 'GET' -and $status -eq 404) {
+                    Write-Verbose "[$Side] Resource not found (404) - this may be expected for idempotent operations"
+                } else {
+                    Write-Host "[$Side] ✗ Request failed" -ForegroundColor Red
+                }
+                
+                if ($script:LogRestCalls) {
+                    $maskedEndpoint = $normalizedError.endpoint
+                    Write-Error "[$Side] REST $Method $maskedEndpoint → HTTP $status : $($normalizedError.message)"
+                }
                 throw
             }
         }
@@ -621,20 +716,34 @@ function Invoke-RestWithRetry {
     $headers = New-AuthHeader -Pat "your-pat-here"
 #>
 function New-AuthHeader {
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName='Ado')]
     [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory)]
-        [string]$Pat
+        [Parameter(Mandatory, ParameterSetName='Ado')]
+        [Parameter(Mandatory, ParameterSetName='GitLab')]
+        [string]$Pat,
+        
+        [Parameter(ParameterSetName='Ado')]
+        [ValidateSet('ado','gitlab')]
+        [string]$Type = 'ado',
+        
+        # Optional API version header for backward compatibility with some tests
+        [Parameter(ParameterSetName='Ado')]
+        [string]$ApiVersion
     )
+    
+    if ($Type -eq 'gitlab') {
+        return @{ 'PRIVATE-TOKEN' = $Pat }
+    }
     
     $pair = ":$Pat"
     $bytes = [Text.Encoding]::ASCII.GetBytes($pair)
-    
-    @{
+    $hdr = @{
         Authorization = "Basic $([Convert]::ToBase64String($bytes))"
         'Content-Type' = "application/json"
     }
+    if ($ApiVersion) { $hdr['api-version'] = $ApiVersion }
+    return $hdr
 }
 
 <#
@@ -793,7 +902,9 @@ Export-ModuleMember -Function @(
     'Get-GitLabToken',
     'Get-SkipCertificateCheck',
     'Hide-Secret',
+    'New-NormalizedError',
     'New-AuthHeader',
+    'Invoke-RestWithRetry',
     'Invoke-AdoRest',
     'Invoke-GitLabRest',
     'Clear-GitCredentials'

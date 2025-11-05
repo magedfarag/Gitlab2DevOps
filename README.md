@@ -209,12 +209,25 @@ $env:GITLAB_PAT = "your-gitlab-token-here"
 - [Contributing](#contributing)
 - [License](#license)
 
-## 📚 Additional Resources
+## 📚 Documentation
 
-- �️ [Implementation Roadmap](IMPLEMENTATION_ROADMAP.md) - Development progress and future features
-- 📋 [Project Summary](PROJECT_SUMMARY.md) - Architecture and technical overview  
+### User Guides
+- 🔄 [Sync Mode Guide](docs/guides/SYNC_MODE_GUIDE.md) - Re-running migrations and keeping repositories in sync
+- 📦 [Bulk Migration Configuration](docs/guides/BULK_MIGRATION_CONFIG.md) - Migrating multiple repositories
+- ⚡ [Quick Reference](docs/reference/QUICK_REFERENCE.md) - Common commands and parameters
+- 📋 [Work Item Templates](docs/WORK_ITEM_TEMPLATES.md) - Using standardized templates
+
+### Technical Documentation
+- 🏗️ [Project Summary](docs/reference/PROJECT_SUMMARY.md) - Architecture and technical overview
+- 🗺️ [Implementation Roadmap](docs/development/IMPLEMENTATION_ROADMAP.md) - Development progress
 - 📝 [Changelog](CHANGELOG.md) - Version history and migration guides
-- 🤝 [Contributing](CONTRIBUTING.md) - How to contribute to this project
+
+### Contributing
+- 🤝 [Contributing Guide](CONTRIBUTING.md) - How to contribute to this project
+- 📖 [Publishing Guide](docs/development/PUBLISHING_GUIDE.md) - Release process for maintainers
+
+### All Documentation
+- 📚 [Documentation Index](docs/README.md) - Complete documentation directory
 
 ## Features
 
@@ -233,7 +246,7 @@ $env:GITLAB_PAT = "your-gitlab-token-here"
 - **RBAC Groups**: Dev, QA, BA, Release Approvers, Pipeline Maintainers
 - **Branch Policies**: Required reviewers, work item linking, build validation
 - **Security Restrictions**: BA group cannot push/create PRs
-- **Work Item Templates**: Pre-configured User Story and Bug templates
+- **Work Item Templates**: Complete Agile template set (User Story, Task, Bug, Epic, Feature, Test Case)
 - **Project Wiki**: Automated setup with conventions documentation
 
 ### 📦 **Bulk Migration Support**
@@ -677,9 +690,15 @@ The tool creates these groups automatically:
 - **Pipeline Maintainers**: Project administrators for CI/CD
 
 ### Work Item Templates
-Pre-configured templates include:
-- **User Story**: With Definition of Ready/Done checklist
-- **Bug**: With structured reproduction steps and triage fields
+Comprehensive templates for all Agile work item types:
+- **User Story**: Definition of Ready/Done, acceptance criteria with Gherkin scenarios
+- **Task**: Implementation checklist, dependency tracking, effort estimation
+- **Bug**: Structured reproduction steps, environment details, triage information
+- **Epic**: Strategic initiatives with success metrics and risk assessment
+- **Feature**: Product capabilities with user value and requirements breakdown
+- **Test Case**: Quality validation with structured test steps and prerequisites
+
+Each template includes standardized fields, descriptions, and team collaboration features.
 
 ## Troubleshooting
 

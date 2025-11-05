@@ -171,8 +171,8 @@ Describe "New-AuthHeader" {
 Describe "Invoke-RestWithRetry" -Tag "Integration" {
     Context "When API call succeeds" {
         BeforeAll {
-            # Mock Invoke-RestMethod to simulate success
-            Mock Invoke-RestMethod {
+            # Mock Invoke-RestMethod to simulate success - must specify -ModuleName for Pester v5
+            Mock Invoke-RestMethod -ModuleName Core.Rest {
                 return @{ success = $true; data = "test" }
             }
         }
@@ -185,22 +185,54 @@ Describe "Invoke-RestWithRetry" -Tag "Integration" {
                 -MaxAttempts 3
             
             $result.success | Should -Be $true
-            Should -Invoke Invoke-RestMethod -Times 1
+            Should -Invoke Invoke-RestMethod -ModuleName Core.Rest -Times 1
         }
     }
     
     Context "When API call fails with retryable error" {
         BeforeAll {
-            # Mock to fail first 2 times, succeed on 3rd
+            # Turn off SkipCertificateCheck to avoid curl fallback in tests
+            Initialize-CoreRest `
+                -CollectionUrl $testCollectionUrl `
+                -AdoPat $testAdoPat `
+                -GitLabBaseUrl $testGitLabUrl `
+                -GitLabToken $testGitLabToken `
+                -AdoApiVersion $testApiVersion
+            
+            # Mock to fail first 2 times with custom error that includes status, succeed on 3rd
             $script:attemptCount = 0
-            Mock Invoke-RestMethod {
+            Mock Invoke-RestMethod -ModuleName Core.Rest {
                 $script:attemptCount++
                 if ($script:attemptCount -lt 3) {
-                    $response = [System.Net.HttpWebResponse]::new()
-                    $exception = [System.Net.WebException]::new("Service Unavailable", $null, [System.Net.WebExceptionStatus]::ProtocolError, $response)
-                    throw $exception
+                    # Create custom exception that includes Response property with StatusCode
+                    $mockResponse = [PSCustomObject]@{
+                        StatusCode = [PSCustomObject]@{ value__ = 503 }
+                    }
+                    $mockException = [PSCustomObject]@{
+                        Message = "Service Unavailable"
+                        Response = $mockResponse
+                    }
+                    $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+                        [System.Exception]::new("Service Unavailable"),
+                        "MockError",
+                        [System.Management.Automation.ErrorCategory]::ResourceUnavailable,
+                        $null
+                    )
+                    # Add Response as note property
+                    $errorRecord.Exception | Add-Member -NotePropertyName Response -NotePropertyValue $mockResponse -Force
+                    throw $errorRecord
                 }
                 return @{ success = $true }
+            }
+            
+            # Mock New-NormalizedError to return status 503 for retryable errors
+            Mock New-NormalizedError -ModuleName Core.Rest {
+                return @{
+                    side = 'ado'
+                    endpoint = $Endpoint
+                    status = 503
+                    message = "Service Unavailable"
+                }
             }
         }
         
@@ -214,13 +246,13 @@ Describe "Invoke-RestWithRetry" -Tag "Integration" {
                 -DelaySeconds 0
             
             $result.success | Should -Be $true
-            Should -Invoke Invoke-RestMethod -Times 3
+            Should -Invoke Invoke-RestMethod -ModuleName Core.Rest -Times 3
         }
     }
     
     Context "When API call fails permanently" {
         BeforeAll {
-            Mock Invoke-RestMethod {
+            Mock Invoke-RestMethod -ModuleName Core.Rest {
                 throw [System.Exception]::new("Permanent failure")
             }
         }

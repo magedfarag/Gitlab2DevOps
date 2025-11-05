@@ -268,13 +268,16 @@ function Wait-AdoOperation {
     Project name.
 
 .PARAMETER ProcessTemplate
-    Process template GUID (default: Agile).
+    Process template name ('Agile', 'Scrum', 'CMMI', 'Basic') or GUID. Default: 'Agile'.
 
 .OUTPUTS
     Azure DevOps project object.
 
 .EXAMPLE
     Ensure-AdoProject "MyProject"
+
+.EXAMPLE
+    Ensure-AdoProject "MyProject" -ProcessTemplate "Scrum"
 
 .EXAMPLE
     Ensure-AdoProject "MyProject" -WhatIf
@@ -285,7 +288,7 @@ function Ensure-AdoProject {
         [Parameter(Mandatory)]
         [string]$Name,
         
-        [string]$ProcessTemplate = "6b724908-ef14-45cf-84f8-768b5384da45" # Agile
+        [string]$ProcessTemplate = "Agile" # Default to Agile template
     )
     
     Write-Verbose "[Ensure-AdoProject] Checking if project '$Name' exists..."
@@ -302,18 +305,51 @@ function Ensure-AdoProject {
     }
     
     if ($PSCmdlet.ShouldProcess($Name, "Create Azure DevOps project")) {
-        Write-Host "[INFO] Creating project '$Name'..." -ForegroundColor Cyan
+        # Resolve process template name to GUID by querying available processes
+        $processTemplateId = $ProcessTemplate
+        
+        # If not a GUID, look up by name
+        if ($ProcessTemplate -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
+            Write-Verbose "[Ensure-AdoProject] Resolving process template name '$ProcessTemplate' to GUID..."
+            try {
+                $processes = Invoke-AdoRest GET "/_apis/process/processes"
+                $matchedProcess = $processes.value | Where-Object { $_.name -eq $ProcessTemplate }
+                
+                if ($matchedProcess) {
+                    $processTemplateId = $matchedProcess.id
+                    Write-Verbose "[Ensure-AdoProject] Resolved '$ProcessTemplate' to GUID: $processTemplateId"
+                } else {
+                    Write-Warning "[Ensure-AdoProject] Process template '$ProcessTemplate' not found. Using default."
+                    $defaultProcess = $processes.value | Where-Object { $_.isDefault -eq $true }
+                    if ($defaultProcess) {
+                        $processTemplateId = $defaultProcess.id
+                        Write-Verbose "[Ensure-AdoProject] Using default process: $($defaultProcess.name) ($processTemplateId)"
+                    } else {
+                        throw "No default process template found on server"
+                    }
+                }
+            }
+            catch {
+                Write-Warning "[Ensure-AdoProject] Failed to query process templates: $_"
+                Write-Warning "[Ensure-AdoProject] Using provided value as-is: $ProcessTemplate"
+                $processTemplateId = $ProcessTemplate
+            }
+        }
+        
+        Write-Host "[INFO] Creating project '$Name' with $ProcessTemplate process template..." -ForegroundColor Cyan
+        Write-Verbose "[Ensure-AdoProject] Process Template ID: $processTemplateId"
         
         $body = @{
             name         = $Name
             description  = "Provisioned by GitLab to Azure DevOps migration"
             capabilities = @{
                 versioncontrol  = @{ sourceControlType = "Git" }
-                processTemplate = @{ templateTypeId = $ProcessTemplate }
+                processTemplate = @{ templateTypeId = $processTemplateId }
             }
         }
         
         Write-Verbose "[Ensure-AdoProject] Sending POST request to create project..."
+        Write-Verbose "[Ensure-AdoProject] Request body: $($body | ConvertTo-Json -Depth 5)"
         $resp = Invoke-AdoRest POST "/_apis/projects" -Body $body
         
         Write-Verbose "[Ensure-AdoProject] Project creation initiated, operation ID: $($resp.id)"
@@ -533,11 +569,13 @@ function Ensure-AdoArea {
     )
     
     try {
-        Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/areas/$([uri]::EscapeDataString($Area))"
-        Write-Verbose "[AzureDevOps] Area '$Area' already exists"
+        $area = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/areas/$([uri]::EscapeDataString($Area))"
+        Write-Host "[INFO] Area '$Area' already exists" -ForegroundColor Gray
+        return $area
     }
     catch {
-        Write-Host "[INFO] Creating area '$Area'"
+        # 404 is expected for new areas - don't treat as error
+        Write-Host "[INFO] Creating area '$Area'" -ForegroundColor Cyan
         Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/areas" -Body @{ name = $Area }
     }
 }
@@ -633,6 +671,72 @@ function Upsert-AdoWikiPage {
 
 <#
 .SYNOPSIS
+    Gets the process template name for a project.
+
+.DESCRIPTION
+    Queries the project's capabilities to determine which process template it uses.
+
+.PARAMETER ProjectId
+    Project ID.
+
+.OUTPUTS
+    Process template name ('Agile', 'Scrum', 'CMMI', 'Basic', or 'Unknown').
+
+.EXAMPLE
+    Get-AdoProjectProcessTemplate "abc-123"
+#>
+function Get-AdoProjectProcessTemplate {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ProjectId
+    )
+    
+    try {
+        # Get project capabilities
+        $project = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($ProjectId))?includeCapabilities=true"
+        $templateId = $project.capabilities.processTemplate.templateTypeId
+        
+        # Query available processes to get the name for this ID
+        # This handles servers where GUIDs may differ from cloud defaults
+        try {
+            $processes = Invoke-AdoRest GET "/_apis/process/processes"
+            $matchedProcess = $processes.value | Where-Object { $_.id -eq $templateId }
+            
+            if ($matchedProcess) {
+                Write-Host "[INFO] Project uses $($matchedProcess.name) process template (ID: $templateId)" -ForegroundColor Cyan
+                return $matchedProcess.name
+            }
+        }
+        catch {
+            Write-Verbose "[Get-AdoProjectProcessTemplate] Could not query process list: $_"
+        }
+        
+        # Fallback: Try standard cloud GUIDs (for backward compatibility)
+        $standardTemplateMap = @{
+            '6b724908-ef14-45cf-84f8-768b5384da45' = 'Agile'      # Standard cloud GUID
+            'adcc42ab-9882-485e-a3ed-7678f01f66bc' = 'Scrum'      # Standard cloud GUID
+            '27450541-8e31-4150-9947-dc59f998fc01' = 'CMMI'
+            'b8a3a935-7e91-48b8-a94c-606d37c3e9f2' = 'Basic'
+        }
+        
+        $templateName = $standardTemplateMap[$templateId]
+        if ($templateName) {
+            Write-Host "[INFO] Project uses $templateName process template (ID: $templateId)" -ForegroundColor Cyan
+            return $templateName
+        } else {
+            Write-Warning "[Get-AdoProjectProcessTemplate] Unknown process template ID: $templateId"
+            return 'Unknown'
+        }
+    }
+    catch {
+        Write-Warning "[Get-AdoProjectProcessTemplate] Failed to detect process template: $_"
+        return 'Unknown'
+    }
+}
+
+<#
+.SYNOPSIS
     Gets available work item types for a project.
 
 .DESCRIPTION
@@ -657,15 +761,62 @@ function Get-AdoWorkItemTypes {
     try {
         $projEscaped = [uri]::EscapeDataString($Project)
         $types = Invoke-AdoRest GET "/$projEscaped/_apis/wit/workitemtypes"
-        $typeNames = $types.value | ForEach-Object { $_.name }
-        Write-Host "[INFO] Available work item types in project '$Project': $($typeNames -join ', ')" -ForegroundColor Cyan
-        return $typeNames
+        
+        # Handle different response formats
+        $typeNames = @()
+        
+        if ($types -is [array]) {
+            # Direct array response
+            Write-Verbose "[Get-AdoWorkItemTypes] Response is direct array with $($types.Count) items"
+            $typeNames = $types | ForEach-Object { 
+                if ($_.PSObject.Properties['name']) { $_.name }
+                elseif ($_.PSObject.Properties['referenceName']) { $_.referenceName }
+            }
+        } 
+        elseif ($types.PSObject.Properties['value']) {
+            # Wrapped in 'value' property
+            Write-Verbose "[Get-AdoWorkItemTypes] Response wrapped in 'value' property with $($types.value.Count) items"
+            $typeNames = $types.value | ForEach-Object { 
+                if ($_.PSObject.Properties['name']) { $_.name }
+                elseif ($_.PSObject.Properties['referenceName']) { $_.referenceName }
+            }
+        } 
+        elseif ($types.PSObject.Properties['count']) {
+            # Wrapped in 'count' property
+            Write-Verbose "[Get-AdoWorkItemTypes] Response wrapped in 'count' property"
+            $typeNames = $types.count | ForEach-Object { 
+                if ($_.PSObject.Properties['name']) { $_.name }
+                elseif ($_.PSObject.Properties['referenceName']) { $_.referenceName }
+            }
+        } 
+        else {
+            # Fallback: try direct properties
+            Write-Verbose "[Get-AdoWorkItemTypes] Response format unknown, attempting direct enumeration"
+            Write-Verbose "[Get-AdoWorkItemTypes] Response type: $($types.GetType().FullName)"
+            Write-Verbose "[Get-AdoWorkItemTypes] Properties: $($types.PSObject.Properties.Name -join ', ')"
+            
+            $typeNames = @($types) | ForEach-Object { 
+                if ($_.PSObject.Properties['name']) { $_.name }
+                elseif ($_.PSObject.Properties['referenceName']) { $_.referenceName }
+            }
+        }
+        
+        # Filter out nulls and empty strings
+        $typeNames = @($typeNames | Where-Object { $_ })
+        
+        if ($typeNames.Count -gt 0) {
+            Write-Host "[INFO] Available work item types in project '$Project': $($typeNames -join ', ')" -ForegroundColor Cyan
+            return $typeNames
+        } else {
+            throw "No work item types found in response"
+        }
     }
     catch {
         Write-Warning "[Get-AdoWorkItemTypes] Failed to get work item types: $_"
-        # For Agile process template, return common Agile types
-        Write-Host "[INFO] Using default Agile work item types" -ForegroundColor Yellow
-        return @('User Story', 'Task', 'Bug', 'Epic', 'Feature', 'Test Case')
+        Write-Verbose "[Get-AdoWorkItemTypes] Error details: $($_.Exception.Message)"
+        # Return empty array - let caller decide defaults based on process template
+        Write-Host "[WARN] Could not detect work item types automatically" -ForegroundColor Yellow
+        return @()
     }
 }
 
@@ -696,26 +847,64 @@ function Ensure-AdoTeamTemplates {
         [string]$Team
     )
     
-    # Wait a moment for project to fully initialize work item types
-    Write-Host "[INFO] Waiting 3 seconds for project work item types to initialize..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 3
+    # Wait longer for project to fully initialize work item types after creation
+    Write-Host "[INFO] Waiting 10 seconds for project work item types to initialize..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 10
     
-    # Get available work item types for this project
-    Write-Host "[INFO] Detecting available work item types for project '$Project'..." -ForegroundColor Cyan
-    $availableTypes = Get-AdoWorkItemTypes -Project $Project
-    Write-Host "[INFO] Detected work item types: $($availableTypes -join ', ')" -ForegroundColor Green
+    # Get project details to determine process template
+    Write-Host "[INFO] Detecting process template for project '$Project'..." -ForegroundColor Cyan
+    $projDetails = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))?includeCapabilities=true"
+    $processTemplate = Get-AdoProjectProcessTemplate -ProjectId $projDetails.id
     
-    # Determine which story type to use
-    $storyType = if ($availableTypes -contains 'User Story') {
-        'User Story'
-    } elseif ($availableTypes -contains 'Product Backlog Item') {
-        'Product Backlog Item'  # Scrum template
-    } elseif ($availableTypes -contains 'Issue') {
-        'Issue'  # Basic template
-    } elseif ($availableTypes -contains 'Requirement') {
-        'Requirement'  # CMMI template
-    } else {
-        $null
+    # Determine work item types based on process template
+    $availableTypes = switch ($processTemplate) {
+        'Agile' {
+            @('User Story', 'Task', 'Bug', 'Epic', 'Feature', 'Test Case')
+        }
+        'Scrum' {
+            @('Product Backlog Item', 'Task', 'Bug', 'Epic', 'Feature', 'Test Case', 'Impediment')
+        }
+        'CMMI' {
+            @('Requirement', 'Task', 'Bug', 'Epic', 'Feature', 'Test Case', 'Issue', 'Risk', 'Review', 'Change Request')
+        }
+        'Basic' {
+            @('Issue', 'Task', 'Epic')
+        }
+        default {
+            # Unknown - try detection, fallback to common types
+            Write-Host "[INFO] Unknown process template, attempting work item type detection..." -ForegroundColor Yellow
+            $detected = Get-AdoWorkItemTypes -Project $Project
+            if ($detected -and $detected.Count -gt 0) {
+                $detected
+            } else {
+                # Last resort: include all common types
+                @('User Story', 'Product Backlog Item', 'Task', 'Bug', 'Epic', 'Feature', 'Test Case', 'Issue', 'Requirement')
+            }
+        }
+    }
+    
+    Write-Host "[INFO] Using work item types for $processTemplate template: $($availableTypes -join ', ')" -ForegroundColor Green
+    
+    # Determine which story type to use based on process template
+    $storyType = switch ($processTemplate) {
+        'Agile' { 'User Story' }
+        'Scrum' { 'Product Backlog Item' }
+        'CMMI' { 'Requirement' }
+        'Basic' { 'Issue' }
+        default {
+            # Fallback: try to find any story-like type
+            if ($availableTypes -contains 'User Story') {
+                'User Story'
+            } elseif ($availableTypes -contains 'Product Backlog Item') {
+                'Product Backlog Item'
+            } elseif ($availableTypes -contains 'Requirement') {
+                'Requirement'
+            } elseif ($availableTypes -contains 'Issue') {
+                'Issue'
+            } else {
+                $null
+            }
+        }
     }
     
     $base = "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/wit/templates"
@@ -730,73 +919,311 @@ function Ensure-AdoTeamTemplates {
         $byName = @{}
     }
     
-    # Create story/requirement template if type is available
-    if ($storyType -and -not $byName.ContainsKey("$storyType – DoR/DoD")) {
-        Write-Host "[INFO] Creating $storyType template" -ForegroundColor Cyan
-        Write-Verbose "[Ensure-AdoTeamTemplates] Using work item type: $storyType"
-        Write-Verbose "[Ensure-AdoTeamTemplates] Template API endpoint: $base"
+    # Define comprehensive work item templates for all Agile types
+    $templateDefinitions = @{
+        'User Story' = @{
+            name = 'User Story – DoR/DoD'
+            description = 'User Story template with acceptance criteria and DoR/DoD checklists'
+            fields = @{
+                'System.Title' = 'As a <role>, I want <capability> so that <outcome>'
+                'System.Description' = @"
+## User Story Context
+
+**Business Value**: Why is this story important?
+
+**Assumptions**: What assumptions are we making?
+
+## Definition of Ready
+- [ ] Story is well-defined and understood
+- [ ] Acceptance criteria are clear and testable
+- [ ] Dependencies identified and resolved
+- [ ] Story is appropriately sized (fits in one sprint)
+- [ ] UI/UX designs available (if applicable)
+
+## Definition of Done
+- [ ] Code is complete and peer reviewed
+- [ ] Unit tests written and passing
+- [ ] Integration tests passing
+- [ ] Documentation updated
+- [ ] Deployed to test environment
+- [ ] Acceptance criteria verified
+- [ ] Product Owner acceptance
+"@
+                'Microsoft.VSTS.Common.AcceptanceCriteria' = @"
+**Scenario 1**: Happy path
+- **Given** I am a <user type>
+- **When** I <action>
+- **Then** I should <expected result>
+
+**Scenario 2**: Edge case
+- **Given** <precondition>
+- **When** <action>
+- **Then** <expected result>
+"@
+                'Microsoft.VSTS.Common.Priority' = 2
+                'Microsoft.VSTS.Scheduling.StoryPoints' = 3
+                'System.Tags' = 'template;user-story;team-standard'
+            }
+        }
         
-        try {
-            $templateBody = @{
-                name              = "$storyType – DoR/DoD"
-                description       = 'Template with Acceptance Criteria'
-                workItemTypeName  = $storyType
-                fields            = @{
-                    'System.Title'                                = 'As a <role>, I want <capability> so that <outcome>'
-                    'System.Description'                          = "## Context`n`n## Definition of Ready`n- [ ] ...`n`n## Definition of Done`n- [ ] ..."
-                    'Microsoft.VSTS.Common.Priority'              = 2
-                    'System.Tags'                                 = "template;$($storyType.ToLower().Replace(' ', '-'))"
-                }
+        'Task' = @{
+            name = 'Task – Implementation'
+            description = 'Development task template with implementation checklist'
+            fields = @{
+                'System.Title' = '[TASK] <brief description of work>'
+                'System.Description' = @"
+## Task Description
+
+**Objective**: What needs to be accomplished?
+
+**Technical Approach**: Brief overview of implementation approach
+
+## Implementation Checklist
+- [ ] Design approach reviewed
+- [ ] Implementation completed
+- [ ] Code follows team standards
+- [ ] Unit tests written and passing
+- [ ] Code reviewed and approved
+- [ ] Documentation updated
+- [ ] Integration testing completed
+
+## Dependencies
+- Depends on: <list any blocking work items>
+- Blocks: <list any work items waiting on this>
+
+## Acceptance Criteria
+- [ ] <specific deliverable 1>
+- [ ] <specific deliverable 2>
+- [ ] <specific deliverable 3>
+"@
+                'Microsoft.VSTS.Common.Priority' = 2
+                'Microsoft.VSTS.Scheduling.RemainingWork' = 8
+                'System.Tags' = 'template;task;implementation'
             }
-            
-            # Add AcceptanceCriteria if the type supports it
-            if ($storyType -in @('User Story', 'Product Backlog Item')) {
-                $templateBody.fields['Microsoft.VSTS.Common.AcceptanceCriteria'] = "- [ ] Given ... When ... Then ..."
-            }
-            
-            Write-Verbose "[Ensure-AdoTeamTemplates] Template body: $($templateBody | ConvertTo-Json -Depth 5)"
-            Invoke-AdoRest POST $base -Body $templateBody | Out-Null
-            Write-Host "[SUCCESS] Created $storyType template" -ForegroundColor Green
         }
-        catch {
-            Write-Warning "Failed to create $storyType template: $_"
-            Write-Host "[DEBUG] Error details: $($_.Exception.Message)" -ForegroundColor Yellow
-            if ($_.Exception.Response) {
-                Write-Host "[DEBUG] HTTP Status: $($_.Exception.Response.StatusCode)" -ForegroundColor Yellow
+        
+        'Bug' = @{
+            name = 'Bug – Triaging & Resolution'
+            description = 'Bug template with structured reproduction steps and triage information'
+            fields = @{
+                'System.Title' = '[BUG] <brief description of the issue>'
+                'Microsoft.VSTS.TCM.ReproSteps' = @"
+## Environment
+- **Browser/OS**: 
+- **Application Version**: 
+- **User Role**: 
+
+## Steps to Reproduce
+1. Navigate to <URL or screen>
+2. Click on <element>
+3. Enter <data>
+4. Observe the result
+
+## Expected Behavior
+Describe what should happen
+
+## Actual Behavior
+Describe what actually happens
+
+## Additional Information
+- **Frequency**: Always / Sometimes / Rarely
+- **Impact**: <business impact description>
+- **Workaround**: <any known workarounds>
+"@
+                'Microsoft.VSTS.Common.Severity' = '3 - Medium'
+                'Microsoft.VSTS.Common.Priority' = 2
+                'System.Tags' = 'template;bug;triage-needed'
             }
         }
-    }
-    elseif (-not $storyType) {
-        Write-Warning "No suitable story/requirement work item type found. Available types: $($availableTypes -join ', ')"
-        Write-Host "[INFO] Skipping work item template creation" -ForegroundColor Yellow
-    }
-    else {
-        Write-Host "[INFO] $storyType template already exists" -ForegroundColor Gray
+        
+        'Epic' = @{
+            name = 'Epic – Strategic Initiative'
+            description = 'Epic template for large strategic initiatives with success metrics'
+            fields = @{
+                'System.Title' = '[EPIC] <strategic initiative name>'
+                'System.Description' = @"
+## Epic Overview
+
+**Business Objective**: High-level business goal this epic addresses
+
+**Success Metrics**: How will we measure success?
+- Metric 1: <measurable outcome>
+- Metric 2: <measurable outcome>
+
+## Scope & Features
+### In Scope
+- Feature 1: <description>
+- Feature 2: <description>
+
+### Out of Scope
+- <what's explicitly not included>
+
+## Dependencies & Risks
+### Dependencies
+- External dependency 1
+- Internal dependency 2
+
+### Risks
+- Risk 1: <description and mitigation>
+- Risk 2: <description and mitigation>
+
+## Timeline & Milestones
+- **Phase 1**: <milestone> - <target date>
+- **Phase 2**: <milestone> - <target date>
+- **Go Live**: <target date>
+"@
+                'Microsoft.VSTS.Common.Priority' = 1
+                'Microsoft.VSTS.Scheduling.Effort' = 20
+                'System.Tags' = 'template;epic;strategic;roadmap'
+            }
+        }
+        
+        'Feature' = @{
+            name = 'Feature – Product Capability'
+            description = 'Feature template for product capabilities with user value'
+            fields = @{
+                'System.Title' = '[FEATURE] <feature name>'
+                'System.Description' = @"
+## Feature Summary
+
+**User Value**: What value does this feature provide to users?
+
+**Target Users**: Who will use this feature?
+
+## Functional Requirements
+### Core Capabilities
+- Capability 1: <description>
+- Capability 2: <description>
+
+### User Experience
+- <key UX considerations>
+
+## Technical Requirements
+### Performance
+- Response time: <requirement>
+- Capacity: <requirement>
+
+### Security
+- Authentication: <requirements>
+- Authorization: <requirements>
+
+## Success Criteria
+- [ ] Feature delivers intended user value
+- [ ] Performance requirements met
+- [ ] Security requirements satisfied
+- [ ] User acceptance testing passed
+
+## Child Stories
+- Link related User Stories here
+"@
+                'Microsoft.VSTS.Common.Priority' = 2
+                'Microsoft.VSTS.Scheduling.Effort' = 13
+                'System.Tags' = 'template;feature;product;capability'
+            }
+        }
+        
+        'Test Case' = @{
+            name = 'Test Case – Quality Validation'
+            description = 'Test case template with structured test steps and validation criteria'
+            fields = @{
+                'System.Title' = '[TEST] <test scenario name>'
+                'System.Description' = @"
+## Test Objective
+**Purpose**: What are we validating with this test?
+
+**Test Type**: Unit / Integration / System / User Acceptance
+
+## Prerequisites
+- Precondition 1
+- Precondition 2
+
+## Test Data Requirements
+- Data set 1: <description>
+- Data set 2: <description>
+
+## Expected Results
+**Success Criteria**: 
+- Result 1: <expected outcome>
+- Result 2: <expected outcome>
+
+## Test Environment
+- Environment: <Dev/Test/Staging>
+- Configuration: <any special setup>
+"@
+                'Microsoft.VSTS.TCM.Steps' = @"
+<steps id="0" last="2">
+  <step id="2" type="ValidateStep">
+    <parameterizedString isformatted="true">
+      <DIV><P>1. <action description></P></DIV>
+    </parameterizedString>
+    <parameterizedString isformatted="true">
+      <DIV><P><expected result></P></DIV>
+    </parameterizedString>
+    <description/>
+  </step>
+</steps>
+"@
+                'Microsoft.VSTS.Common.Priority' = 2
+                'System.Tags' = 'template;test-case;quality'
+            }
+        }
     }
     
-    # Create Bug template if available
-    if (($availableTypes -contains 'Bug') -and -not $byName.ContainsKey('Bug – Triaging')) {
-        Write-Host "[INFO] Creating Bug template"
-        
-        try {
-            Invoke-AdoRest POST $base -Body @{
-                name              = 'Bug – Triaging'
-                description       = 'Bug template with repro steps'
-                workItemTypeName  = 'Bug'
-                fields            = @{
-                    'System.Title'                    = '[BUG] <brief>'
-                    'Microsoft.VSTS.TCM.ReproSteps'   = "### Expected`n### Actual`n### Steps`n1. ..."
-                    'Microsoft.VSTS.Common.Severity'  = '3 - Medium'
-                    'Microsoft.VSTS.Common.Priority'  = 2
-                    'System.Tags'                     = 'template;bug'
+    # Create templates for all available work item types
+    $createdCount = 0
+    $skippedCount = 0
+    
+    Write-Host "[INFO] Creating work item templates for $processTemplate process..." -ForegroundColor Cyan
+    Write-Verbose "[Ensure-AdoTeamTemplates] Available types in project: $($availableTypes -join ', ')"
+    Write-Verbose "[Ensure-AdoTeamTemplates] Template API endpoint: $base"
+    
+    foreach ($workItemType in $availableTypes) {
+        if ($templateDefinitions.ContainsKey($workItemType)) {
+            $template = $templateDefinitions[$workItemType]
+            
+            # Check if template already exists
+            if (-not $byName.ContainsKey($template.name)) {
+                Write-Host "[INFO] Creating $workItemType template..." -ForegroundColor Cyan
+                
+                try {
+                    $templateBody = @{
+                        name = $template.name
+                        description = $template.description
+                        workItemTypeName = $workItemType
+                        fields = $template.fields
+                    }
+                    
+                    Write-Verbose "[Ensure-AdoTeamTemplates] Creating template: $($template.name)"
+                    Write-Verbose "[Ensure-AdoTeamTemplates] Template body: $($templateBody | ConvertTo-Json -Depth 5)"
+                    
+                    Invoke-AdoRest POST $base -Body $templateBody | Out-Null
+                    Write-Host "[SUCCESS] Created $workItemType template: $($template.name)" -ForegroundColor Green
+                    $createdCount++
                 }
-            } | Out-Null
-            Write-Host "[SUCCESS] Created Bug template" -ForegroundColor Green
+                catch {
+                    Write-Warning "Failed to create $workItemType template: $_"
+                    Write-Verbose "[AzureDevOps] Error details: $($_.Exception.Message)"
+                    if ($_.Exception.Response) {
+                        Write-Verbose "[AzureDevOps] HTTP Status: $($_.Exception.Response.StatusCode)"
+                    }
+                }
+            }
+            else {
+                Write-Host "[INFO] $workItemType template already exists: $($template.name)" -ForegroundColor Gray
+                $skippedCount++
+            }
         }
-        catch {
-            Write-Warning "Failed to create Bug template: $_"
+        else {
+            Write-Host "[INFO] No template defined for work item type: $workItemType" -ForegroundColor Yellow
         }
     }
+    
+    # Summary
+    Write-Host ""
+    Write-Host "[INFO] Work item template creation summary:" -ForegroundColor Cyan
+    Write-Host "  ✅ Created: $createdCount templates" -ForegroundColor Green
+    Write-Host "  ⏭️ Skipped: $skippedCount templates (already exist)" -ForegroundColor Yellow
+    Write-Host "  📋 Available work item types: $($availableTypes -join ', ')" -ForegroundColor Gray
 }
 
 <#
@@ -1191,6 +1618,7 @@ Export-ModuleMember -Function @(
     'Ensure-AdoArea',
     'Ensure-AdoProjectWiki',
     'Upsert-AdoWikiPage',
+    'Get-AdoProjectProcessTemplate',
     'Get-AdoWorkItemTypes',
     'Ensure-AdoTeamTemplates',
     'Ensure-AdoRepository',

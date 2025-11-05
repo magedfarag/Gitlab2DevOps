@@ -206,20 +206,45 @@ git credential reject
 
 ## 📋 Created Work Item Templates
 
+The tool creates comprehensive work item templates for all Agile process types:
+
 ### User Story Template
-- Title
-- Description
-- Acceptance Criteria
-- Priority
-- Effort
+- **Name**: User Story – DoR/DoD
+- **Fields**: Title, Description, Acceptance Criteria, Priority, Story Points
+- **Features**: Definition of Ready/Done checklists, Gherkin scenarios
+- **Tags**: template;user-story;team-standard
+
+### Task Template  
+- **Name**: Task – Implementation
+- **Fields**: Title, Description, Priority, Remaining Work
+- **Features**: Implementation checklist, dependency tracking
+- **Tags**: template;task;implementation
 
 ### Bug Template
-- Title
-- Repro Steps
-- Expected Behavior
-- Actual Behavior
-- Severity
-- Environment
+- **Name**: Bug – Triaging & Resolution
+- **Fields**: Title, Repro Steps, Severity, Priority
+- **Features**: Structured reproduction steps, environment info, triage fields
+- **Tags**: template;bug;triage-needed
+
+### Epic Template
+- **Name**: Epic – Strategic Initiative
+- **Fields**: Title, Description, Priority, Effort
+- **Features**: Success metrics, scope definition, risk assessment
+- **Tags**: template;epic;strategic;roadmap
+
+### Feature Template
+- **Name**: Feature – Product Capability
+- **Fields**: Title, Description, Priority, Effort
+- **Features**: User value definition, requirements breakdown
+- **Tags**: template;feature;product;capability
+
+### Test Case Template
+- **Name**: Test Case – Quality Validation
+- **Fields**: Title, Description, Test Steps, Priority
+- **Features**: Structured test scenarios, prerequisites, validation criteria
+- **Tags**: template;test-case;quality
+
+**Usage**: Use these templates when creating new work items to ensure consistency and completeness across your team.
 
 ## 💡 Pro Tips
 

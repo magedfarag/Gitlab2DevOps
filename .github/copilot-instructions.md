@@ -29,25 +29,40 @@ When PowerShell fails with SSL errors, the code **automatically falls back to cu
 
 **Never remove or skip `-SkipCertificateCheck`** from Azure DevOps API calls.
 
-## Work Item Type Detection
+### Expected 404 Errors
+Some 404 errors are **normal and expected** during idempotent operations:
+- **Area checks**: `GET /areas/{name}` returns 404 if area doesn't exist yet (expected)
+- **Graph API**: Returns 404 on some on-premise servers (feature not available)
+- **Repository checks**: Returns 404 for new repositories
 
-Projects use **Agile process template** (ID: `6b724908-ef14-45cf-84f8-768b5384da45`). Work item types must be **detected dynamically**:
+These are handled gracefully by try-catch blocks:
+- 404 errors on GET requests are shown in **DarkYellow** (not Red)
+- No "Request failed permanently" message for expected 404s
+- Users are notified at the start that 404s are normal: `[NOTE] You may see some 404 errors - these are normal when checking if resources already exist`
+
+## Work Item Type Detection and Process Templates
+
+Projects use **Agile process template by default**. Process template GUIDs are **queried dynamically** from the server because they differ between Azure DevOps Cloud and on-premise servers:
+
+**CRITICAL**: Process template GUIDs vary by server! Always resolve template names to GUIDs by querying `/_apis/process/processes`.
 
 ```powershell
-# Get available work item types for the project
-$availableTypes = Get-AdoWorkItemTypes -Project $ProjectName
+# Get available processes and find Agile
+$processes = Invoke-AdoRest GET "/_apis/process/processes"
+$agile = $processes.value | Where-Object { $_.name -eq 'Agile' }
+$templateId = $agile.id  # Use this GUID for project creation
 
-# Determine story type based on availability
-$storyType = if ($availableTypes -contains 'User Story') {
-    'User Story'  # Agile
-} elseif ($availableTypes -contains 'Product Backlog Item') {
-    'Product Backlog Item'  # Scrum
-} elseif ($availableTypes -contains 'Issue') {
-    'Issue'  # Basic
-}
+# Create project with correct template
+Ensure-AdoProject -Name "MyProject" -ProcessTemplate "Agile"  # Function resolves name to GUID
 ```
 
-Wait 2-3 seconds after project creation before querying work item types to allow initialization.
+**Work Item Types by Process Template**:
+- **Agile**: User Story, Task, Bug, Epic, Feature, Test Case, Issue
+- **Scrum**: Product Backlog Item, Task, Bug, Epic, Feature, Test Case, Impediment
+- **CMMI**: Requirement, Task, Bug, Epic, Feature, Test Case, Issue, Risk, Review, Change Request
+- **Basic**: Issue, Task, Epic
+
+Wait **10 seconds** after project creation before querying work item types to allow initialization.
 
 ## Migration Workflow Separation
 
@@ -55,7 +70,7 @@ Wait 2-3 seconds after project creation before querying work item types to allow
 - ✅ Project with Agile template
 - ✅ Areas (Frontend, Backend, Infrastructure, Documentation)
 - ✅ Wiki with welcome page
-- ✅ Work item templates (User Story, Bug)
+- ✅ Comprehensive work item templates (User Story, Task, Bug, Epic, Feature, Test Case)
 - ✅ Empty repository
 - ❌ **Skips branch policies** (no branches yet)
 

@@ -206,14 +206,29 @@ function Write-MigrationReport {
     New-LogFilePath $logsDir "migration"
 #>
 function New-LogFilePath {
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName='ByDir')]
     [OutputType([string])]
     param(
-        [Parameter(Mandatory)]
+        # Existing usage: provide logs directory directly
+        [Parameter(Mandatory, ParameterSetName='ByDir')]
         [string]$LogsDir,
         
-        [string]$Prefix = "log"
+        [Parameter(ParameterSetName='ByDir')]
+        [string]$Prefix = "log",
+        
+        # Compatibility usage (as expected by some tests)
+        [Parameter(Mandatory, ParameterSetName='ByProject')]
+        [string]$ProjectName,
+        
+        [Parameter(Mandatory, ParameterSetName='ByProject')]
+        [string]$Operation
     )
+    
+    if ($PSCmdlet.ParameterSetName -eq 'ByProject') {
+        $paths = Get-ProjectPaths -ProjectName $ProjectName
+        $LogsDir = $paths.logsDir
+        $Prefix = $Operation
+    }
     
     if (-not (Test-Path $LogsDir)) {
         New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
@@ -246,16 +261,36 @@ function New-LogFilePath {
     New-ReportFilePath $reportsDir "migration-summary"
 #>
 function New-ReportFilePath {
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName='ByDir')]
     [OutputType([string])]
     param(
-        [Parameter(Mandatory)]
+        # Existing usage: provide reports directory directly
+        [Parameter(Mandatory, ParameterSetName='ByDir')]
         [string]$ReportsDir,
         
+        [Parameter(ParameterSetName='ByDir')]
         [string]$Prefix = "report",
         
-        [string]$Extension = "json"
+        [Parameter(ParameterSetName='ByDir')]
+        [string]$Extension = "json",
+        
+        # Compatibility usage: compute path based on project and report type
+        [Parameter(Mandatory, ParameterSetName='ByProject')]
+        [string]$ProjectName,
+        
+        [Parameter(Mandatory, ParameterSetName='ByProject')]
+        [ValidateSet('preflight','migration')]
+        [string]$ReportType
     )
+    
+    if ($PSCmdlet.ParameterSetName -eq 'ByProject') {
+        $paths = Get-ProjectPaths -ProjectName $ProjectName
+        $ReportsDir = $paths.reportsDir
+        switch ($ReportType) {
+            'preflight' { return (Join-Path $ReportsDir 'preflight-report.json') }
+            'migration' { return (Join-Path $ReportsDir 'migration-report.json') }
+        }
+    }
     
     if (-not (Test-Path $ReportsDir)) {
         New-Item -ItemType Directory -Path $ReportsDir -Force | Out-Null
@@ -368,6 +403,7 @@ function New-RunManifest {
         parameters        = $Parameters
         environment       = @{
             powershell_version = "$($PSVersionTable.PSVersion)"
+            ps_version         = "$($PSVersionTable.PSVersion)"  # compatibility alias
             os                 = [System.Environment]::OSVersion.VersionString
             machine_name       = $env:COMPUTERNAME
             user               = $env:USERNAME
@@ -418,49 +454,69 @@ function New-RunManifest {
     Update-RunManifest -RunId $runId -Status "SUCCESS" -EndTime (Get-Date)
 #>
 function Update-RunManifest {
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName='ByRunId')]
     param(
-        [Parameter(Mandatory)]
+        # Existing usage: identify manifest by run id
+        [Parameter(Mandatory, ParameterSetName='ByRunId')]
         [string]$RunId,
+        
+        # Compatibility usage: pass manifest file directly
+        [Parameter(Mandatory, ParameterSetName='ByFile')]
+        [string]$ManifestFile,
         
         [Parameter(Mandatory)]
         [ValidateSet('SUCCESS', 'FAILED', 'PARTIAL')]
         [string]$Status,
         
-        [Parameter(Mandatory)]
-        [datetime]$EndTime,
+        [Parameter(ParameterSetName='ByRunId')]
+        [Parameter(ParameterSetName='ByFile')]
+        [datetime]$EndTime = (Get-Date),
         
         [array]$Errors = @(),
         
         [array]$Warnings = @()
     )
     
-    $migrationsDir = Get-MigrationsDirectory
-    $manifestFile = Join-Path $migrationsDir "run-manifest-$RunId.json"
+    if ($PSCmdlet.ParameterSetName -eq 'ByRunId') {
+        $migrationsDir = Get-MigrationsDirectory
+        $ManifestFile = Join-Path $migrationsDir "run-manifest-$RunId.json"
+    }
     
-    if (-not (Test-Path $manifestFile)) {
-        Write-Warning "[Logging] Run manifest not found: $manifestFile"
+    if (-not (Test-Path $ManifestFile)) {
+        Write-Warning "[Logging] Run manifest not found: $ManifestFile"
         return
     }
     
     # Read existing manifest
-    $manifest = Get-Content $manifestFile -Raw | ConvertFrom-Json
+    $manifest = Get-Content $ManifestFile -Raw | ConvertFrom-Json
     
     # Calculate duration
-    $startTime = [datetime]::ParseExact($manifest.start_time, 'yyyy-MM-dd HH:mm:ss', $null)
+    # Be robust to different date formats (ISO 8601 or custom)
+    try {
+        $startTime = [datetime]::Parse($manifest.start_time, [System.Globalization.CultureInfo]::InvariantCulture)
+    }
+    catch {
+        $startTime = [datetime]::ParseExact($manifest.start_time, 'yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture)
+    }
     $duration = $EndTime - $startTime
     
+    # Helper to set or add a property on PSCustomObject
+    function Set-OrAddProperty([pscustomobject]$obj, [string]$name, $value) {
+        $prop = $obj.PSObject.Properties[$name]
+        if ($prop) { $obj.$name = $value } else { $obj | Add-Member -NotePropertyName $name -NotePropertyValue $value }
+    }
+    
     # Update fields
-    $manifest.status = $Status
-    $manifest.end_time = $EndTime.ToString('yyyy-MM-dd HH:mm:ss')
-    $manifest.duration_seconds = [math]::Round($duration.TotalSeconds, 2)
-    $manifest.errors = $Errors
-    $manifest.warnings = $Warnings
+    Set-OrAddProperty -obj $manifest -name 'status' -value $Status
+    Set-OrAddProperty -obj $manifest -name 'end_time' -value ($EndTime.ToString('yyyy-MM-dd HH:mm:ss'))
+    Set-OrAddProperty -obj $manifest -name 'duration_seconds' -value ([math]::Round($duration.TotalSeconds, 2))
+    Set-OrAddProperty -obj $manifest -name 'errors' -value $Errors
+    Set-OrAddProperty -obj $manifest -name 'warnings' -value $Warnings
     
     # Write updated manifest
-    Write-MigrationReport -ReportFile $manifestFile -Data $manifest
+    Write-MigrationReport -ReportFile $ManifestFile -Data $manifest
     
-    Write-Verbose "[Logging] Updated run manifest: $manifestFile (Status: $Status)"
+    Write-Verbose "[Logging] Updated run manifest: $ManifestFile (Status: $Status)"
 }
 
 <#
@@ -561,17 +617,25 @@ function Write-RestCallLog {
     New-MigrationSummary -GitLabPath "group/project" -AdoProject "MyProject" -AdoRepo "my-repo" -Status "SUCCESS" -StartTime $start -EndTime $end
 #>
 function New-MigrationSummary {
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName='ByExplicit')]
     [OutputType([pscustomobject])]
     param(
-        [Parameter(Mandatory)]
+        # Existing usage
+        [Parameter(Mandatory, ParameterSetName='ByExplicit')]
         [string]$GitLabPath,
         
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName='ByExplicit')]
         [string]$AdoProject,
         
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName='ByExplicit')]
         [string]$AdoRepo,
+        
+        # Compatibility usage
+        [Parameter(Mandatory, ParameterSetName='ByCompat')]
+        [string]$SourceProject,
+        
+        [Parameter(Mandatory, ParameterSetName='ByCompat')]
+        [string]$DestProject,
         
         [Parameter(Mandatory)]
         [ValidateSet('SUCCESS', 'FAILED', 'PARTIAL')]
@@ -590,15 +654,19 @@ function New-MigrationSummary {
     
     $summary = [pscustomobject]@{
         timestamp         = $StartTime.ToString('yyyy-MM-dd HH:mm:ss')
-        gitlab_path       = $GitLabPath
-        ado_project       = $AdoProject
-        ado_repository    = $AdoRepo
+        gitlab_path       = if ($PSCmdlet.ParameterSetName -eq 'ByCompat') { $SourceProject } else { $GitLabPath }
+        ado_project       = if ($PSCmdlet.ParameterSetName -eq 'ByCompat') { $DestProject } else { $AdoProject }
+        ado_repository    = if ($PSCmdlet.ParameterSetName -eq 'ByCompat') { '' } else { $AdoRepo }
         status            = $Status
         duration_seconds  = [math]::Round($duration.TotalSeconds, 2)
         duration_minutes  = [math]::Round($duration.TotalMinutes, 2)
         start_time        = $StartTime.ToString('yyyy-MM-dd HH:mm:ss')
         end_time          = $EndTime.ToString('yyyy-MM-dd HH:mm:ss')
     }
+    
+    # Add compatibility aliases expected by some consumers/tests
+    $summary | Add-Member -NotePropertyName source_project -NotePropertyValue $summary.gitlab_path
+    $summary | Add-Member -NotePropertyName destination_project -NotePropertyValue $summary.ado_project
     
     # Add additional data
     foreach ($key in $AdditionalData.Keys) {

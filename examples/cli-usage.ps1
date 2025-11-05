@@ -1,10 +1,16 @@
 # CLI Usage Examples for Gitlab2DevOps.ps1
 # =========================================
 # This file demonstrates all CLI modes for automation scenarios.
+#
+# Documentation: See docs/cli-usage.md for detailed CLI reference
 
 # Prerequisites:
-# - Set environment variables: ADO_COLLECTION_URL, ADO_PAT, GITLAB_BASE_URL, GITLAB_PAT
-# - Or pass credentials explicitly via parameters
+# --------------
+# 1. Set environment variables (recommended):
+#    - ADO_COLLECTION_URL, ADO_PAT, GITLAB_BASE_URL, GITLAB_PAT
+# 2. Or use parameter-based credentials (see Example 12)
+# 3. Ensure Git 2.0+ is installed and in PATH
+# 4. PowerShell 5.1+ or PowerShell Core 7+
 
 # Example 1: Preflight - Download and analyze GitLab project
 # ----------------------------------------------------------
@@ -51,18 +57,34 @@
 # Force migration and recreate repository (use with caution!)
 .\Gitlab2DevOps.ps1 -Mode Migrate -Source "group/my-project" -Project "MyProject" -Force -Replace -Confirm
 
-# Example 10: BulkPrepare - Prepare multiple projects
-# ---------------------------------------------------
-# Interactive workflow to download multiple GitLab projects
-.\Gitlab2DevOps.ps1 -Mode BulkPrepare
+# Example 10: BulkMigrate from Config File - Migrate multiple projects
+# --------------------------------------------------------------------
+# Migrate multiple repositories using a configuration file
+.\Gitlab2DevOps.ps1 -Mode BulkMigrate -ConfigFile "bulk-migration-config.json"
 
-# Example 11: BulkMigrate - Execute bulk migration
-# ------------------------------------------------
-# Migrate multiple projects from prepared template
-.\Gitlab2DevOps.ps1 -Mode BulkMigrate
+# Example 11: BulkMigrate with Sync - Update existing repositories
+# ----------------------------------------------------------------
+# Bulk sync mode: Update all repositories in config file
+.\Gitlab2DevOps.ps1 -Mode BulkMigrate -ConfigFile "bulk-migration-config.json" -AllowSync
 
-# Example 12: Override configuration with explicit parameters
-# -----------------------------------------------------------
+# Example 12: DryRun Preview - Preview migration without execution
+# ---------------------------------------------------------------
+# Generate preview of what will be migrated (console or HTML)
+.\Gitlab2DevOps.ps1 -Mode DryRun -ConfigFile "bulk-migration-config.json"
+
+# Save preview to HTML file
+.\Gitlab2DevOps.ps1 -Mode DryRun -ConfigFile "bulk-migration-config.json" -OutputPath "preview.html"
+
+# Example 13: Custom Process Template - Use Scrum instead of Agile
+# ----------------------------------------------------------------
+.\Gitlab2DevOps.ps1 `
+    -Mode Initialize `
+    -Source "group/my-project" `
+    -Project "MyScrumProject" `
+    -ProcessTemplate "Scrum"
+
+# Example 14: Override configuration with explicit parameters
+# ----------------------------------------------------------
 .\Gitlab2DevOps.ps1 `
     -Mode Migrate `
     -Source "group/my-project" `
@@ -75,13 +97,38 @@
     -BuildDefinitionId 123 `
     -SonarStatusContext "sonarqube"
 
-# Example 13: Skip SSL certificate validation (not recommended)
-# -------------------------------------------------------------
+# Example 15: Skip SSL certificate validation (on-premise servers)
+# ----------------------------------------------------------------
+# For on-premise Azure DevOps with self-signed certificates
 .\Gitlab2DevOps.ps1 `
     -Mode Migrate `
     -Source "group/my-project" `
     -Project "MyProject" `
     -SkipCertificateCheck
+
+# Example 16: Scheduled Sync with Error Handling
+# ----------------------------------------------
+# Perfect for scheduled tasks to keep repositories in sync
+try {
+    $result = .\Gitlab2DevOps.ps1 `
+        -Mode Migrate `
+        -Source "group/my-project" `
+        -Project "MyProject" `
+        -AllowSync `
+        -ErrorAction Stop
+    
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "✅ Sync completed successfully" -ForegroundColor Green
+        # Send success notification
+        Send-MailMessage -To "team@company.com" -Subject "Migration Sync Success" -Body "Synced successfully"
+    }
+}
+catch {
+    Write-Host "❌ Sync failed: $_" -ForegroundColor Red
+    # Send failure notification
+    Send-MailMessage -To "team@company.com" -Subject "Migration Sync Failed" -Body "Error: $_"
+    exit 1
+}
 
 # CI/CD Pipeline Examples
 # =======================

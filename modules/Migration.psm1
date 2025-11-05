@@ -478,6 +478,7 @@ function Initialize-AdoProject {
     )
     
     Write-Host "[INFO] Initializing Azure DevOps project: $DestProject" -ForegroundColor Cyan
+    Write-Host "[NOTE] You may see some 404 errors - these are normal when checking if resources already exist" -ForegroundColor Gray
     
     # Create/ensure project
     $proj = Ensure-AdoProject $DestProject
@@ -506,10 +507,12 @@ function Initialize-AdoProject {
         Write-Warning "Graph API unavailable - skipping RBAC group configuration"
     }
     
-    # Create work item areas
+    # Create work item areas (404 errors are normal - just checking if areas exist)
+    Write-Host "[INFO] Setting up work item areas..." -ForegroundColor Cyan
     @("Frontend", "Backend", "Infrastructure", "Documentation") | ForEach-Object {
         Ensure-AdoArea $DestProject $_
     }
+    Write-Host "[SUCCESS] Work item areas configured" -ForegroundColor Green
     
     # Set up project wiki
     $wiki = Ensure-AdoProjectWiki $projId $DestProject
@@ -861,7 +864,14 @@ function Invoke-SingleMigration {
             Write-Host "[INFO] Downloading repository..."
             $gitUrl = $gl.http_url_to_repo -replace '^https://', "https://oauth2:$($script:GitLabToken)@"
             $sourceRepo = Join-Path $env:TEMP ("migration-" + [Guid]::NewGuid() + ".git")
-            git clone --mirror $gitUrl $sourceRepo
+            # Respect invalid certificate for GitLab
+            try { $skipCert = (Get-SkipCertificateCheck) } catch { $skipCert = $false }
+            if ($skipCert) {
+                git -c http.sslVerify=false clone --mirror $gitUrl $sourceRepo
+            }
+            else {
+                git clone --mirror $gitUrl $sourceRepo
+            }
         }
         
         # Configure Azure DevOps remote
@@ -872,9 +882,15 @@ function Invoke-SingleMigration {
         git remote add ado $adoRemote
         git config http.$adoRemote.extraheader "AUTHORIZATION: basic $([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$($script:AdoPat)")))"
         
-        # Push to Azure DevOps
+        # Push to Azure DevOps (respect invalid certificate for on-prem ADO Server)
         Write-Host "[INFO] Pushing to Azure DevOps..."
-        git push ado --mirror
+        try { $skipCert = (Get-SkipCertificateCheck) } catch { $skipCert = $false }
+        if ($skipCert) {
+            git -c http.sslVerify=false push ado --mirror
+        }
+        else {
+            git push ado --mirror
+        }
         
         # Clean up credentials
         git config --unset-all "http.$adoRemote.extraheader" 2>$null | Out-Null
