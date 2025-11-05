@@ -526,7 +526,7 @@ Project 4: [empty line to finish]
 
 ```
 Gitlab2DevOps/
-├── devops.ps1                    # Main migration script
+├── Gitlab2DevOps.ps1             # Main migration script
 ├── .gitignore                    # Git ignore configuration
 ├── README.md                     # This documentation
 └── migrations/                   # Migration workspace

@@ -27,7 +27,7 @@ This guide explains how to use `.env` files for configuration instead of environ
 
 4. **Run the migration script:**
    ```powershell
-   .\devops.ps1
+   .\Gitlab2DevOps.ps1
    ```
    
    The script automatically detects and loads `.env` files!
@@ -40,7 +40,7 @@ Configuration is loaded in the following priority order (highest to lowest):
 
 1. **Command-line parameters** (highest priority)
    ```powershell
-   .\devops.ps1 -AdoPat "override-value"
+   .\Gitlab2DevOps.ps1 -AdoPat "override-value"
    ```
 
 2. **Environment variables**
@@ -206,13 +206,13 @@ Create separate files for different environments:
 
 ```powershell
 # Load production config
-.\devops.ps1 -EnvFile ".env.production"
+.\Gitlab2DevOps.ps1 -EnvFile ".env.production"
 
 # Load development config
-.\devops.ps1 -EnvFile ".env.development"
+.\Gitlab2DevOps.ps1 -EnvFile ".env.development"
 
 # Load from custom location
-.\devops.ps1 -EnvFile "C:\secure\config.env"
+.\Gitlab2DevOps.ps1 -EnvFile "C:\secure\config.env"
 ```
 
 ---
@@ -276,7 +276,7 @@ if (-not $isValid) {
 
 **Solutions**:
 1. Check file name is exactly `.env` (no extra extensions)
-2. Verify file is in the same directory as `devops.ps1`
+2. Verify file is in the same directory as `Gitlab2DevOps.ps1`
 3. Check for syntax errors (no spaces around `=`)
 4. Ensure values don't have trailing spaces
 
@@ -308,11 +308,11 @@ Get-ChildItem -Force | Where-Object Name -like ".env*"
 **Understanding Priority**:
 ```powershell
 # Highest priority - always used
-.\devops.ps1 -AdoPat "command-line-value"
+.\Gitlab2DevOps.ps1 -AdoPat "command-line-value"
 
 # Next priority
 $env:ADO_PAT = "environment-value"
-.\devops.ps1
+.\Gitlab2DevOps.ps1
 
 # Lowest priority - only used if not set above
 # .env file: ADO_PAT=env-file-value
@@ -351,7 +351,7 @@ Copy-Item .env.example .env
 notepad .env
 
 # 3. Run migration
-.\devops.ps1
+.\Gitlab2DevOps.ps1
 ```
 
 ### Example 2: Multiple Projects
@@ -365,8 +365,8 @@ Copy-Item .env.example .env.project-b
 # ...
 
 # Run migrations
-.\devops.ps1 -EnvFile ".env.project-a"
-.\devops.ps1 -EnvFile ".env.project-b"
+.\Gitlab2DevOps.ps1 -EnvFile ".env.project-a"
+.\Gitlab2DevOps.ps1 -EnvFile ".env.project-b"
 ```
 
 ### Example 3: CI/CD Pipeline
@@ -390,7 +390,7 @@ steps:
 - task: PowerShell@2
   displayName: 'Run Migration'
   inputs:
-    filePath: 'devops.ps1'
+    filePath: 'Gitlab2DevOps.ps1'
 ```
 
 ### Example 4: Secure Local Development
@@ -408,7 +408,7 @@ ADO_PAT=your-personal-token
 GITLAB_PAT=your-gitlab-token
 
 # 3. Run script - automatically loads both files
-.\devops.ps1
+.\Gitlab2DevOps.ps1
 ```
 
 ---
@@ -426,7 +426,7 @@ $env:ADO_PAT = "my-pat"
 $env:GITLAB_BASE_URL = "https://gitlab.com"
 $env:GITLAB_PAT = "my-token"
 
-.\devops.ps1
+.\Gitlab2DevOps.ps1
 ```
 
 ### New Method (.env File)
@@ -440,7 +440,7 @@ GITLAB_BASE_URL=https://gitlab.com
 GITLAB_PAT=my-token
 
 # 2. Run directly (no setup script needed)
-.\devops.ps1
+.\Gitlab2DevOps.ps1
 ```
 
 ### Hybrid Approach (Both)
@@ -457,7 +457,7 @@ $env:ADO_PAT = "my-personal-pat"
 $env:GITLAB_PAT = "my-personal-token"
 
 # Run script - combines both sources
-.\devops.ps1
+.\Gitlab2DevOps.ps1
 ```
 
 ---

@@ -99,12 +99,12 @@ This release represents a complete security hardening and open source preparatio
 1. **Remove hardcoded credentials** from any scripts or documentation:
    ```powershell
    # Old (v1.x) - DON'T USE
-   .\devops.ps1 -AdoPat "hardcoded-token" -GitLabToken "hardcoded-token"
+   .\Gitlab2DevOps.ps1 -AdoPat "hardcoded-token" -GitLabToken "hardcoded-token"
    
    # New (v2.0) - Use environment variables
    $env:ADO_PAT = "your-token"
    $env:GITLAB_PAT = "your-token"
-   .\devops.ps1
+   .\Gitlab2DevOps.ps1
    ```
 
 2. **Update URL parameters** if using hardcoded defaults:

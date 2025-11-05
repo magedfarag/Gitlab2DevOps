@@ -35,13 +35,13 @@ The most significant addition in v2.0.0 is the ability to **re-run migrations** 
 #### Usage:
 ```powershell
 # Single project sync
-.\devops.ps1 -Mode migrate -GitLabProject "org/repo" -AdoProject "Project" -AllowSync
+.\Gitlab2DevOps.ps1 -Mode migrate -GitLabProject "org/repo" -AdoProject "Project" -AllowSync
 
 # Bulk sync
-.\devops.ps1 -Mode bulkMigrate -ConfigFile "config.json" -AllowSync
+.\Gitlab2DevOps.ps1 -Mode bulkMigrate -ConfigFile "config.json" -AllowSync
 
 # Interactive mode with prompts
-.\devops.ps1
+.\Gitlab2DevOps.ps1
 ```
 
 📖 **Full Documentation**: See [SYNC_MODE_GUIDE.md](SYNC_MODE_GUIDE.md)
@@ -196,7 +196,7 @@ Each sync operation is now tracked in JSON format:
 Keep Azure DevOps repositories automatically updated with GitLab changes:
 ```powershell
 # Windows scheduled task
-.\devops.ps1 -Mode bulkMigrate -ConfigFile "production.json" -AllowSync
+.\Gitlab2DevOps.ps1 -Mode bulkMigrate -ConfigFile "production.json" -AllowSync
 ```
 
 ### 2. Gradual Migration Strategy
@@ -223,7 +223,7 @@ Work in both platforms simultaneously:
 ## 📈 Statistics
 
 ### Code Changes:
-- **devops.ps1**: ~150 lines modified/added (5 functions enhanced)
+- **Gitlab2DevOps.ps1**: ~150 lines modified/added (5 functions enhanced)
 - **Documentation**: ~471 new lines across 4 files
 - **Total Impact**: ~621 lines of production-ready code and documentation
 
@@ -271,7 +271,7 @@ User Request → Validation → Repo Check → Sync Decision → Execute → Tra
 **Optional**: To use new sync features:
 1. Update your environment with `.\setup-env.ps1`
 2. Review [SYNC_MODE_GUIDE.md](SYNC_MODE_GUIDE.md)
-3. Try sync mode: `.\devops.ps1 -Mode migrate ... -AllowSync`
+3. Try sync mode: `.\Gitlab2DevOps.ps1 -Mode migrate ... -AllowSync`
 
 **Recommended**: Update bulk configs to new format:
 ```json
@@ -380,7 +380,7 @@ Potential future enhancements (not committed):
 git clone https://github.com/magedfarag/Gitlab2DevOps.git
 cd Gitlab2DevOps
 .\setup-env.ps1  # Configure credentials
-.\devops.ps1     # Start interactive menu
+.\Gitlab2DevOps.ps1     # Start interactive menu
 ```
 
 **Happy Migrating! 🚀**

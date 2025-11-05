@@ -221,10 +221,10 @@ If you want each GitLab project to become a **separate Azure DevOps project** (n
 
 ```powershell
 # Migration 1: GitLab org/repo1 → Azure DevOps Project1
-.\devops.ps1 -Mode migrate -GitLabProject "org/repo1" -AdoProject "Project1"
+.\Gitlab2DevOps.ps1 -Mode migrate -GitLabProject "org/repo1" -AdoProject "Project1"
 
 # Migration 2: GitLab org/repo2 → Azure DevOps Project2
-.\devops.ps1 -Mode migrate -GitLabProject "org/repo2" -AdoProject "Project2"
+.\Gitlab2DevOps.ps1 -Mode migrate -GitLabProject "org/repo2" -AdoProject "Project2"
 ```
 
 ## Validation
@@ -246,7 +246,7 @@ cp bulk-migration-config.template.json bulk-migration-config.json
 notepad bulk-migration-config.json
 
 # 3. Run migration
-.\devops.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json"
+.\Gitlab2DevOps.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json"
 ```
 
 ## See Also

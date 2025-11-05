@@ -32,7 +32,7 @@ This open-source PowerShell tool automates the complete migration of projects fr
 ## 📊 Project Statistics
 
 ### Codebase
-- **Main Script**: `devops.ps1` (1960+ lines)
+- **Main Script**: `Gitlab2DevOps.ps1` (2200+ lines with modules)
 - **Functions**: 15+ core functions
 - **Documentation**: 500+ lines (README, CONTRIBUTING, CHANGELOG)
 - **Language**: PowerShell 5.1+
@@ -96,7 +96,7 @@ This open-source PowerShell tool automates the complete migration of projects fr
 
 ```
 Gitlab2DevOps/
-├── devops.ps1                              # Main migration script
+├── Gitlab2DevOps.ps1                       # Main migration script
 ├── README.md                               # Comprehensive documentation
 ├── CHANGELOG.md                            # Version history
 ├── CONTRIBUTING.md                         # Contribution guidelines
@@ -126,8 +126,8 @@ Gitlab2DevOps/
 .\setup-env.ps1
 
 # Validate and migrate
-.\devops.ps1 -Mode preflight -GitLabProject "org/project" -AdoProject "Project"
-.\devops.ps1 -Mode migrate -GitLabProject "org/project" -AdoProject "Project"
+.\Gitlab2DevOps.ps1 -Mode preflight -GitLabProject "org/project" -AdoProject "Project"
+.\Gitlab2DevOps.ps1 -Mode migrate -GitLabProject "org/project" -AdoProject "Project"
 ```
 
 ### Bulk Migration
@@ -148,7 +148,7 @@ notepad bulk-migration-config.json
 # }
 
 # Execute bulk migration
-.\devops.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json"
+.\Gitlab2DevOps.ps1 -Mode bulkMigrate -ConfigFile "bulk-migration-config.json"
 
 # Result: All repos created in ONE Azure DevOps project
 ```
@@ -156,7 +156,7 @@ notepad bulk-migration-config.json
 ### Advanced Configuration
 ```powershell
 # On-premises with older API version and custom CA
-.\devops.ps1 -Mode migrate `
+.\Gitlab2DevOps.ps1 -Mode migrate `
     -GitLabProject "org/project" `
     -AdoProject "Project" `
     -AdoApiVersion "6.0" `
