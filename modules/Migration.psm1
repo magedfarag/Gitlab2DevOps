@@ -44,9 +44,28 @@ function Get-PreparedProjects {
         return $prepared
     }
     
-    # Scan for single project preparations
+    # First, collect all project names that are part of bulk preparations
+    $bulkProjectNames = @{}
+    Get-ChildItem -Path $migrationsDir -Directory -Filter "bulk-prep-*" | ForEach-Object {
+        $templateFile = Join-Path $_.FullName "bulk-migration-template.json"
+        if (Test-Path $templateFile) {
+            try {
+                $template = Get-Content $templateFile | ConvertFrom-Json
+                foreach ($proj in $template.projects) {
+                    $bulkProjectNames[$proj.ado_repo_name] = $true
+                }
+            }
+            catch {
+                Write-Verbose "Failed to read template: $templateFile"
+            }
+        }
+    }
+    
+    # Scan for single project preparations (exclude those in bulk preparations)
     Get-ChildItem -Path $migrationsDir -Directory | Where-Object {
-        $_.Name -notlike "bulk-prep-*" -and (Test-Path (Join-Path $_.FullName "reports\preflight-report.json"))
+        $_.Name -notlike "bulk-prep-*" -and 
+        (Test-Path (Join-Path $_.FullName "reports\preflight-report.json")) -and
+        -not $bulkProjectNames.ContainsKey($_.Name)
     } | ForEach-Object {
         $reportFile = Join-Path $_.FullName "reports\preflight-report.json"
         try {
