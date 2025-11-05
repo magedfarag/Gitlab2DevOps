@@ -465,6 +465,18 @@ function Invoke-BulkPrepareGitLab {
     
     # Create consolidated bulk migration template
     $templateFile = Join-Path $bulkPrepDir "bulk-migration-template.json"
+    
+    # Calculate totals safely (only for successful preparations)
+    $successfulProjects = $projects | Where-Object { $_.preparation_status -eq 'SUCCESS' -and $_.repo_size_MB }
+    $totalSizeMB = if ($successfulProjects) {
+        ($successfulProjects | Measure-Object -Property repo_size_MB -Sum).Sum
+    } else { 0 }
+    
+    $successfulProjectsWithLfs = $projects | Where-Object { $_.preparation_status -eq 'SUCCESS' -and $_.lfs_size_MB }
+    $totalLfsMB = if ($successfulProjectsWithLfs) {
+        ($successfulProjectsWithLfs | Measure-Object -Property lfs_size_MB -Sum).Sum
+    } else { 0 }
+    
     $template = [pscustomobject]@{
         description         = "Bulk migration template for '$DestProjectName' - Generated $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
         destination_project = $DestProjectName
@@ -472,8 +484,8 @@ function Invoke-BulkPrepareGitLab {
             total_projects          = $ProjectPaths.Count
             successful_preparations = $successCount
             failed_preparations     = $failureCount
-            total_size_MB           = ($projects | Where-Object { $_.repo_size_MB } | Measure-Object -Property repo_size_MB -Sum).Sum
-            total_lfs_MB            = ($projects | Where-Object { $_.lfs_size_MB } | Measure-Object -Property lfs_size_MB -Sum).Sum
+            total_size_MB           = $totalSizeMB
+            total_lfs_MB            = $totalLfsMB
             preparation_time        = $startTime.ToString('yyyy-MM-dd HH:mm:ss')
         }
         projects            = $projects
@@ -494,7 +506,7 @@ function Invoke-BulkPrepareGitLab {
         successful_preparations = $successCount
         failed_preparations     = $failureCount
         success_rate            = [math]::Round(($successCount / $ProjectPaths.Count) * 100, 1)
-        total_size_MB           = ($projects | Where-Object { $_.repo_size_MB } | Measure-Object -Property repo_size_MB -Sum).Sum
+        total_size_MB           = $totalSizeMB
         results                 = $results
     }
     

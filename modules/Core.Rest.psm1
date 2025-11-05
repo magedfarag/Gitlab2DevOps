@@ -242,33 +242,41 @@ function New-NormalizedError {
     }
     
     # Try to extract HTTP status and response body
-    if ($actualException -and $actualException.Response) {
-        try {
-            $status = [int]$actualException.Response.StatusCode.value__
-        }
-        catch {
-            # Status code not available
-        }
-        
-        # Try to extract error message from response body
-        try {
-            $reader = New-Object System.IO.StreamReader($actualException.Response.GetResponseStream())
-            $reader.BaseStream.Position = 0
-            $body = $reader.ReadToEnd() | ConvertFrom-Json -ErrorAction SilentlyContinue
-            
-            if ($body.message) {
-                $message = $body.message
+    try {
+        if ($actualException -and (Get-Member -InputObject $actualException -Name 'Response' -MemberType Properties)) {
+            if ($actualException.Response) {
+                try {
+                    $status = [int]$actualException.Response.StatusCode.value__
+                }
+                catch {
+                    # Status code not available
+                }
+                
+                # Try to extract error message from response body
+                try {
+                    $reader = New-Object System.IO.StreamReader($actualException.Response.GetResponseStream())
+                    $reader.BaseStream.Position = 0
+                    $body = $reader.ReadToEnd() | ConvertFrom-Json -ErrorAction SilentlyContinue
+                    
+                    if ($body.message) {
+                        $message = $body.message
+                    }
+                    elseif ($body.error) {
+                        $message = $body.error
+                    }
+                    elseif ($body.error_description) {
+                        $message = $body.error_description
+                    }
+                }
+                catch {
+                    # Keep original message
+                }
             }
-            elseif ($body.error) {
-                $message = $body.error
-            }
-            elseif ($body.error_description) {
-                $message = $body.error_description
-            }
         }
-        catch {
-            # Keep original message
-        }
+    }
+    catch {
+        # If we can't access Response property, keep original error message
+        Write-Verbose "[Core.Rest] Could not extract response details: $_"
     }
     
     return @{
