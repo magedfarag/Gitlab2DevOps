@@ -406,6 +406,71 @@ function Invoke-RestWithRetry {
                 Write-Verbose "[REST] ✗ $Side $Method $maskedUri → $status"
             }
             
+            # Fallback to curl for connection issues when SkipCertificateCheck is enabled
+            # PowerShell's Invoke-RestMethod sometimes fails with SSL even with -SkipCertificateCheck
+            $isConnectionError = $_.Exception.Message -match "connection was forcibly closed|Unable to read data from the transport|SSL|certificate"
+            
+            if ($script:SkipCertificateCheck -and $status -eq 0 -and $isConnectionError) {
+                
+                if ($attempt -eq 1) {
+                    Write-Warning "[$Side] Invoke-RestMethod connection issue detected - falling back to curl"
+                }
+                
+                try {
+                    # Build curl command
+                    $curlArgs = @('-k', '-s', '-X', $Method, '--max-time', '30')
+                    
+                    # Add headers
+                    foreach ($key in $Headers.Keys) {
+                        $curlArgs += '-H'
+                        $curlArgs += "$key`: $($Headers[$key])"
+                    }
+                    
+                    # Add body for POST/PUT/PATCH
+                    if ($Body -and $Method -in @('POST', 'PUT', 'PATCH')) {
+                        $curlArgs += '-H'
+                        $curlArgs += 'Content-Type: application/json'
+                        $curlArgs += '-d'
+                        $curlArgs += $Body
+                    }
+                    
+                    $curlArgs += $Uri
+                    
+                    if ($script:LogRestCalls) {
+                        Write-Verbose "[REST] Using curl fallback: curl $($curlArgs -join ' ')"
+                    }
+                    
+                    # Execute curl and filter progress output
+                    $curlOutput = & curl @curlArgs 2>&1 | Where-Object { 
+                        $_ -is [string] -and 
+                        $_ -notmatch '^\s*%' -and 
+                        $_ -notmatch '^\s*Total' -and 
+                        $_ -notmatch '^\s*Dload' -and 
+                        $_ -notmatch '^\s*0\s+0' -and 
+                        $_ -notmatch '^\s*100\s+' -and
+                        $_.Trim() -ne ''
+                    }
+                    
+                    $jsonString = $curlOutput -join ''
+                    
+                    if ([string]::IsNullOrWhiteSpace($jsonString)) {
+                        throw "Empty response from curl"
+                    }
+                    
+                    $response = $jsonString | ConvertFrom-Json
+                    
+                    if ($script:LogRestCalls) {
+                        Write-Verbose "[REST] ✓ $Side $Method (curl) → 200"
+                    }
+                    
+                    return $response
+                }
+                catch {
+                    Write-Verbose "[REST] curl fallback failed: $_"
+                    # Fall through to normal error handling
+                }
+            }
+            
             # Retry on transient failures
             $shouldRetry = $status -in @(429, 500, 502, 503, 504) -and $attempt -lt $maxAttempts
             
@@ -500,7 +565,17 @@ function Invoke-AdoRest {
     
     $api = if ($Preview) { "$script:AdoApiVersion-preview.1" } else { $script:AdoApiVersion }
     
-    $queryString = if ($Path -like '*api-version=*') { '' } else { "?api-version=$api" }
+    # Determine query string separator based on whether Path already has query parameters
+    if ($Path -like '*api-version=*') {
+        $queryString = ''
+    }
+    elseif ($Path -like '*`?*') {
+        $queryString = "&api-version=$api"
+    }
+    else {
+        $queryString = "?api-version=$api"
+    }
+    
     $uri = $script:CollectionUrl.TrimEnd('/') + $Path + $queryString
     
     if ($null -ne $Body -and ($Body -isnot [string])) {

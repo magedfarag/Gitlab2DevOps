@@ -307,7 +307,16 @@ function Get-AdoProjectDescriptor {
         [string]$ProjectId
     )
     
-    (Invoke-AdoRest GET "/_apis/graph/descriptors/$ProjectId").value
+    try {
+        $result = Invoke-AdoRest GET "/_apis/graph/descriptors/$ProjectId"
+        return $result.value
+    }
+    catch {
+        # Graph API may not be available or may require different permissions
+        Write-Verbose "[Get-AdoProjectDescriptor] Graph API unavailable for project $ProjectId : $_"
+        Write-Warning "Graph API not accessible. Some features (RBAC groups, security) may not work."
+        return $null
+    }
 }
 
 <#

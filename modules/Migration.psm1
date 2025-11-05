@@ -484,19 +484,27 @@ function Initialize-AdoProject {
     $projId = $proj.id
     $desc = Get-AdoProjectDescriptor $projId
     
-    # Get built-in groups
-    $descContrib = Get-AdoBuiltInGroupDescriptor $desc "Contributors"
-    $descProjAdm = Get-AdoBuiltInGroupDescriptor $desc "Project Administrators"
-    
-    # Create custom groups
-    $grpDev = Ensure-AdoGroup $desc "Dev"
-    $grpQA = Ensure-AdoGroup $desc "QA"
-    $grpBA = Ensure-AdoGroup $desc "BA"
-    
-    # Configure group memberships
-    Ensure-AdoMembership $descContrib $grpDev.descriptor
-    Ensure-AdoMembership $descContrib $grpQA.descriptor
-    Ensure-AdoMembership $descContrib $grpBA.descriptor
+    # Only configure RBAC if Graph API is available
+    if ($desc) {
+        Write-Verbose "[Initialize-AdoProject] Configuring RBAC groups..."
+        
+        # Get built-in groups
+        $descContrib = Get-AdoBuiltInGroupDescriptor $desc "Contributors"
+        $descProjAdm = Get-AdoBuiltInGroupDescriptor $desc "Project Administrators"
+        
+        # Create custom groups
+        $grpDev = Ensure-AdoGroup $desc "Dev"
+        $grpQA = Ensure-AdoGroup $desc "QA"
+        $grpBA = Ensure-AdoGroup $desc "BA"
+        
+        # Configure group memberships
+        Ensure-AdoMembership $descContrib $grpDev.descriptor
+        Ensure-AdoMembership $descContrib $grpQA.descriptor
+        Ensure-AdoMembership $descContrib $grpBA.descriptor
+    }
+    else {
+        Write-Warning "Graph API unavailable - skipping RBAC group configuration"
+    }
     
     # Create work item areas
     @("Frontend", "Backend", "Infrastructure", "Documentation") | ForEach-Object {
@@ -543,18 +551,24 @@ This project was migrated from GitLab using automated tooling.
         -BuildId $BuildDefinitionId `
         -StatusContext $SonarStatusContext
     
-    # Apply security restrictions (BA group cannot push directly)
-    $denyBits = 4 + 8  # GenericContribute + ForcePush
-    Ensure-AdoRepoDeny $projId $repo.id $grpBA.descriptor $denyBits
+    # Apply security restrictions (BA group cannot push directly) - only if RBAC is available
+    if ($desc -and $grpBA) {
+        $denyBits = 4 + 8  # GenericContribute + ForcePush
+        Ensure-AdoRepoDeny $projId $repo.id $grpBA.descriptor $denyBits
+    }
     
     Write-Host "[OK] Project '$DestProject' initialized successfully" -ForegroundColor Green
-    Write-Host "      - RBAC groups: Dev, QA, BA" -ForegroundColor Green
+    if ($desc) {
+        Write-Host "      - RBAC groups: Dev, QA, BA" -ForegroundColor Green
+    }
     Write-Host "      - Work item areas: 4 created" -ForegroundColor Green
     Write-Host "      - Wiki: Initialized with welcome page" -ForegroundColor Green
     Write-Host "      - Work item templates: User Story, Bug" -ForegroundColor Green
     Write-Host "      - Repository: $RepoName" -ForegroundColor Green
     Write-Host "      - Branch policies: Applied to $defaultRef" -ForegroundColor Green
-    Write-Host "      - Security: BA group restricted from direct push" -ForegroundColor Green
+    if ($desc -and $grpBA) {
+        Write-Host "      - Security: BA group restricted from direct push" -ForegroundColor Green
+    }
 }
 
 <#
