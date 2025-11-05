@@ -1316,6 +1316,790 @@ function Ensure-AdoTeamTemplates {
 
 <#
 .SYNOPSIS
+    Creates sprint iterations for a team.
+
+.DESCRIPTION
+    Auto-creates a specified number of 2-week sprint iterations starting from today.
+    Configures proper start/finish dates and assigns to team. Idempotent.
+
+.PARAMETER Project
+    Project name.
+
+.PARAMETER Team
+    Team name (optional, defaults to "<Project> Team").
+
+.PARAMETER SprintCount
+    Number of sprints to create (default: 6).
+
+.PARAMETER SprintDurationDays
+    Duration of each sprint in days (default: 14).
+
+.PARAMETER StartDate
+    Start date for first sprint (default: next Monday).
+
+.OUTPUTS
+    Array of created iteration objects.
+
+.EXAMPLE
+    Ensure-AdoIterations "MyProject"
+
+.EXAMPLE
+    Ensure-AdoIterations "MyProject" -SprintCount 8 -SprintDurationDays 10
+#>
+function Ensure-AdoIterations {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [string]$Team = "$Project Team",
+        
+        [int]$SprintCount = 6,
+        
+        [int]$SprintDurationDays = 14,
+        
+        [DateTime]$StartDate
+    )
+    
+    Write-Host "[INFO] Setting up sprint iterations..." -ForegroundColor Cyan
+    
+    # Calculate start date: next Monday if not specified
+    if (-not $StartDate) {
+        $StartDate = Get-Date
+        $daysUntilMonday = (8 - [int]$StartDate.DayOfWeek) % 7
+        if ($daysUntilMonday -eq 0 -and $StartDate.DayOfWeek -ne [DayOfWeek]::Monday) {
+            $daysUntilMonday = 7
+        }
+        $StartDate = $StartDate.AddDays($daysUntilMonday).Date
+    }
+    
+    # Get existing iterations
+    $existingIterations = @()
+    try {
+        $response = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/work/teamsettings/iterations?`$timeframe=current"
+        if ($response -and $response.value) {
+            $existingIterations = $response.value.name
+        }
+    }
+    catch {
+        Write-Verbose "[Ensure-AdoIterations] Could not retrieve existing iterations: $_"
+    }
+    
+    $createdCount = 0
+    $skippedCount = 0
+    $iterations = @()
+    
+    for ($i = 1; $i -le $SprintCount; $i++) {
+        $sprintName = "Sprint $i"
+        $sprintStart = $StartDate.AddDays(($i - 1) * $SprintDurationDays)
+        $sprintEnd = $sprintStart.AddDays($SprintDurationDays - 1).AddHours(23).AddMinutes(59).AddSeconds(59)
+        
+        # Check if iteration already exists
+        if ($existingIterations -contains $sprintName) {
+            Write-Host "[INFO] Sprint '$sprintName' already exists" -ForegroundColor Gray
+            $skippedCount++
+            continue
+        }
+        
+        try {
+            # Create iteration at project level
+            $iterationBody = @{
+                name = $sprintName
+                attributes = @{
+                    startDate = $sprintStart.ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    finishDate = $sprintEnd.ToString("yyyy-MM-ddTHH:mm:ssZ")
+                }
+            }
+            
+            Write-Verbose "[Ensure-AdoIterations] Creating iteration: $sprintName ($($sprintStart.ToString('yyyy-MM-dd')) to $($sprintEnd.ToString('yyyy-MM-dd')))"
+            $iteration = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/iterations" -Body $iterationBody
+            
+            # Assign iteration to team
+            try {
+                $teamIterationBody = @{
+                    id = $iteration.identifier
+                }
+                Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/work/teamsettings/iterations" -Body $teamIterationBody | Out-Null
+                Write-Host "[SUCCESS] Created '$sprintName' ($($sprintStart.ToString('MMM dd')) - $($sprintEnd.ToString('MMM dd, yyyy')))" -ForegroundColor Green
+            }
+            catch {
+                Write-Warning "Created iteration but failed to assign to team: $_"
+                Write-Host "[SUCCESS] Created '$sprintName' (not assigned to team)" -ForegroundColor Yellow
+            }
+            
+            $iterations += $iteration
+            $createdCount++
+        }
+        catch {
+            Write-Warning "Failed to create iteration '$sprintName': $_"
+        }
+    }
+    
+    # Summary
+    Write-Host ""
+    Write-Host "[INFO] Sprint iteration summary:" -ForegroundColor Cyan
+    Write-Host "  ✅ Created: $createdCount sprints" -ForegroundColor Green
+    if ($skippedCount -gt 0) {
+        Write-Host "  ⏭️ Skipped: $skippedCount sprints (already exist)" -ForegroundColor Yellow
+    }
+    Write-Host "  📅 Sprint duration: $SprintDurationDays days" -ForegroundColor Gray
+    Write-Host "  📆 First sprint starts: $($StartDate.ToString('MMM dd, yyyy'))" -ForegroundColor Gray
+    
+    return $iterations
+}
+
+<#
+.SYNOPSIS
+    Creates shared work item queries for common scenarios.
+
+.DESCRIPTION
+    Creates 5 essential queries: My Active Work, Team Backlog, Active Bugs,
+    Ready for Review, Blocked Items. Places them in "Shared Queries" folder. Idempotent.
+
+.PARAMETER Project
+    Project name.
+
+.PARAMETER Team
+    Team name (optional, defaults to "<Project> Team").
+
+.OUTPUTS
+    Array of created query objects.
+
+.EXAMPLE
+    Ensure-AdoSharedQueries "MyProject"
+#>
+function Ensure-AdoSharedQueries {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [string]$Team = "$Project Team"
+    )
+    
+    Write-Host "[INFO] Creating shared work item queries..." -ForegroundColor Cyan
+    
+    # Get project details to get team ID
+    $projDetails = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))"
+    $projectId = $projDetails.id
+    
+    # Define queries
+    $queries = @(
+        @{
+            name = "My Active Work"
+            wiql = "SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.Tags] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.AssignedTo] = @Me AND [System.State] <> 'Closed' AND [System.State] <> 'Removed' ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            name = "Team Backlog"
+            wiql = "SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [Microsoft.VSTS.Common.Priority] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.State] <> 'Closed' AND [System.State] <> 'Removed' ORDER BY [Microsoft.VSTS.Common.Priority] ASC, [System.CreatedDate] DESC"
+        },
+        @{
+            name = "Active Bugs"
+            wiql = "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [Microsoft.VSTS.Common.Severity], [Microsoft.VSTS.Common.Priority] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.WorkItemType] = 'Bug' AND [System.State] <> 'Closed' AND [System.State] <> 'Removed' ORDER BY [Microsoft.VSTS.Common.Severity] ASC, [Microsoft.VSTS.Common.Priority] ASC"
+        },
+        @{
+            name = "Ready for Review"
+            wiql = "SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND ([System.State] = 'Ready for Review' OR [System.State] = 'Resolved' OR [System.Tags] CONTAINS 'needs-review') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            name = "Blocked Items"
+            wiql = "SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.Tags] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND ([System.Tags] CONTAINS 'blocked' OR [System.Tags] CONTAINS 'impediment') AND [System.State] <> 'Closed' ORDER BY [System.CreatedDate] DESC"
+        }
+    )
+    
+    # Check existing queries
+    $existingQueries = @{}
+    try {
+        $response = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=1"
+        if ($response -and $response.children) {
+            $response.children | ForEach-Object { $existingQueries[$_.name] = $_ }
+        }
+    }
+    catch {
+        Write-Verbose "[Ensure-AdoSharedQueries] Could not retrieve existing queries: $_"
+    }
+    
+    $createdCount = 0
+    $skippedCount = 0
+    $createdQueries = @()
+    
+    foreach ($queryDef in $queries) {
+        if ($existingQueries.ContainsKey($queryDef.name)) {
+            Write-Host "[INFO] Query '$($queryDef.name)' already exists" -ForegroundColor Gray
+            $skippedCount++
+            continue
+        }
+        
+        try {
+            $queryBody = @{
+                name = $queryDef.name
+                wiql = $queryDef.wiql
+            }
+            
+            Write-Verbose "[Ensure-AdoSharedQueries] Creating query: $($queryDef.name)"
+            $query = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" -Body $queryBody
+            Write-Host "[SUCCESS] Created query: $($queryDef.name)" -ForegroundColor Green
+            $createdQueries += $query
+            $createdCount++
+        }
+        catch {
+            Write-Warning "Failed to create query '$($queryDef.name)': $_"
+        }
+    }
+    
+    # Summary
+    Write-Host ""
+    Write-Host "[INFO] Shared queries summary:" -ForegroundColor Cyan
+    Write-Host "  ✅ Created: $createdCount queries" -ForegroundColor Green
+    if ($skippedCount -gt 0) {
+        Write-Host "  ⏭️ Skipped: $skippedCount queries (already exist)" -ForegroundColor Yellow
+    }
+    Write-Host "  📂 Location: Shared Queries folder" -ForegroundColor Gray
+    
+    return $createdQueries
+}
+
+<#
+.SYNOPSIS
+    Creates repository template files (README.md and PR template).
+
+.DESCRIPTION
+    Adds starter README.md and .azuredevops/pull_request_template.md to repository.
+    Handles existing files gracefully. Idempotent.
+
+.PARAMETER Project
+    Project name.
+
+.PARAMETER RepoId
+    Repository ID.
+
+.PARAMETER RepoName
+    Repository name (used in README).
+
+.OUTPUTS
+    Array of created file objects.
+
+.EXAMPLE
+    Ensure-AdoRepositoryTemplates "MyProject" "abc-123" "my-repo"
+#>
+function Ensure-AdoRepositoryTemplates {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$RepoId,
+        
+        [Parameter(Mandatory)]
+        [string]$RepoName
+    )
+    
+    Write-Host "[INFO] Adding repository template files..." -ForegroundColor Cyan
+    
+    # Check if repository has any commits (needed to add files)
+    $hasCommits = $false
+    try {
+        $commits = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/commits?`$top=1"
+        $hasCommits = $commits.count -gt 0
+    }
+    catch {
+        Write-Verbose "[Ensure-AdoRepositoryTemplates] Could not check commits: $_"
+    }
+    
+    if (-not $hasCommits) {
+        Write-Host "[INFO] Repository is empty - templates will be added on first push" -ForegroundColor Yellow
+        Write-Host "[INFO] Skipping template files (repository needs at least one commit)" -ForegroundColor Yellow
+        return @()
+    }
+    
+    # Get default branch
+    $defaultBranch = Get-AdoRepoDefaultBranch $Project $RepoId
+    if (-not $defaultBranch) {
+        Write-Host "[INFO] No default branch found - skipping template files" -ForegroundColor Yellow
+        return @()
+    }
+    
+    # Extract branch name from refs/heads/main
+    $branchName = $defaultBranch -replace '^refs/heads/', ''
+    
+    # Define template files
+    $readmeContent = @"
+# $RepoName
+
+## Overview
+Brief description of the project and its purpose.
+
+## Getting Started
+
+### Prerequisites
+- List any prerequisites here
+- Development tools required
+- Dependencies needed
+
+### Installation
+\`\`\`bash
+# Clone the repository
+git clone <repository-url>
+
+# Install dependencies
+# Add installation commands here
+\`\`\`
+
+### Running Locally
+\`\`\`bash
+# Add commands to run the application locally
+\`\`\`
+
+## Development Workflow
+
+1. Create a feature branch from \`main\`
+   \`\`\`bash
+   git checkout -b feature/your-feature-name
+   \`\`\`
+
+2. Make your changes and commit
+   \`\`\`bash
+   git add .
+   git commit -m "Description of changes"
+   \`\`\`
+
+3. Push and create a pull request
+   \`\`\`bash
+   git push origin feature/your-feature-name
+   \`\`\`
+
+4. Link your work items in the PR description
+5. Request code review
+6. Merge after approval
+
+## Project Structure
+\`\`\`
+/src        - Source code
+/docs       - Documentation
+/tests      - Test files
+/scripts    - Build and deployment scripts
+\`\`\`
+
+## Contributing
+- Follow the team's coding standards
+- Write tests for new features
+- Update documentation as needed
+- Link work items to pull requests
+
+## Support
+For questions or issues, contact the team or create a work item.
+"@
+
+    $prTemplateContent = @"
+## Description
+<!-- Provide a brief description of the changes in this PR -->
+
+## Related Work Items
+<!-- Link work items using #<work-item-id> -->
+- Fixes #
+- Related to #
+
+## Type of Change
+<!-- Check the relevant options -->
+- [ ] Bug fix (non-breaking change which fixes an issue)
+- [ ] New feature (non-breaking change which adds functionality)
+- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
+- [ ] Documentation update
+- [ ] Refactoring (no functional changes)
+
+## Testing Done
+<!-- Describe the testing you've performed -->
+- [ ] Unit tests added/updated
+- [ ] Integration tests added/updated
+- [ ] Manual testing completed
+- [ ] All tests passing
+
+## Checklist
+- [ ] Code follows team coding standards
+- [ ] Self-review completed
+- [ ] Comments added for complex logic
+- [ ] Documentation updated (if needed)
+- [ ] No new warnings generated
+- [ ] Work items linked above
+
+## Screenshots (if applicable)
+<!-- Add screenshots for UI changes -->
+
+## Additional Notes
+<!-- Any additional information reviewers should know -->
+"@
+
+    $filesCreated = @()
+    $createdCount = 0
+    $skippedCount = 0
+    
+    # Check and create README.md
+    try {
+        $existingReadme = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/README.md"
+        if ($existingReadme) {
+            Write-Host "[INFO] README.md already exists" -ForegroundColor Gray
+            $skippedCount++
+        }
+    }
+    catch {
+        # File doesn't exist, create it
+        try {
+            Write-Verbose "[Ensure-AdoRepositoryTemplates] Creating README.md"
+            $pushBody = @{
+                refUpdates = @(
+                    @{
+                        name = $defaultBranch
+                        oldObjectId = (Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/refs?filter=heads/$branchName").value[0].objectId
+                    }
+                )
+                commits = @(
+                    @{
+                        comment = "Add README.md template"
+                        changes = @(
+                            @{
+                                changeType = "add"
+                                item = @{ path = "/README.md" }
+                                newContent = @{
+                                    content = $readmeContent
+                                    contentType = "rawtext"
+                                }
+                            }
+                        )
+                    }
+                )
+            }
+            
+            $result = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/pushes" -Body $pushBody
+            Write-Host "[SUCCESS] Created README.md" -ForegroundColor Green
+            $filesCreated += "README.md"
+            $createdCount++
+        }
+        catch {
+            Write-Warning "Failed to create README.md: $_"
+        }
+    }
+    
+    # Check and create PR template
+    try {
+        $existingPR = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.azuredevops/pull_request_template.md"
+        if ($existingPR) {
+            Write-Host "[INFO] PR template already exists" -ForegroundColor Gray
+            $skippedCount++
+        }
+    }
+    catch {
+        # File doesn't exist, create it
+        try {
+            Write-Verbose "[Ensure-AdoRepositoryTemplates] Creating .azuredevops/pull_request_template.md"
+            $pushBody = @{
+                refUpdates = @(
+                    @{
+                        name = $defaultBranch
+                        oldObjectId = (Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/refs?filter=heads/$branchName").value[0].objectId
+                    }
+                )
+                commits = @(
+                    @{
+                        comment = "Add pull request template"
+                        changes = @(
+                            @{
+                                changeType = "add"
+                                item = @{ path = "/.azuredevops/pull_request_template.md" }
+                                newContent = @{
+                                    content = $prTemplateContent
+                                    contentType = "rawtext"
+                                }
+                            }
+                        )
+                    }
+                )
+            }
+            
+            $result = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/pushes" -Body $pushBody
+            Write-Host "[SUCCESS] Created .azuredevops/pull_request_template.md" -ForegroundColor Green
+            $filesCreated += ".azuredevops/pull_request_template.md"
+            $createdCount++
+        }
+        catch {
+            Write-Warning "Failed to create PR template: $_"
+        }
+    }
+    
+    # Summary
+    Write-Host ""
+    Write-Host "[INFO] Repository templates summary:" -ForegroundColor Cyan
+    Write-Host "  ✅ Created: $createdCount files" -ForegroundColor Green
+    if ($skippedCount -gt 0) {
+        Write-Host "  ⏭️ Skipped: $skippedCount files (already exist)" -ForegroundColor Yellow
+    }
+    
+    return $filesCreated
+}
+
+<#
+.SYNOPSIS
+    Configures team settings for optimal workflow.
+
+.DESCRIPTION
+    Sets default iteration, configures backlog levels, working days (Mon-Fri),
+    and bugs on backlog visibility. Idempotent.
+
+.PARAMETER Project
+    Project name.
+
+.PARAMETER Team
+    Team name (optional, defaults to "<Project> Team").
+
+.OUTPUTS
+    Team settings object.
+
+.EXAMPLE
+    Ensure-AdoTeamSettings "MyProject"
+#>
+function Ensure-AdoTeamSettings {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [string]$Team = "$Project Team"
+    )
+    
+    Write-Host "[INFO] Configuring team settings..." -ForegroundColor Cyan
+    
+    $settingsConfigured = 0
+    
+    # Configure backlog levels (show Epics and Features)
+    try {
+        Write-Verbose "[Ensure-AdoTeamSettings] Configuring backlog visibility"
+        $backlogBody = @{
+            backlogVisibilities = @{
+                "Microsoft.EpicCategory" = $true
+                "Microsoft.FeatureCategory" = $true
+                "Microsoft.RequirementCategory" = $true
+            }
+            bugsBehavior = "asRequirements"  # Show bugs on backlog
+        }
+        
+        Invoke-AdoRest PATCH "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/work/teamsettings" -Body $backlogBody | Out-Null
+        Write-Host "[SUCCESS] Configured backlog levels and bugs visibility" -ForegroundColor Green
+        $settingsConfigured++
+    }
+    catch {
+        Write-Warning "Failed to configure backlog settings: $_"
+    }
+    
+    # Configure working days (Monday-Friday)
+    try {
+        Write-Verbose "[Ensure-AdoTeamSettings] Configuring working days"
+        $workingDaysBody = @{
+            workingDays = @("monday", "tuesday", "wednesday", "thursday", "friday")
+        }
+        
+        Invoke-AdoRest PATCH "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/work/teamsettings" -Body $workingDaysBody | Out-Null
+        Write-Host "[SUCCESS] Set working days to Mon-Fri" -ForegroundColor Green
+        $settingsConfigured++
+    }
+    catch {
+        Write-Warning "Failed to configure working days: $_"
+    }
+    
+    # Set default iteration to current sprint (if iterations exist)
+    try {
+        $iterations = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/work/teamsettings/iterations"
+        if ($iterations -and $iterations.value -and $iterations.value.Count -gt 0) {
+            $firstSprint = $iterations.value[0]
+            
+            Write-Verbose "[Ensure-AdoTeamSettings] Setting default iteration to: $($firstSprint.name)"
+            $defaultIterationBody = @{
+                backlogIteration = $firstSprint.id
+                defaultIteration = $firstSprint.id
+            }
+            
+            Invoke-AdoRest PATCH "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/work/teamsettings" -Body $defaultIterationBody | Out-Null
+            Write-Host "[SUCCESS] Set default iteration to: $($firstSprint.name)" -ForegroundColor Green
+            $settingsConfigured++
+        }
+        else {
+            Write-Host "[INFO] No iterations found - skipping default iteration setup" -ForegroundColor Yellow
+        }
+    }
+    catch {
+        Write-Verbose "[Ensure-AdoTeamSettings] Could not set default iteration: $_"
+        Write-Host "[INFO] Default iteration not set (will use current date)" -ForegroundColor Yellow
+    }
+    
+    # Summary
+    Write-Host ""
+    Write-Host "[INFO] Team settings summary:" -ForegroundColor Cyan
+    Write-Host "  ✅ Configured: $settingsConfigured settings" -ForegroundColor Green
+    Write-Host "  📊 Backlog levels: Epics → Features → Stories → Tasks" -ForegroundColor Gray
+    Write-Host "  🐛 Bugs: Shown on backlog" -ForegroundColor Gray
+    Write-Host "  📅 Working days: Mon-Fri" -ForegroundColor Gray
+    
+    return $settingsConfigured
+}
+
+<#
+.SYNOPSIS
+    Creates a wiki page documenting common tags taxonomy.
+
+.DESCRIPTION
+    Creates a "Tag Guidelines" wiki page with recommended tags for work items.
+    Tags help with filtering, reporting, and organization. Idempotent.
+
+.PARAMETER Project
+    Project name.
+
+.PARAMETER WikiId
+    Wiki ID.
+
+.OUTPUTS
+    Wiki page object.
+
+.EXAMPLE
+    Ensure-AdoCommonTags "MyProject" "wiki-id-123"
+#>
+function Ensure-AdoCommonTags {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$WikiId
+    )
+    
+    Write-Host "[INFO] Creating tag guidelines wiki page..." -ForegroundColor Cyan
+    
+    $tagGuidelinesContent = @"
+# Work Item Tag Guidelines
+
+This page documents the standard tags used across the project for consistent work item organization.
+
+## Status & Workflow Tags
+
+### 🚫 Blockers & Issues
+- **blocked** - Work is blocked by external dependencies
+- **impediment** - Team-level impediment requiring resolution
+- **urgent** - Requires immediate attention
+- **breaking-change** - Changes that break backward compatibility
+
+### 📋 Review & Validation
+- **needs-review** - Ready for code/design review
+- **needs-testing** - Requires QA validation
+- **needs-documentation** - Documentation updates needed
+- **tech-review** - Requires technical architect review
+
+## Technical Area Tags
+
+### 💻 Component Tags
+- **frontend** - UI/UX related work
+- **backend** - Server-side logic and APIs
+- **database** - Database schema or queries
+- **api** - API design or changes
+- **infrastructure** - DevOps, deployment, infrastructure
+
+### 🏗️ Technical Classification
+- **technical-debt** - Code that needs refactoring
+- **performance** - Performance optimization work
+- **security** - Security-related changes
+- **accessibility** - Accessibility improvements
+
+## Work Type Tags
+
+### 🔧 Development Categories
+- **feature** - New feature development
+- **bugfix** - Bug resolution
+- **refactoring** - Code improvement without functional changes
+- **tooling** - Development tools and automation
+- **investigation** - Research or spike work
+
+### 📚 Documentation & Quality
+- **documentation** - Documentation work
+- **testing** - Test creation or improvement
+- **automation** - Test or process automation
+
+## Usage Guidelines
+
+### How to Use Tags
+
+1. **Apply Multiple Tags**: Work items can have multiple tags
+   - Example: \`frontend, needs-review, breaking-change\`
+
+2. **Use in Queries**: Filter work items by tags
+   - Queries → "Contains" operator for tag searches
+
+3. **Board Filtering**: Use tag pills on boards for quick filtering
+
+4. **Consistency**: Use exact tag names (lowercase with hyphens)
+
+### Best Practices
+
+✅ **DO**:
+- Use consistent, predefined tags
+- Apply tags during work item creation
+- Update tags as work progresses
+- Use tags in work item templates
+
+❌ **DON'T**:
+- Create ad-hoc tags without team discussion
+- Use spaces in tag names (use hyphens)
+- Mix capitalization styles
+- Overuse tags (3-5 tags per item is ideal)
+
+## Creating New Tags
+
+Before creating a new tag:
+1. Check if an existing tag fits your need
+2. Discuss with the team if creating a new category
+3. Document the new tag here
+4. Update work item templates if needed
+
+## Tag Queries
+
+Use these queries to find tagged work items:
+- **Blocked Work**: \`Tags Contains 'blocked'\`
+- **Technical Debt**: \`Tags Contains 'technical-debt'\`
+- **Needs Review**: \`Tags Contains 'needs-review'\`
+- **Breaking Changes**: \`Tags Contains 'breaking-change'\`
+
+---
+
+*Last Updated: $(Get-Date -Format 'yyyy-MM-dd')*
+"@
+
+    try {
+        # Check if page exists
+        try {
+            $existingPage = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis/$WikiId/pages?path=/Tag-Guidelines"
+            Write-Host "[INFO] Tag Guidelines page already exists" -ForegroundColor Gray
+            return $existingPage
+        }
+        catch {
+            # Page doesn't exist, create it
+            Write-Verbose "[Ensure-AdoCommonTags] Creating Tag Guidelines page"
+            $page = Upsert-AdoWikiPage $Project $WikiId "/Tag-Guidelines" $tagGuidelinesContent
+            Write-Host "[SUCCESS] Created Tag Guidelines wiki page" -ForegroundColor Green
+            Write-Host ""
+            Write-Host "[INFO] Common tags documented:" -ForegroundColor Cyan
+            Write-Host "  🚫 Status: blocked, urgent, breaking-change, needs-review, needs-testing" -ForegroundColor Gray
+            Write-Host "  💻 Technical: frontend, backend, database, api, infrastructure" -ForegroundColor Gray
+            Write-Host "  🏗️ Quality: technical-debt, performance, security" -ForegroundColor Gray
+            Write-Host "  📂 Location: Project Wiki → Tag-Guidelines" -ForegroundColor Gray
+            
+            return $page
+        }
+    }
+    catch {
+        Write-Warning "Failed to create Tag Guidelines page: $_"
+        return $null
+    }
+}
+
+<#
+.SYNOPSIS
     Ensures a repository exists in the project.
 
 .DESCRIPTION
@@ -1709,6 +2493,11 @@ Export-ModuleMember -Function @(
     'Get-AdoProjectProcessTemplate',
     'Get-AdoWorkItemTypes',
     'Ensure-AdoTeamTemplates',
+    'Ensure-AdoIterations',
+    'Ensure-AdoSharedQueries',
+    'Ensure-AdoRepositoryTemplates',
+    'Ensure-AdoTeamSettings',
+    'Ensure-AdoCommonTags',
     'Ensure-AdoRepository',
     'Get-AdoRepoDefaultBranch',
     'Ensure-AdoBranchPolicies',

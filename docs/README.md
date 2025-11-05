@@ -12,6 +12,7 @@ Start here if you're new to the tool:
 
 ### 📖 User Guides
 Step-by-step guides for common workflows:
+- [Team Productivity Guide](guides/TEAM_PRODUCTIVITY_GUIDE.md) - ⭐ All auto-configured productivity features
 - [Sync Mode Guide](guides/SYNC_MODE_GUIDE.md) - Re-running migrations and keeping repositories in sync
 - [Bulk Migration Configuration](guides/BULK_MIGRATION_CONFIG.md) - Migrating multiple repositories at once
 - [Work Item Templates](WORK_ITEM_TEMPLATES.md) - Using standardized work item templates
@@ -46,6 +47,7 @@ For contributors and maintainers:
 
 ### By Task
 - **First time setup**: Start with [Quickstart Guide](quickstart.md)
+- **Understanding productivity features**: See [Team Productivity Guide](guides/TEAM_PRODUCTIVITY_GUIDE.md) ⭐
 - **Single repository migration**: See [README.md](../README.md) → Single Project Migration
 - **Bulk migration**: See [Bulk Migration Configuration](guides/BULK_MIGRATION_CONFIG.md)
 - **Re-running migrations**: See [Sync Mode Guide](guides/SYNC_MODE_GUIDE.md)

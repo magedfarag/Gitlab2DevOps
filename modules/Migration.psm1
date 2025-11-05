@@ -538,6 +538,18 @@ This project was migrated from GitLab using automated tooling.
     # Create work item templates
     Ensure-AdoTeamTemplates $DestProject "$DestProject Team"
     
+    # Create sprint iterations (6 sprints, 2 weeks each)
+    Ensure-AdoIterations $DestProject "$DestProject Team" -SprintCount 6 -SprintDurationDays 14
+    
+    # Create shared work item queries
+    Ensure-AdoSharedQueries $DestProject "$DestProject Team"
+    
+    # Configure team settings
+    Ensure-AdoTeamSettings $DestProject "$DestProject Team"
+    
+    # Create tag guidelines wiki page
+    Ensure-AdoCommonTags $DestProject $wiki.id
+    
     # Create repository
     $repo = Ensure-AdoRepository $DestProject $projId $RepoName
     
@@ -554,10 +566,14 @@ This project was migrated from GitLab using automated tooling.
             -Min 2 `
             -BuildId $BuildDefinitionId `
             -StatusContext $SonarStatusContext
+        
+        # Add repository templates (README and PR template) if repository has commits
+        Ensure-AdoRepositoryTemplates $DestProject $repo.id $RepoName
     }
     else {
         Write-Host "[INFO] Skipping branch policies - repository has no branches yet" -ForegroundColor Yellow
         Write-Host "[INFO] Branch policies will be applied after first push" -ForegroundColor Yellow
+        Write-Host "[INFO] Repository templates (README, PR template) will be added after first push" -ForegroundColor Yellow
     }
     
     # Apply security restrictions (BA group cannot push directly) - only if RBAC is available
@@ -566,23 +582,64 @@ This project was migrated from GitLab using automated tooling.
         Ensure-AdoRepoDeny $projId $repo.id $grpBA.descriptor $denyBits
     }
     
-    Write-Host "[OK] Project '$DestProject' initialized successfully" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host " PROJECT INITIALIZATION COMPLETE! 🎉" -ForegroundColor Green
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Project: $DestProject" -ForegroundColor White
+    Write-Host ""
+    
+    # Team Structure
+    Write-Host "👥 Team & Permissions:" -ForegroundColor Cyan
     if ($desc) {
-        Write-Host "      - RBAC groups: Dev, QA, BA" -ForegroundColor Green
-    }
-    Write-Host "      - Work item areas: 4 created" -ForegroundColor Green
-    Write-Host "      - Wiki: Initialized with welcome page" -ForegroundColor Green
-    Write-Host "      - Work item templates: Created" -ForegroundColor Green
-    Write-Host "      - Repository: $RepoName (empty)" -ForegroundColor Green
-    if ($defaultRef) {
-        Write-Host "      - Branch policies: Applied to $defaultRef" -ForegroundColor Green
+        Write-Host "   ✅ RBAC groups: Dev, QA, BA" -ForegroundColor Green
+        if ($grpBA) {
+            Write-Host "   ✅ Security: BA group restricted from direct push" -ForegroundColor Green
+        }
     }
     else {
-        Write-Host "      - Branch policies: Will be applied during migration (Option 6)" -ForegroundColor Yellow
+        Write-Host "   ⚠️  RBAC groups: Skipped (Graph API unavailable)" -ForegroundColor Yellow
     }
-    if ($desc -and $grpBA) {
-        Write-Host "      - Security: BA group restricted from direct push" -ForegroundColor Green
+    
+    # Work Item Configuration
+    Write-Host ""
+    Write-Host "📋 Work Item Configuration:" -ForegroundColor Cyan
+    Write-Host "   ✅ Areas: Frontend, Backend, Infrastructure, Documentation" -ForegroundColor Green
+    Write-Host "   ✅ Templates: 6 comprehensive templates (auto-default)" -ForegroundColor Green
+    Write-Host "   ✅ Sprints: 6 upcoming 2-week iterations" -ForegroundColor Green
+    Write-Host "   ✅ Queries: 5 shared queries (My Work, Backlog, Bugs, etc.)" -ForegroundColor Green
+    Write-Host "   ✅ Team Settings: Backlog levels, working days, bugs on backlog" -ForegroundColor Green
+    
+    # Documentation & Guidelines
+    Write-Host ""
+    Write-Host "📚 Documentation:" -ForegroundColor Cyan
+    Write-Host "   ✅ Wiki: Initialized with welcome page" -ForegroundColor Green
+    Write-Host "   ✅ Tag Guidelines: Common tags documented" -ForegroundColor Green
+    
+    # Repository Configuration
+    Write-Host ""
+    Write-Host "🔧 Repository Configuration:" -ForegroundColor Cyan
+    Write-Host "   ✅ Repository: $RepoName" -ForegroundColor Green
+    if ($defaultRef) {
+        Write-Host "   ✅ Branch Policies: Applied to $defaultRef" -ForegroundColor Green
+        Write-Host "   ✅ README.md: Starter template added" -ForegroundColor Green
+        Write-Host "   ✅ PR Template: Pull request template added" -ForegroundColor Green
     }
+    else {
+        Write-Host "   ⏳ Branch Policies: Will apply after first push" -ForegroundColor Yellow
+        Write-Host "   ⏳ Templates: Will add after first push" -ForegroundColor Yellow
+    }
+    
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "Next Steps:" -ForegroundColor White
+    Write-Host "  1. Use Option 3 (Migrate) or Option 6 (Bulk) to push code" -ForegroundColor Gray
+    Write-Host "  2. Review shared queries in Queries → Shared Queries" -ForegroundColor Gray
+    Write-Host "  3. Check sprint schedule in Boards → Sprints" -ForegroundColor Gray
+    Write-Host "  4. Review tag guidelines in Wiki → Tag-Guidelines" -ForegroundColor Gray
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host ""
 }
 
 <#
