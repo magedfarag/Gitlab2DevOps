@@ -5,7 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0] - 2024-XX-XX
+## [Unreleased] - v2.1.0 Development
+
+### Added (Post-v2.0.0)
+- **Comprehensive Test Suite**: 83 tests (29 offline + 54 extended) with 100% pass rate
+- **Test Coverage Documentation**: TEST_COVERAGE.md with detailed breakdown by component
+- **.env Configuration System**: Auto-loading of .env and .env.local files with priority order
+- **EnvLoader Module**: Robust .env file parsing with variable expansion (${VAR} and $VAR syntax)
+- **QUICK_SETUP.md**: Step-by-step guide for .env configuration with PAT creation instructions
+- **GitHub Actions CI**: Automated testing workflow on push/PR events
+- **Progress Tracking**: Real-time progress indicators for long-running operations
+- **Telemetry System**: Optional usage telemetry collection (opt-in, local only)
+- **Dry-Run Mode**: Preview changes without executing them
+- **API Error Catalog**: Comprehensive error handling with specific guidance
+
+### Changed (Post-v2.0.0)
+- **Configuration Priority**: .env.local > .env > environment variables > parameters
+- **Entry Point**: Consolidated to single Gitlab2DevOps.ps1 (removed legacy devops.ps1)
+- **Documentation Structure**: Reorganized with comprehensive guides in docs/ directory
+- **Test Organization**: Separated offline tests (no API) from extended tests (comprehensive)
+
+### Fixed (Post-v2.0.0)
+- EnvLoader variable expansion regex for PowerShell 5.1 compatibility (callback → iterative)
+- Template generation backtick escaping issues in New-DotEnvTemplate
+- Telemetry collection initialization handling for offline scenarios
+- Test expectations to match actual function implementations
+
+### Documentation (Post-v2.0.0)
+- **docs/QUICK_SETUP.md**: Complete .env setup guide (250+ lines)
+- **tests/TEST_COVERAGE.md**: Test documentation (323 lines)
+- **docs/advanced-features.md**: Progress, telemetry, dry-run documentation
+- **Updated README.md**: Comprehensive quick start and feature matrix
+- **Updated IMPLEMENTATION_ROADMAP.md**: Current status at 90% complete
+
+---
+
+## [2.0.0] - 2024-11-04
 
 ### 🎉 Major Release - Enterprise Security & Open Source
 

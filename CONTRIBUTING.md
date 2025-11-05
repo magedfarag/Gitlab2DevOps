@@ -31,10 +31,13 @@ If you encounter bugs or have feature requests:
    - Keep functions focused and modular
 
 3. **Test thoroughly**:
+   - Run the test suite: `.\tests\OfflineTests.ps1` and `.\tests\ExtendedTests.ps1`
    - Test with both single and bulk migrations
    - Verify pre-flight validation works correctly
    - Check that logs are generated properly
    - Test with different Azure DevOps API versions (6.0, 7.0, 7.1)
+   - Ensure .env configuration loading works correctly
+   - Test CI/CD workflow if modifying GitHub Actions
 
 4. **Update documentation**:
    - Update README.md if adding new features
@@ -80,15 +83,26 @@ If you encounter bugs or have feature requests:
 
 Before submitting a PR, verify:
 
+### Automated Tests
+- [ ] Run offline tests: `.\tests\OfflineTests.ps1` (29 tests, no API calls)
+- [ ] Run extended tests: `.\tests\ExtendedTests.ps1` (54 tests, comprehensive coverage)
+- [ ] All 83 tests pass with 100% success rate
+- [ ] No PSScriptAnalyzer errors or warnings
+
+### Manual Tests
 - [ ] Pre-flight validation works and blocks invalid migrations
 - [ ] Single project migration completes successfully
 - [ ] Bulk migration processes multiple projects
+- [ ] .env file configuration auto-loads correctly
+- [ ] Configuration priority order works (.env.local > .env > env vars > params)
 - [ ] Logs are generated with proper timestamps
 - [ ] Git credentials are cleaned up after operations
 - [ ] REST API errors include status codes
 - [ ] Script works with environment variables only
 - [ ] Script validates required parameters at start
 - [ ] Documentation matches new behavior
+- [ ] Progress tracking displays correctly (if applicable)
+- [ ] Dry-run mode shows preview without executing (if applicable)
 
 ## 📝 Documentation Standards
 
@@ -103,12 +117,41 @@ Before submitting a PR, verify:
 
 We especially welcome contributions in:
 
-- **Testing**: Unit tests, integration tests, automated validation
-- **Performance**: Optimizations for large repositories or bulk migrations
-- **Compatibility**: Support for additional Azure DevOps/GitLab versions
-- **Features**: Additional branch policies, custom templates, reporting enhancements
-- **Documentation**: Tutorials, video guides, translation to other languages
-- **Bug Fixes**: Any issues reported in the issue tracker
+- **Testing**: 
+  - Expand test coverage beyond current 83 tests
+  - Add integration tests with real API calls (mocked)
+  - Performance benchmarking suite
+  - Automated regression testing
+  
+- **Security**:
+  - Hardcoded secret detection (Phase 6 in roadmap)
+  - Additional secret masking patterns
+  - Security audit tooling
+  
+- **Performance**: 
+  - Optimizations for large repositories or bulk migrations
+  - Parallel processing enhancements
+  - Caching improvements
+  
+- **Compatibility**: 
+  - Support for additional Azure DevOps/GitLab versions
+  - Cross-platform testing (Linux, macOS with PowerShell Core)
+  
+- **Features**: 
+  - Additional branch policies and security rules
+  - Custom work item templates
+  - Enhanced reporting and analytics
+  - Webhook integration for automated triggers
+  
+- **Documentation**: 
+  - Video tutorials and walkthroughs
+  - Translation to other languages
+  - Migration best practices guide
+  - Troubleshooting cookbook
+  
+- **Bug Fixes**: 
+  - Any issues reported in the issue tracker
+  - Edge cases and error scenarios
 
 ## ❓ Questions?
 
