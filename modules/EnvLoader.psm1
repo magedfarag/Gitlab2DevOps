@@ -184,42 +184,50 @@ function Expand-EnvVariables {
         [hashtable]$Config
     )
     
-    # Expand ${VAR} syntax
-    $result = $Value -replace '\$\{([^}]+)\}', {
-        param($match)
+    $result = $Value
+    
+    # Expand ${VAR} syntax - iterate through all matches
+    $regex = [regex]'\$\{([^}]+)\}'
+    $matches = $regex.Matches($result)
+    for ($i = $matches.Count - 1; $i -ge 0; $i--) {
+        $match = $matches[$i]
         $varName = $match.Groups[1].Value
+        $replacement = $match.Value  # Default to original
         
         # Check config first, then environment
         if ($Config.ContainsKey($varName)) {
-            return $Config[$varName]
+            $replacement = $Config[$varName]
+        }
+        else {
+            $envValue = [Environment]::GetEnvironmentVariable($varName, [EnvironmentVariableTarget]::Process)
+            if ($null -ne $envValue) {
+                $replacement = $envValue
+            }
         }
         
-        $envValue = [Environment]::GetEnvironmentVariable($varName, [EnvironmentVariableTarget]::Process)
-        if ($null -ne $envValue) {
-            return $envValue
-        }
-        
-        # Return original if not found
-        return $match.Value
+        $result = $result.Substring(0, $match.Index) + $replacement + $result.Substring($match.Index + $match.Length)
     }
     
-    # Expand $VAR syntax (simple variables)
-    $result = $result -replace '\$([A-Za-z_][A-Za-z0-9_]*)', {
-        param($match)
+    # Expand $VAR syntax (simple variables) - iterate through all matches
+    $regex = [regex]'\$([A-Za-z_][A-Za-z0-9_]*)'
+    $matches = $regex.Matches($result)
+    for ($i = $matches.Count - 1; $i -ge 0; $i--) {
+        $match = $matches[$i]
         $varName = $match.Groups[1].Value
+        $replacement = $match.Value  # Default to original
         
         # Check config first, then environment
         if ($Config.ContainsKey($varName)) {
-            return $Config[$varName]
+            $replacement = $Config[$varName]
+        }
+        else {
+            $envValue = [Environment]::GetEnvironmentVariable($varName, [EnvironmentVariableTarget]::Process)
+            if ($null -ne $envValue) {
+                $replacement = $envValue
+            }
         }
         
-        $envValue = [Environment]::GetEnvironmentVariable($varName, [EnvironmentVariableTarget]::Process)
-        if ($null -ne $envValue) {
-            return $envValue
-        }
-        
-        # Return original if not found
-        return $match.Value
+        $result = $result.Substring(0, $match.Index) + $replacement + $result.Substring($match.Index + $match.Length)
     }
     
     return $result
@@ -313,7 +321,7 @@ GITLAB_PAT=your-gitlab-pat-here
 # TELEMETRY_ENABLED=false
 
 # Telemetry session name
-# TELEMETRY_SESSION=Migration-\$(Get-Date -Format 'yyyyMMdd-HHmmss')
+# TELEMETRY_SESSION=Migration-`$(Get-Date -Format 'yyyyMMdd-HHmmss')
 
 
 # Optional: Logging Settings
@@ -327,8 +335,8 @@ GITLAB_PAT=your-gitlab-pat-here
 
 # Variable Expansion Example
 # --------------------------
-# You can reference other variables using \${VAR} syntax
-# FULL_API_URL=\${ADO_COLLECTION_URL}/_apis/projects
+# You can reference other variables using `${VAR} syntax
+# FULL_API_URL=`${ADO_COLLECTION_URL}/_apis/projects
 "@
 
     if ($PSCmdlet.ShouldProcess($Path, "Create .env template")) {
