@@ -25,6 +25,75 @@ $script:SonarStatusContext = ""
 
 <#
 .SYNOPSIS
+    Scans for prepared GitLab projects.
+
+.DESCRIPTION
+    Looks for single project preparations and bulk preparations in the migrations folder.
+
+.OUTPUTS
+    Array of prepared project information.
+#>
+function Get-PreparedProjects {
+    [CmdletBinding()]
+    param()
+    
+    $migrationsDir = Join-Path (Get-Location) "migrations"
+    $prepared = @()
+    
+    if (-not (Test-Path $migrationsDir)) {
+        return $prepared
+    }
+    
+    # Scan for single project preparations
+    Get-ChildItem -Path $migrationsDir -Directory | Where-Object {
+        $_.Name -notlike "bulk-prep-*" -and (Test-Path (Join-Path $_.FullName "reports\preflight-report.json"))
+    } | ForEach-Object {
+        $reportFile = Join-Path $_.FullName "reports\preflight-report.json"
+        try {
+            $report = Get-Content $reportFile | ConvertFrom-Json
+            $prepared += [pscustomobject]@{
+                Type = "Single"
+                ProjectName = $_.Name
+                GitLabPath = $report.project
+                RepoSizeMB = $report.repo_size_MB
+                PreparationTime = $report.preparation_time
+                Folder = $_.FullName
+            }
+        }
+        catch {
+            Write-Verbose "Failed to read report: $reportFile"
+        }
+    }
+    
+    # Scan for bulk preparations
+    Get-ChildItem -Path $migrationsDir -Directory -Filter "bulk-prep-*" | ForEach-Object {
+        $templateFile = Join-Path $_.FullName "bulk-migration-template.json"
+        if (Test-Path $templateFile) {
+            try {
+                $template = Get-Content $templateFile | ConvertFrom-Json
+                $successfulCount = @($template.projects | Where-Object { $_.preparation_status -eq "SUCCESS" }).Count
+                $prepared += [pscustomobject]@{
+                    Type = "Bulk"
+                    ProjectName = $template.destination_project
+                    ProjectCount = $template.preparation_summary.total_projects
+                    SuccessfulCount = $successfulCount
+                    TotalSizeMB = $template.preparation_summary.total_size_MB
+                    PreparationTime = $template.preparation_summary.preparation_time
+                    Folder = $_.FullName
+                    TemplateFile = $templateFile
+                }
+            }
+            catch {
+                Write-Verbose "Failed to read template: $templateFile"
+            }
+        }
+    }
+    
+    return $prepared
+}
+
+<#
+.SYNOPSIS
     Displays the interactive migration menu.
 
 .DESCRIPTION
@@ -111,14 +180,111 @@ function Show-MigrationMenu {
             }
         }
         '2' {
-            $SourceProjectPath = Read-Host "Enter Source GitLab project path (e.g., group/my-project)"
-            $DestProjectName = Read-Host "Enter Destination Azure DevOps project name (e.g., MyProject)"
-            if (-not [string]::IsNullOrWhiteSpace($SourceProjectPath) -and -not [string]::IsNullOrWhiteSpace($DestProjectName)) {
-                $repoName = ($SourceProjectPath -split '/')[-1]
-                Initialize-AdoProject -DestProject $DestProjectName -RepoName $repoName -BuildDefinitionId $script:BuildDefinitionId -SonarStatusContext $script:SonarStatusContext
+            # Show prepared projects
+            $preparedProjects = Get-PreparedProjects
+            
+            if ($preparedProjects.Count -eq 0) {
+                Write-Host ""
+                Write-Host "No prepared projects found. Please run Option 1 or 4 first to prepare projects." -ForegroundColor Yellow
+                Write-Host ""
+                $createNew = Read-Host "Do you want to create a new independent Azure DevOps project? (y/N)"
+                if ($createNew -match '^[Yy]') {
+                    $DestProjectName = Read-Host "Enter Azure DevOps project name (e.g., MyProject)"
+                    $RepoName = Read-Host "Enter initial repository name (e.g., my-repo)"
+                    if (-not [string]::IsNullOrWhiteSpace($DestProjectName) -and -not [string]::IsNullOrWhiteSpace($RepoName)) {
+                        Initialize-AdoProject -DestProject $DestProjectName -RepoName $RepoName -BuildDefinitionId $script:BuildDefinitionId -SonarStatusContext $script:SonarStatusContext
+                    }
+                    else {
+                        Write-Host "[ERROR] Project name and repository name cannot be empty." -ForegroundColor Red
+                    }
+                }
+                return
+            }
+            
+            Write-Host ""
+            Write-Host "=== PREPARED PROJECTS ===" -ForegroundColor Cyan
+            Write-Host ""
+            
+            # Display single preparations
+            $singleProjects = @($preparedProjects | Where-Object { $_.Type -eq "Single" })
+            if ($singleProjects.Count -gt 0) {
+                Write-Host "Single Project Preparations:" -ForegroundColor Green
+                for ($i = 0; $i -lt $singleProjects.Count; $i++) {
+                    $proj = $singleProjects[$i]
+                    Write-Host "  $($i + 1)) $($proj.ProjectName) (from $($proj.GitLabPath))" -ForegroundColor White
+                    Write-Host "      Size: $($proj.RepoSizeMB) MB | Prepared: $($proj.PreparationTime)" -ForegroundColor Gray
+                }
+                Write-Host ""
+            }
+            
+            # Display bulk preparations
+            $bulkProjects = @($preparedProjects | Where-Object { $_.Type -eq "Bulk" })
+            $bulkStartIndex = $singleProjects.Count
+            if ($bulkProjects.Count -gt 0) {
+                Write-Host "Bulk Preparations:" -ForegroundColor Green
+                for ($i = 0; $i -lt $bulkProjects.Count; $i++) {
+                    $proj = $bulkProjects[$i]
+                    Write-Host "  $($bulkStartIndex + $i + 1)) $($proj.ProjectName) (bulk: $($proj.SuccessfulCount)/$($proj.ProjectCount) projects)" -ForegroundColor White
+                    Write-Host "      Total size: $($proj.TotalSizeMB) MB | Prepared: $($proj.PreparationTime)" -ForegroundColor Gray
+                }
+                Write-Host ""
+            }
+            
+            # Add option to create new independent project
+            $newProjectIndex = $preparedProjects.Count + 1
+            Write-Host "  $newProjectIndex) Create new independent Azure DevOps project (not from preparation)" -ForegroundColor Yellow
+            Write-Host ""
+            
+            $selection = Read-Host "Select a project to initialize in Azure DevOps (1-$newProjectIndex)"
+            $selectionNum = 0
+            
+            if ([int]::TryParse($selection, [ref]$selectionNum) -and $selectionNum -ge 1 -and $selectionNum -le $newProjectIndex) {
+                if ($selectionNum -eq $newProjectIndex) {
+                    # Create new independent project
+                    Write-Host ""
+                    Write-Host "=== CREATE NEW INDEPENDENT PROJECT ===" -ForegroundColor Cyan
+                    $DestProjectName = Read-Host "Enter Azure DevOps project name (e.g., MyProject)"
+                    $RepoName = Read-Host "Enter initial repository name (e.g., my-repo)"
+                    if (-not [string]::IsNullOrWhiteSpace($DestProjectName) -and -not [string]::IsNullOrWhiteSpace($RepoName)) {
+                        Initialize-AdoProject -DestProject $DestProjectName -RepoName $RepoName -BuildDefinitionId $script:BuildDefinitionId -SonarStatusContext $script:SonarStatusContext
+                    }
+                    else {
+                        Write-Host "[ERROR] Project name and repository name cannot be empty." -ForegroundColor Red
+                    }
+                }
+                else {
+                    # Initialize from prepared project
+                    $selectedProject = $preparedProjects[$selectionNum - 1]
+                    
+                    if ($selectedProject.Type -eq "Single") {
+                        $DestProjectName = Read-Host "Enter Azure DevOps project name (press Enter for '$($selectedProject.ProjectName)')"
+                        if ([string]::IsNullOrWhiteSpace($DestProjectName)) {
+                            $DestProjectName = $selectedProject.ProjectName
+                        }
+                        $RepoName = $selectedProject.ProjectName
+                        
+                        Write-Host ""
+                        Write-Host "Initializing Azure DevOps project '$DestProjectName' with repository '$RepoName'..." -ForegroundColor Cyan
+                        Initialize-AdoProject -DestProject $DestProjectName -RepoName $RepoName -BuildDefinitionId $script:BuildDefinitionId -SonarStatusContext $script:SonarStatusContext
+                    }
+                    elseif ($selectedProject.Type -eq "Bulk") {
+                        $DestProjectName = Read-Host "Enter Azure DevOps project name (press Enter for '$($selectedProject.ProjectName)')"
+                        if ([string]::IsNullOrWhiteSpace($DestProjectName)) {
+                            $DestProjectName = $selectedProject.ProjectName
+                        }
+                        
+                        Write-Host ""
+                        Write-Host "Initializing Azure DevOps project '$DestProjectName' for bulk migration..." -ForegroundColor Cyan
+                        Write-Host "[INFO] This will create the project. Use Option 6 to migrate the repositories." -ForegroundColor Yellow
+                        
+                        # For bulk, create project without repository (repositories will be added during migration)
+                        $tempRepoName = "initial-repo"
+                        Initialize-AdoProject -DestProject $DestProjectName -RepoName $tempRepoName -BuildDefinitionId $script:BuildDefinitionId -SonarStatusContext $script:SonarStatusContext
+                    }
+                }
             }
             else {
-                Write-Host "[ERROR] Project path and name cannot be empty." -ForegroundColor Red
+                Write-Host "[ERROR] Invalid selection." -ForegroundColor Red
             }
         }
         '3' {
