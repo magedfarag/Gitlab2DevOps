@@ -19,6 +19,11 @@ When you initialize a new Azure DevOps project (Option 2 in the menu), the migra
 7. ✅ **Repository Templates** - README.md and PR template
 8. ✅ **Areas** - Frontend, Backend, Infrastructure, Documentation
 9. ✅ **Wiki** - Welcome page and guidelines
+10. ✅ **Test Plan** - QA test plan with 4 test suites ⭐ NEW
+11. ✅ **QA Queries** - 8 QA-specific queries for testing workflow ⭐ NEW
+12. ✅ **QA Dashboard** - Comprehensive QA metrics dashboard ⭐ NEW
+13. ✅ **Test Configurations** - 13 test configurations for cross-platform testing ⭐ NEW
+14. ✅ **QA Guidelines** - Complete testing documentation in wiki ⭐ NEW
 
 ---
 
@@ -477,6 +482,558 @@ Consider creating specialized dashboards:
 
 ---
 
+---
+
+## 🧪 QA Infrastructure
+
+### Overview
+
+A comprehensive **Quality Assurance infrastructure** is automatically configured to support professional testing workflows from day one.
+
+**Components Created**:
+- Test Plan with 4 specialized test suites
+- 8 QA-specific work item queries
+- QA Metrics Dashboard with 8 widgets
+- 13 test configurations for cross-platform testing
+- Complete QA Guidelines documentation
+
+---
+
+### Test Plan & Test Suites
+
+#### What's Created
+
+A complete **test plan** with 4 test suites for different testing phases:
+
+**Test Plan Name**: `<Project> - Test Plan`  
+**Location**: Test Plans → Your Project - Test Plan
+
+#### Test Suites
+
+##### 1. **Regression Testing Suite**
+**Purpose**: Verify that existing functionality still works after changes
+
+**Use Case**:
+- Run after each major release
+- Validate core user journeys
+- Ensure no breaking changes
+- Before production deployment
+
+**Test Types**: End-to-end scenarios, critical path validation
+
+**When to Use**:
+- Before release to production
+- After major feature additions
+- When refactoring existing code
+- After dependency updates
+
+##### 2. **Smoke Testing Suite**
+**Purpose**: Quick validation that critical functionality works
+
+**Use Case**:
+- First test after build
+- Verify app launches and basic functions work
+- Catch critical blockers early
+- Fast feedback for developers
+
+**Test Types**: Login, navigation, key workflows
+
+**Duration**: 15-30 minutes (fast execution)
+
+**When to Use**:
+- After every deployment to test environment
+- Before starting regression testing
+- After infrastructure changes
+- Morning sanity check
+
+##### 3. **Integration Testing Suite**
+**Purpose**: Test interactions between system components
+
+**Use Case**:
+- API integration validation
+- Database interactions
+- Third-party service connections
+- Microservices communication
+
+**Test Types**: API tests, service integration, data flow validation
+
+**When to Use**:
+- After API changes
+- When integrating new services
+- After database schema updates
+- Continuous integration pipeline
+
+##### 4. **User Acceptance Testing (UAT) Suite**
+**Purpose**: Validate business requirements with stakeholders
+
+**Use Case**:
+- Product owner validation
+- Business user testing
+- Requirement verification
+- Pre-production sign-off
+
+**Test Types**: Business scenarios, user journeys, requirement validation
+
+**When to Use**:
+- Before sprint review/demo
+- Before release to production
+- After new feature completion
+- Stakeholder validation sessions
+
+---
+
+### QA Queries
+
+#### What's Created
+
+**8 specialized queries** in **Shared Queries/QA** folder for testing workflow management.
+
+#### Available Queries
+
+##### 1. **Test Execution Status**
+Shows all test cases with execution results
+
+**WIQL**:
+```
+[System.WorkItemType] = 'Test Case'
+ORDER BY [Microsoft.VSTS.Common.Priority] ASC
+```
+
+**Use Case**: Test execution tracking, coverage analysis
+
+**Fields Shown**: Test case title, priority, assigned tester, last result
+
+##### 2. **Bugs by Severity**
+Shows active bugs grouped by severity level
+
+**WIQL**:
+```
+[System.WorkItemType] = 'Bug'
+AND [System.State] <> 'Closed'
+ORDER BY [Microsoft.VSTS.Common.Severity] ASC
+```
+
+**Use Case**: Bug triage, prioritization meetings
+
+**Priority Order**: P0 (Critical) → P1 (High) → P2 (Medium) → P3 (Low)
+
+##### 3. **Bugs by Priority**
+Shows active bugs ordered by business priority
+
+**WIQL**:
+```
+[System.WorkItemType] = 'Bug'
+AND [System.State] <> 'Closed'
+ORDER BY [Microsoft.VSTS.Common.Priority] ASC
+```
+
+**Use Case**: Sprint planning, bug fix scheduling
+
+##### 4. **Test Coverage by Feature**
+Shows features and their linked test cases
+
+**WIQL**:
+```
+[System.WorkItemType] = 'Feature'
+ORDER BY [System.CreatedDate] DESC
+```
+
+**Use Case**: Test coverage gaps, requirement validation
+
+**Action**: Review linked test cases per feature
+
+##### 5. **Failed Test Cases**
+Shows test cases that failed in last execution
+
+**WIQL**:
+```
+[System.WorkItemType] = 'Test Case'
+AND [Microsoft.VSTS.TCM.AutomatedTestName] <> ''
+ORDER BY [Microsoft.VSTS.Common.Priority] ASC
+```
+
+**Use Case**: Bug investigation, test maintenance
+
+**Next Steps**: File bugs for failures, update test cases
+
+##### 6. **Regression Candidates**
+Shows features with recent changes needing regression testing
+
+**WIQL**:
+```
+[System.WorkItemType] IN ('User Story', 'Feature')
+AND [System.State] = 'Resolved'
+AND [System.Tags] CONTAINS 'needs-testing'
+ORDER BY [System.ChangedDate] DESC
+```
+
+**Use Case**: Regression test planning, sprint testing
+
+##### 7. **Bug Triage Queue**
+Shows new bugs awaiting triage
+
+**WIQL**:
+```
+[System.WorkItemType] = 'Bug'
+AND [System.State] = 'New'
+ORDER BY [System.CreatedDate] DESC
+```
+
+**Use Case**: Daily bug triage meetings
+
+**Action**: Assign severity, priority, owner
+
+##### 8. **Reopened Bugs**
+Shows bugs that were reopened after being closed
+
+**WIQL**:
+```
+[System.WorkItemType] = 'Bug'
+AND [System.State] = 'Active'
+AND [System.Reason] = 'Reactivated'
+ORDER BY [Microsoft.VSTS.Common.Severity] ASC
+```
+
+**Use Case**: Quality trend analysis, recurring issues
+
+**Red Flag**: High reopen rate indicates root cause issues
+
+---
+
+### QA Dashboard
+
+#### What's Created
+
+A specialized **QA Metrics Dashboard** with 8 widgets for testing insights.
+
+**Dashboard Name**: `<Team Name> - QA Metrics`  
+**Location**: Overview → Dashboards → Team Name - QA Metrics
+
+#### Dashboard Widgets
+
+##### Row 1: Test Execution
+
+**1. Test Execution Status (2x2 Chart)**
+- Shows test pass/fail/not run counts
+- Visual pie chart of test results
+- Quick health indicator
+
+**2. Failed Test Cases (2x2 Query Results)**
+- List of failed tests
+- Priority and assigned tester
+- Direct links to test cases
+
+##### Row 2: Bug Metrics
+
+**3. Bugs by Severity (2x2 Stacked Bar)**
+- P0/P1/P2/P3 bug counts
+- Color-coded by severity
+- Trend over time
+
+**4. Bug Triage Queue (2x2 Query Results)**
+- New bugs needing triage
+- Creation date and reporter
+- Quick triage access
+
+##### Row 3: Coverage & Trends
+
+**5. Test Coverage (1x1 Tile)**
+- Number of test cases per feature
+- Coverage percentage
+- Gap identification
+
+**6. Regression Candidates (1x1 Tile)**
+- Count of stories needing regression
+- Tagged "needs-testing"
+- Regression planning aid
+
+**7. Reopened Bugs (1x1 Tile)**
+- Count of reactivated bugs
+- Quality indicator
+- Trend monitoring
+
+**8. Bugs by Priority (1x1 Stacked Bar)**
+- P1/P2/P3 bug distribution
+- Sprint planning metric
+- Backlog health
+
+---
+
+### Test Configurations
+
+#### What's Created
+
+**13 test configurations** for comprehensive cross-platform and environment testing.
+
+**Location**: Test Plans → Configurations
+
+#### Test Variables
+
+##### 1. **Browser** (4 values)
+- Chrome
+- Firefox
+- Safari
+- Edge
+
+##### 2. **Operating System** (5 values)
+- Windows
+- macOS
+- Linux
+- iOS
+- Android
+
+##### 3. **Environment** (4 values)
+- Dev
+- Test
+- Staging
+- Production
+
+#### Test Configurations
+
+##### Browser/OS Combinations (10 configs)
+
+1. **Chrome on Windows** - Most common combination
+2. **Chrome on macOS** - Developer workstations
+3. **Chrome on Linux** - Server environments
+4. **Chrome on Android** - Mobile web testing
+5. **Firefox on Windows** - Cross-browser validation
+6. **Firefox on macOS** - Mac Firefox users
+7. **Firefox on Linux** - Open source stacks
+8. **Safari on macOS** - Mac default browser
+9. **Safari on iOS** - iPhone/iPad testing
+10. **Edge on Windows** - Windows default browser
+
+##### Environment-Specific (3 configs)
+
+11. **Dev Environment** - Development testing
+12. **Staging Environment** - Pre-production validation
+13. **Production Environment** - Production monitoring
+
+#### How to Use Configurations
+
+**Test Case Assignment**:
+1. Open test case in test plan
+2. Select configurations to test against
+3. Run tests for each configuration
+4. Track results per configuration
+
+**Best Practices**:
+- Assign critical tests to all browser/OS combos
+- Use environment configs for deployment validation
+- Focus mobile testing on Safari (iOS) and Chrome (Android)
+- Run regression on most popular config (Chrome/Windows) first
+
+**Common Scenarios**:
+- **Web App**: Chrome+Firefox on Windows/macOS
+- **Mobile-First**: Chrome/Safari on Android/iOS
+- **Enterprise**: Edge on Windows + Chrome on Windows
+- **Multi-Platform**: All browser/OS combinations
+
+---
+
+### QA Guidelines Wiki
+
+#### What's Created
+
+A comprehensive **QA Guidelines** wiki page with 7 major sections.
+
+**Location**: Wiki → QA-Guidelines
+
+#### Documentation Sections
+
+##### 1. **Testing Strategy**
+- Testing pyramid (70% unit, 20% integration, 10% E2E)
+- Test types (Regression, Smoke, Integration, UAT)
+- Test planning approach
+- Quality gates
+
+##### 2. **Test Configurations**
+- When to use each configuration
+- Browser/OS coverage guidelines
+- Environment testing workflow
+- Configuration selection criteria
+
+##### 3. **Test Plan Structure**
+- How to organize test suites
+- Test case naming conventions
+- Linking tests to requirements
+- Test suite purposes
+
+##### 4. **Writing Test Cases**
+- Test case template structure
+- Test step best practices
+- Expected results guidelines
+- Preconditions and setup
+
+##### 5. **Bug Reporting**
+- Bug severity definitions (P0-P3)
+- Bug lifecycle workflow
+- Required information checklist
+- Bug triage process
+
+##### 6. **QA Queries & Dashboards**
+- How to use each query
+- Dashboard widget explanations
+- Custom query creation
+- Reporting best practices
+
+##### 7. **Testing Checklist**
+- Before testing (environment, data, access)
+- During testing (exploratory, documentation)
+- After testing (results, reporting)
+- Before release (sign-off, production readiness)
+
+#### Key Content Highlights
+
+**Testing Pyramid**:
+```
+    /\
+   /  \  10% - E2E (Test Plans, Manual Testing)
+  /────\
+ /      \ 20% - Integration (API, Service Tests)
+/────────\
+/          \ 70% - Unit Tests (Automated, Fast)
+```
+
+**Bug Severity Guidelines**:
+- **P0 - Critical**: System down, data loss, security breach
+- **P1 - High**: Major feature broken, workaround exists
+- **P2 - Medium**: Minor feature issue, usability problem
+- **P3 - Low**: Cosmetic issue, enhancement
+
+**Test Case Format**:
+```
+Title: [TEST] User can login with valid credentials
+
+Preconditions:
+- User account exists
+- Application is accessible
+
+Steps:
+1. Navigate to login page
+   Expected: Login form visible
+2. Enter valid username/password
+   Expected: Fields accept input
+3. Click "Sign In" button
+   Expected: User redirected to dashboard
+```
+
+---
+
+### How to Use QA Infrastructure
+
+#### For QA Team Lead
+
+**Setup (One-Time)**:
+1. Review test plan and suites structure
+2. Customize test configurations if needed
+3. Share QA Guidelines wiki with team
+4. Set up QA Dashboard as team homepage
+
+**Ongoing**:
+1. Run "Bug Triage Queue" query daily
+2. Monitor QA Dashboard during sprints
+3. Update test cases in test suites
+4. Review test coverage regularly
+
+#### For QA Engineers
+
+**Daily Workflow**:
+1. Check "My Active Work" for assigned tests
+2. Review "Failed Test Cases" for investigations
+3. Use test configurations for test execution
+4. Log bugs with proper severity/priority
+
+**Sprint Workflow**:
+1. Plan regression testing with "Regression Candidates"
+2. Execute smoke tests after each deployment
+3. Track progress with QA Dashboard
+4. Update test execution results
+
+#### For Product Owners
+
+**Quality Oversight**:
+1. Review QA Dashboard in sprint reviews
+2. Monitor bug trends (severity, reopen rate)
+3. Validate UAT results before release
+4. Check test coverage per feature
+
+**Release Decisions**:
+- No P0/P1 bugs open
+- Regression suite passed
+- UAT sign-off complete
+- Smoke tests green on production
+
+---
+
+### QA Metrics & KPIs
+
+Track these metrics using QA Dashboard:
+
+#### Test Coverage
+**Metric**: Test cases per feature  
+**Target**: 100% of features have test cases  
+**Red Flag**: Features with no test cases
+
+#### Test Pass Rate
+**Metric**: Passed tests / Total tests  
+**Target**: >95% pass rate  
+**Red Flag**: <90% pass rate
+
+#### Bug Reopen Rate
+**Metric**: Reopened bugs / Total bugs  
+**Target**: <5% reopen rate  
+**Red Flag**: >10% reopen rate
+
+#### Bug Resolution Time
+**Metric**: Days from New → Closed  
+**Target**: P0 <1 day, P1 <3 days, P2 <7 days  
+**Red Flag**: Exceeding targets
+
+#### Test Execution Progress
+**Metric**: Executed tests / Planned tests  
+**Target**: 100% before sprint end  
+**Red Flag**: <80% executed in last 3 days
+
+---
+
+### Troubleshooting QA Features
+
+#### Test Plan Not Visible
+**Solution**: Navigate to Test Plans (left sidebar). If missing, check project permissions.
+
+#### Test Configurations Not Appearing
+**Solution**: 
+1. Go to Test Plans → Configurations
+2. If empty, verify "Ensure-AdoTestConfigurations" ran successfully
+3. Check migration logs for errors
+
+#### QA Queries Empty
+**Solution**: 
+1. Verify queries exist in Shared Queries/QA folder
+2. Check that work items (test cases, bugs) have been created
+3. Run query with no filters to see all items
+
+#### QA Dashboard Shows "No Data"
+**Causes**:
+1. **New project** - No test execution data yet
+2. **No test cases** - Create test cases in test plan first
+3. **No bugs** - Create test bugs for testing
+
+**Solution**: 
+1. Create test cases in test plan
+2. Execute some tests (mark as passed/failed)
+3. Create a few test bugs
+4. Wait 1-2 hours for dashboard to refresh
+
+#### Test Execution Results Not Saving
+**Solution**: 
+1. Ensure test case is in a test suite
+2. Run tests through Test Plans → Execute tests
+3. Check permissions (need "Manage test runs" permission)
+
+---
+
 ## 🏷️ Tag Guidelines
 
 ### What's Created
@@ -574,10 +1131,16 @@ Standard PR description template with:
 | Work Item Templates | ✅ Yes (6 templates) | ❌ No | Consistent work items |
 | Shared Queries | ✅ Yes (5 queries) | ❌ No | Quick access to common views |
 | Team Settings | ✅ Yes (backlog, days) | ❌ No | Optimized workflow |
+| Team Dashboard | ✅ Yes (8 widgets) | ❌ No | Sprint metrics & insights |
 | Tag Guidelines | ✅ Yes (wiki page) | ❌ No | Consistent tagging |
 | Repository Templates | ✅ Yes (after push) | ❌ No | Professional onboarding |
 | Areas | ✅ Yes (4 areas) | ❌ No | Work organization |
 | Wiki | ✅ Yes (welcome + tags) | ❌ No | Documentation hub |
+| **Test Plan** | ✅ **Yes (4 suites)** | ❌ **No** | **Professional QA workflow** |
+| **QA Queries** | ✅ **Yes (8 queries)** | ❌ **No** | **Testing workflow management** |
+| **QA Dashboard** | ✅ **Yes (8 widgets)** | ❌ **No** | **Quality metrics & insights** |
+| **Test Configurations** | ✅ **Yes (13 configs)** | ❌ **No** | **Cross-platform testing** |
+| **QA Guidelines** | ✅ **Yes (wiki page)** | ❌ **No** | **Testing documentation** |
 
 ---
 
@@ -590,6 +1153,9 @@ After project initialization:
 - [ ] Verify shared queries (Boards → Queries → Shared Queries)
 - [ ] Check team settings (Project Settings → Team configuration)
 - [ ] Review tag guidelines (Wiki → Tag-Guidelines)
+- [ ] **Review test plan and test suites (Test Plans)** ⭐ NEW
+- [ ] **Check QA Dashboard (Overview → Dashboards → QA Metrics)** ⭐ NEW
+- [ ] **Verify test configurations (Test Plans → Configurations)** ⭐ NEW
 - [ ] Customize README.md if needed
 - [ ] Invite team members and assign to groups (Dev, QA, BA)
 
@@ -601,11 +1167,21 @@ After project initialization:
 - [ ] Review README.md for project setup instructions
 - [ ] Create a test PR to see the template
 
+### For QA Team
+- [ ] **Review QA Guidelines wiki (Wiki → QA-Guidelines)** ⭐ NEW
+- [ ] **Explore QA queries folder (Boards → Queries → Shared Queries → QA)** ⭐ NEW
+- [ ] **Review test plan structure (Test Plans → Test Plan)** ⭐ NEW
+- [ ] **Set up QA Dashboard as homepage** ⭐ NEW
+- [ ] **Review test configurations for testing scenarios** ⭐ NEW
+- [ ] **Create initial test cases in test suites** ⭐ NEW
+
 ### For First Sprint
 - [ ] Run "Team Backlog" query
 - [ ] Assign work items to Sprint 1
 - [ ] Set capacity for team members
 - [ ] Start working and track progress with burndown
+- [ ] **Plan regression testing using "Regression Candidates" query** ⭐ NEW
+- [ ] **Execute smoke tests after first deployment** ⭐ NEW
 
 ---
 

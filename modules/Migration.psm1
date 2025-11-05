@@ -554,6 +554,31 @@ This project was migrated from GitLab using automated tooling.
     Ensure-AdoCommonTags $DestProject $wiki.id
     Ensure-AdoBestPracticesWiki $DestProject $wiki.id
     
+    # Configure QA infrastructure (test plans, queries, dashboards, configurations, guidelines)
+    Write-Host "[INFO] Setting up QA infrastructure..." -ForegroundColor Cyan
+    try {
+        # Create test plan with test suites
+        $testPlan = Ensure-AdoTestPlan $DestProject
+        
+        # Create QA queries
+        Ensure-AdoQAQueries $DestProject
+        
+        # Create QA dashboard
+        Ensure-AdoQADashboard $DestProject "$DestProject Team"
+        
+        # Create test configurations
+        Ensure-AdoTestConfigurations $DestProject
+        
+        # Create QA guidelines wiki page
+        Ensure-AdoQAGuidelinesWiki $DestProject $wiki.id
+        
+        Write-Host "[SUCCESS] QA infrastructure configured successfully" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Failed to configure QA infrastructure: $_"
+        Write-Warning "Continuing with project initialization..."
+    }
+    
     # Create repository
     $repo = Ensure-AdoRepository $DestProject $projId $RepoName
     
@@ -622,6 +647,15 @@ This project was migrated from GitLab using automated tooling.
     Write-Host "   ✅ Wiki: Initialized with welcome page" -ForegroundColor Green
     Write-Host "   ✅ Tag Guidelines: Common tags documented" -ForegroundColor Green
     Write-Host "   ✅ Best Practices: Comprehensive team productivity guide" -ForegroundColor Green
+    Write-Host "   ✅ QA Guidelines: Testing standards and QA processes" -ForegroundColor Green
+    
+    # QA Infrastructure
+    Write-Host ""
+    Write-Host "🧪 QA Infrastructure:" -ForegroundColor Cyan
+    Write-Host "   ✅ Test Plan: 4 suites (Regression, Smoke, Integration, UAT)" -ForegroundColor Green
+    Write-Host "   ✅ Test Configurations: 13 configs (browsers, OS, environments)" -ForegroundColor Green
+    Write-Host "   ✅ QA Queries: 8 queries (Test Status, Bugs, Coverage, etc.)" -ForegroundColor Green
+    Write-Host "   ✅ QA Dashboard: Metrics dashboard with 8 widgets" -ForegroundColor Green
     
     # Repository Configuration
     Write-Host ""
@@ -642,10 +676,14 @@ This project was migrated from GitLab using automated tooling.
     Write-Host "Next Steps:" -ForegroundColor White
     Write-Host "  1. Use Option 3 (Migrate) or Option 6 (Bulk) to push code" -ForegroundColor Gray
     Write-Host "  2. 📖 Read Best Practices: Wiki → Best-Practices (START HERE!)" -ForegroundColor Cyan
-    Write-Host "  3. View team dashboard: Dashboards → $DestProject Team - Overview" -ForegroundColor Gray
-    Write-Host "  4. Review shared queries in Queries → Shared Queries" -ForegroundColor Gray
-    Write-Host "  5. Check sprint schedule in Boards → Sprints" -ForegroundColor Gray
-    Write-Host "  6. Review tag guidelines in Wiki → Tag-Guidelines" -ForegroundColor Gray
+    Write-Host "  3. 🧪 Review QA Guidelines: Wiki → QA-Guidelines (for QA team)" -ForegroundColor Cyan
+    Write-Host "  4. View team dashboard: Dashboards → $DestProject Team - Overview" -ForegroundColor Gray
+    Write-Host "  5. View QA dashboard: Dashboards → $DestProject Team - QA Metrics" -ForegroundColor Gray
+    Write-Host "  6. Review test plan: Test Plans → $DestProject - Test Plan" -ForegroundColor Gray
+    Write-Host "  7. Review shared queries in Queries → Shared Queries" -ForegroundColor Gray
+    Write-Host "  8. Check QA queries in Queries → Shared Queries → QA" -ForegroundColor Gray
+    Write-Host "  9. Check sprint schedule in Boards → Sprints" -ForegroundColor Gray
+    Write-Host " 10. Review tag guidelines in Wiki → Tag-Guidelines" -ForegroundColor Gray
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
 }

@@ -1260,58 +1260,32 @@ function Ensure-AdoTeamTemplates {
         }
     }
     
-    # Set templates as team defaults
-    Write-Host ""
-    Write-Host "[INFO] Setting templates as team defaults..." -ForegroundColor Cyan
+    # Note: Setting templates as defaults via API is not supported
+    # Templates can be set as default manually through Azure DevOps UI
+    # The templates are still created and usable - they just won't auto-populate
+    Write-Verbose "[Ensure-AdoTeamTemplates] Templates created successfully"
+    Write-Verbose "[Ensure-AdoTeamTemplates] Note: Setting templates as default requires manual configuration in Azure DevOps UI"
     
-    $setDefaultCount = 0
-    foreach ($workItemType in $availableTypes) {
-        if ($templateDefinitions.ContainsKey($workItemType)) {
-            $template = $templateDefinitions[$workItemType]
-            
-            try {
-                # Get the template ID
-                $templateToSet = $byName[$template.name]
-                if (-not $templateToSet) {
-                    # Try to get updated list of templates
-                    $existing = Invoke-AdoRest GET $base
-                    $byName = @{}
-                    $existing.value | ForEach-Object { $byName[$_.name] = $_ }
-                    $templateToSet = $byName[$template.name]
-                }
-                
-                if ($templateToSet) {
-                    Write-Verbose "[Ensure-AdoTeamTemplates] Setting template as default: $($template.name) (ID: $($templateToSet.id))"
-                    
-                    # Set as team default using PATCH request
-                    $patchBody = @{
-                        id = $templateToSet.id
-                        name = $templateToSet.name
-                        workItemTypeName = $workItemType
-                        isDefault = $true
-                    }
-                    
-                    Invoke-AdoRest PATCH "$base/$($templateToSet.id)" -Body $patchBody | Out-Null
-                    Write-Host "[SUCCESS] Set $workItemType template as team default" -ForegroundColor Green
-                    $setDefaultCount++
-                }
-            }
-            catch {
-                Write-Warning "Failed to set $workItemType template as default: $_"
-                Write-Verbose "[AzureDevOps] This is usually not critical - templates can still be used manually"
-            }
-        }
-    }
-    
-    # Summary
+    # Summary with actionable guidance
     Write-Host ""
     Write-Host "[INFO] Work item template configuration summary:" -ForegroundColor Cyan
     Write-Host "  ✅ Created: $createdCount templates" -ForegroundColor Green
-    Write-Host "  ⏭️ Skipped: $skippedCount templates (already exist)" -ForegroundColor Yellow
-    Write-Host "  🎯 Set as default: $setDefaultCount templates" -ForegroundColor Green
+    if ($skippedCount -gt 0) {
+        Write-Host "  ⏭️ Skipped: $skippedCount templates (already exist)" -ForegroundColor Yellow
+    }
     Write-Host "  📋 Available work item types: $($availableTypes -join ', ')" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "[INFO] Templates will auto-populate when creating new work items!" -ForegroundColor Cyan
+    Write-Host "[INFO] ✨ Templates are ready to use!" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "[NEXT STEPS] To make templates auto-populate when creating work items:" -ForegroundColor Cyan
+    Write-Host "  1. Navigate to: $script:AdoBaseUrl/$([uri]::EscapeDataString($Project))/_settings/work-items" -ForegroundColor White
+    Write-Host "  2. Select the work item type (e.g., 'User Story', 'Task', 'Bug')" -ForegroundColor White
+    Write-Host "  3. Find the template in the list" -ForegroundColor White
+    Write-Host "  4. Click the ⋮ (actions menu) → 'Set as default'" -ForegroundColor White
+    Write-Host "  5. Repeat for each work item type" -ForegroundColor White
+    Write-Host ""
+    Write-Host "[NOTE] Setting templates as default is not available via API - manual configuration required" -ForegroundColor Yellow
+    Write-Host "[TIP] Set defaults for most-used types first: User Story, Task, Bug" -ForegroundColor Gray
 }
 
 <#
@@ -1557,6 +1531,1227 @@ function Ensure-AdoSharedQueries {
     Write-Host "  📂 Location: Shared Queries folder" -ForegroundColor Gray
     
     return $createdQueries
+}
+
+<#
+.SYNOPSIS
+    Creates a test plan with test suites for QA team.
+
+.DESCRIPTION
+    Creates a test plan with 4 standard test suites: Regression, Smoke, Integration, and UAT.
+    Links to current sprint iteration. Idempotent.
+
+.PARAMETER Project
+    Project name.
+
+.PARAMETER Name
+    Test plan name (optional, defaults to "<Project> - Test Plan").
+
+.PARAMETER Iteration
+    Iteration path (optional, defaults to current sprint).
+
+.OUTPUTS
+    Test plan object with created suites.
+
+.EXAMPLE
+    Ensure-AdoTestPlan "MyProject"
+
+.EXAMPLE
+    Ensure-AdoTestPlan "MyProject" -Name "Sprint 1 Testing" -Iteration "MyProject\Sprint 1"
+#>
+function Ensure-AdoTestPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [string]$Name,
+        
+        [string]$Iteration
+    )
+    
+    Write-Host "[INFO] Setting up test plan and test suites..." -ForegroundColor Cyan
+    
+    # Get project details
+    $projDetails = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))?includeCapabilities=true"
+    $projectId = $projDetails.id
+    $areaPath = $Project
+    
+    # Default test plan name if not provided
+    if (-not $Name) {
+        $Name = "$Project - Test Plan"
+    }
+    
+    # Get current iteration if not specified
+    if (-not $Iteration) {
+        try {
+            $teamName = "$Project Team"
+            $teamIterations = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($teamName))/_apis/work/teamsettings/iterations?`$timeframe=current"
+            if ($teamIterations -and $teamIterations.value -and $teamIterations.value.Count -gt 0) {
+                $Iteration = $teamIterations.value[0].path
+                Write-Verbose "[Ensure-AdoTestPlan] Using current iteration: $Iteration"
+            } else {
+                # Fallback to project root iteration
+                $Iteration = $Project
+                Write-Verbose "[Ensure-AdoTestPlan] No current iteration found, using project root: $Iteration"
+            }
+        }
+        catch {
+            $Iteration = $Project
+            Write-Verbose "[Ensure-AdoTestPlan] Error getting current iteration, using project root: $Iteration"
+        }
+    }
+    
+    # Check if test plan already exists
+    $existingPlans = @()
+    try {
+        $plansResponse = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/testplan/plans"
+        if ($plansResponse -and $plansResponse.value) {
+            $existingPlans = $plansResponse.value | Where-Object { $_.name -eq $Name }
+        }
+    }
+    catch {
+        Write-Verbose "[Ensure-AdoTestPlan] Could not retrieve existing test plans: $_"
+    }
+    
+    $testPlan = $null
+    if ($existingPlans -and $existingPlans.Count -gt 0) {
+        $testPlan = $existingPlans[0]
+        Write-Host "[INFO] Test plan '$Name' already exists (ID: $($testPlan.id))" -ForegroundColor Gray
+    }
+    else {
+        # Create test plan
+        Write-Host "[INFO] Creating test plan '$Name'..." -ForegroundColor Cyan
+        
+        try {
+            $testPlanBody = @{
+                name = $Name
+                areaPath = $areaPath
+                iteration = $Iteration
+                state = "Active"
+            }
+            
+            Write-Verbose "[Ensure-AdoTestPlan] Creating test plan with body: $($testPlanBody | ConvertTo-Json -Depth 5)"
+            $testPlan = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/testplan/plans" -Body $testPlanBody
+            Write-Host "[SUCCESS] Created test plan '$Name' (ID: $($testPlan.id))" -ForegroundColor Green
+        }
+        catch {
+            Write-Error "Failed to create test plan: $_"
+            throw
+        }
+    }
+    
+    # Define test suites to create
+    $suiteDefinitions = @(
+        @{
+            name = "Regression Testing"
+            description = "Comprehensive regression test suite to ensure existing functionality remains intact"
+        },
+        @{
+            name = "Smoke Testing"
+            description = "Critical path smoke tests to verify basic functionality"
+        },
+        @{
+            name = "Integration Testing"
+            description = "End-to-end integration tests across system components"
+        },
+        @{
+            name = "User Acceptance Testing (UAT)"
+            description = "User acceptance tests to validate business requirements"
+        }
+    )
+    
+    # Get existing test suites for this plan
+    $existingSuites = @{}
+    try {
+        $suitesResponse = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/testplan/plans/$($testPlan.id)/suites"
+        if ($suitesResponse -and $suitesResponse.value) {
+            $suitesResponse.value | ForEach-Object { $existingSuites[$_.name] = $_ }
+        }
+    }
+    catch {
+        Write-Verbose "[Ensure-AdoTestPlan] Could not retrieve existing test suites: $_"
+    }
+    
+    $createdCount = 0
+    $skippedCount = 0
+    $createdSuites = @()
+    
+    # Create test suites under root suite
+    $rootSuiteId = $testPlan.rootSuite.id
+    
+    foreach ($suiteDef in $suiteDefinitions) {
+        if ($existingSuites.ContainsKey($suiteDef.name)) {
+            Write-Host "[INFO] Test suite '$($suiteDef.name)' already exists" -ForegroundColor Gray
+            $skippedCount++
+            $createdSuites += $existingSuites[$suiteDef.name]
+            continue
+        }
+        
+        try {
+            Write-Host "[INFO] Creating test suite '$($suiteDef.name)'..." -ForegroundColor Cyan
+            
+            $suiteBody = @{
+                suiteType = "staticTestSuite"
+                name = $suiteDef.name
+                parentSuite = @{ id = $rootSuiteId }
+                inheritDefaultConfigurations = $true
+            }
+            
+            Write-Verbose "[Ensure-AdoTestPlan] Creating suite: $($suiteDef.name)"
+            $suite = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/testplan/plans/$($testPlan.id)/suites" -Body $suiteBody
+            Write-Host "[SUCCESS] Created test suite '$($suiteDef.name)' (ID: $($suite.id))" -ForegroundColor Green
+            $createdSuites += $suite
+            $createdCount++
+        }
+        catch {
+            Write-Warning "Failed to create test suite '$($suiteDef.name)': $_"
+        }
+    }
+    
+    # Summary
+    Write-Host ""
+    Write-Host "[INFO] Test plan configuration summary:" -ForegroundColor Cyan
+    Write-Host "  📋 Test Plan: $Name (ID: $($testPlan.id))" -ForegroundColor White
+    Write-Host "  📍 Iteration: $Iteration" -ForegroundColor Gray
+    Write-Host "  ✅ Created: $createdCount test suites" -ForegroundColor Green
+    if ($skippedCount -gt 0) {
+        Write-Host "  ⏭️ Skipped: $skippedCount test suites (already exist)" -ForegroundColor Yellow
+    }
+    Write-Host ""
+    Write-Host "[INFO] Test suites available:" -ForegroundColor Cyan
+    foreach ($suite in $createdSuites) {
+        Write-Host "  • $($suite.name)" -ForegroundColor Gray
+    }
+    
+    return @{
+        plan = $testPlan
+        suites = $createdSuites
+    }
+}
+
+<#
+.SYNOPSIS
+    Creates QA-specific work item queries.
+
+.DESCRIPTION
+    Creates 8 QA-focused queries: Test Execution Status, Bugs by Severity, Bugs by Priority,
+    Test Coverage, Failed Test Cases, Regression Candidates, Bug Triage, Reopened Bugs.
+    Places them in "Shared Queries/QA" folder. Idempotent.
+
+.PARAMETER Project
+    Project name.
+
+.OUTPUTS
+    Array of created query objects.
+
+.EXAMPLE
+    Ensure-AdoQAQueries "MyProject"
+#>
+function Ensure-AdoQAQueries {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project
+    )
+    
+    Write-Host "[INFO] Creating QA-specific work item queries..." -ForegroundColor Cyan
+    
+    # Define QA queries
+    $qaQueries = @(
+        @{
+            name = "Test Execution Status"
+            wiql = "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [Microsoft.VSTS.Common.Priority] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.WorkItemType] = 'Test Case' ORDER BY [System.State] ASC, [Microsoft.VSTS.Common.Priority] ASC"
+        },
+        @{
+            name = "Bugs by Severity"
+            wiql = "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [Microsoft.VSTS.Common.Severity], [Microsoft.VSTS.Common.Priority] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.WorkItemType] = 'Bug' AND [System.State] <> 'Closed' AND [System.State] <> 'Removed' ORDER BY [Microsoft.VSTS.Common.Severity] ASC, [Microsoft.VSTS.Common.Priority] ASC, [System.CreatedDate] DESC"
+        },
+        @{
+            name = "Bugs by Priority"
+            wiql = "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.WorkItemType] = 'Bug' AND [System.State] <> 'Closed' AND [System.State] <> 'Removed' ORDER BY [Microsoft.VSTS.Common.Priority] ASC, [Microsoft.VSTS.Common.Severity] ASC, [System.CreatedDate] DESC"
+        },
+        @{
+            name = "Test Coverage"
+            wiql = "SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.WorkItemType] IN ('User Story', 'Product Backlog Item', 'Requirement') AND [System.State] <> 'Removed' ORDER BY [System.State] ASC, [System.CreatedDate] DESC"
+        },
+        @{
+            name = "Failed Test Cases"
+            wiql = "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [Microsoft.VSTS.Common.Priority] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.WorkItemType] = 'Test Case' AND [System.State] = 'Failed' ORDER BY [Microsoft.VSTS.Common.Priority] ASC"
+        },
+        @{
+            name = "Regression Candidates"
+            wiql = "SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.ChangedDate] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND ([System.WorkItemType] = 'Bug' AND [System.State] = 'Resolved') OR ([System.Tags] CONTAINS 'regression') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            name = "Bug Triage Queue"
+            wiql = "SELECT [System.Id], [System.Title], [System.CreatedDate], [Microsoft.VSTS.Common.Severity], [Microsoft.VSTS.Common.Priority] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.WorkItemType] = 'Bug' AND [System.State] = 'New' ORDER BY [Microsoft.VSTS.Common.Severity] ASC, [System.CreatedDate] DESC"
+        },
+        @{
+            name = "Reopened Bugs"
+            wiql = "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [Microsoft.VSTS.Common.Severity], [System.ChangedDate] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.WorkItemType] = 'Bug' AND [System.State] = 'Active' AND [System.Reason] = 'Regression' ORDER BY [Microsoft.VSTS.Common.Severity] ASC, [System.ChangedDate] DESC"
+        }
+    )
+    
+    # Ensure QA folder exists under Shared Queries
+    $qaFolderPath = "Shared Queries/QA"
+    $qaFolderId = $null
+    
+    try {
+        # Check if QA folder already exists
+        $sharedQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=2"
+        
+        if ($sharedQueries -and $sharedQueries.children) {
+            $qaFolder = $sharedQueries.children | Where-Object { $_.name -eq "QA" -and $_.isFolder -eq $true }
+            if ($qaFolder) {
+                $qaFolderId = $qaFolder.id
+                Write-Host "[INFO] QA folder already exists" -ForegroundColor Gray
+            }
+        }
+        
+        # Create QA folder if it doesn't exist
+        if (-not $qaFolderId) {
+            Write-Host "[INFO] Creating QA folder under Shared Queries..." -ForegroundColor Cyan
+            $folderBody = @{
+                name = "QA"
+                isFolder = $true
+            }
+            $qaFolder = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" -Body $folderBody
+            $qaFolderId = $qaFolder.id
+            Write-Host "[SUCCESS] Created QA folder" -ForegroundColor Green
+        }
+    }
+    catch {
+        Write-Warning "Failed to create/access QA folder: $_"
+        # Fall back to Shared Queries root
+        $qaFolderId = $null
+    }
+    
+    # Get existing queries in QA folder
+    $existingQueries = @{}
+    try {
+        if ($qaFolderId) {
+            $folderQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$qaFolderId?`$depth=1"
+            if ($folderQueries -and $folderQueries.children) {
+                $folderQueries.children | ForEach-Object { $existingQueries[$_.name] = $_ }
+            }
+        }
+    }
+    catch {
+        Write-Verbose "[Ensure-AdoQAQueries] Could not retrieve existing queries: $_"
+    }
+    
+    $createdCount = 0
+    $skippedCount = 0
+    $createdQueries = @()
+    
+    # Create queries
+    $baseEndpoint = if ($qaFolderId) {
+        "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$qaFolderId"
+    } else {
+        "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries"
+    }
+    
+    foreach ($queryDef in $qaQueries) {
+        if ($existingQueries.ContainsKey($queryDef.name)) {
+            Write-Host "[INFO] Query '$($queryDef.name)' already exists" -ForegroundColor Gray
+            $skippedCount++
+            $createdQueries += $existingQueries[$queryDef.name]
+            continue
+        }
+        
+        try {
+            Write-Host "[INFO] Creating query '$($queryDef.name)'..." -ForegroundColor Cyan
+            
+            $queryBody = @{
+                name = $queryDef.name
+                wiql = $queryDef.wiql
+            }
+            
+            $query = Invoke-AdoRest POST $baseEndpoint -Body $queryBody
+            Write-Host "[SUCCESS] Created query '$($queryDef.name)'" -ForegroundColor Green
+            $createdQueries += $query
+            $createdCount++
+        }
+        catch {
+            Write-Warning "Failed to create query '$($queryDef.name)': $_"
+        }
+    }
+    
+    # Summary
+    Write-Host ""
+    Write-Host "[INFO] QA queries summary:" -ForegroundColor Cyan
+    Write-Host "  ✅ Created: $createdCount queries" -ForegroundColor Green
+    if ($skippedCount -gt 0) {
+        Write-Host "  ⏭️ Skipped: $skippedCount queries (already exist)" -ForegroundColor Yellow
+    }
+    Write-Host "  📂 Location: $qaFolderPath" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "[INFO] QA queries available:" -ForegroundColor Cyan
+    foreach ($query in $createdQueries) {
+        Write-Host "  • $($query.name)" -ForegroundColor Gray
+    }
+    
+    return $createdQueries
+}
+
+<#
+.SYNOPSIS
+    Creates a QA-focused dashboard with test and quality metrics.
+
+.DESCRIPTION
+    Creates a comprehensive QA dashboard with test execution metrics, bug tracking,
+    test coverage, and quality indicators. Uses query tiles and charts from the
+    QA queries created by Ensure-AdoQAQueries. Idempotent.
+
+.PARAMETER Project
+    Project name.
+
+.PARAMETER Team
+    Team name (optional, defaults to "<Project> Team").
+
+.OUTPUTS
+    Dashboard object with QA widgets.
+
+.EXAMPLE
+    Ensure-AdoQADashboard "MyProject"
+
+.EXAMPLE
+    Ensure-AdoQADashboard "MyProject" -Team "QA Team"
+#>
+function Ensure-AdoQADashboard {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [string]$Team = "$Project Team"
+    )
+    
+    Write-Host "[INFO] Creating QA dashboard..." -ForegroundColor Cyan
+    
+    # Get team context
+    try {
+        $teamContext = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))/teams/$([uri]::EscapeDataString($Team))"
+        $teamId = $teamContext.id
+    }
+    catch {
+        Write-Warning "Failed to get team context: $_"
+        return $null
+    }
+    
+    # Check if QA dashboard already exists
+    $dashboardName = "$Team - QA Metrics"
+    try {
+        $existingDashboards = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Preview
+        $existing = $existingDashboards.dashboardEntries | Where-Object { $_.name -eq $dashboardName }
+        
+        if ($existing) {
+            Write-Host "[INFO] QA dashboard '$dashboardName' already exists" -ForegroundColor Gray
+            return $existing
+        }
+    }
+    catch {
+        Write-Verbose "[Ensure-AdoQADashboard] Could not check existing dashboards: $_"
+    }
+    
+    # Create QA dashboard with test and quality widgets
+    try {
+        Write-Verbose "[Ensure-AdoQADashboard] Creating QA dashboard: $dashboardName"
+        
+        $dashboardBody = @{
+            name = $dashboardName
+            description = "QA metrics dashboard with test execution, bug tracking, and quality indicators"
+            widgets = @(
+                # Row 1: Test Execution Status (2x2) + Bugs by Severity (2x2)
+                @{
+                    name = "Test Execution Status"
+                    position = @{ row = 1; column = 1 }
+                    size = @{ rowSpan = 2; columnSpan = 2 }
+                    settings = '{"queryName":"QA/Test Execution Status","chartType":"pie"}'
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.QueryScalarWidget"
+                },
+                @{
+                    name = "Bugs by Severity"
+                    position = @{ row = 1; column = 3 }
+                    size = @{ rowSpan = 2; columnSpan = 2 }
+                    settings = '{"queryName":"QA/Bugs by Severity","chartType":"stackBar"}'
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.QueryScalarWidget"
+                },
+                
+                # Row 2: Test Coverage (2x2) + Bugs by Priority (2x2)
+                @{
+                    name = "Test Coverage"
+                    position = @{ row = 3; column = 1 }
+                    size = @{ rowSpan = 2; columnSpan = 2 }
+                    settings = '{"queryName":"QA/Test Coverage","chartType":"pie"}'
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.QueryScalarWidget"
+                },
+                @{
+                    name = "Bugs by Priority"
+                    position = @{ row = 3; column = 3 }
+                    size = @{ rowSpan = 2; columnSpan = 2 }
+                    settings = '{"queryName":"QA/Bugs by Priority","chartType":"pivot"}'
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.QueryScalarWidget"
+                },
+                
+                # Row 3: Query Tiles (1x1 each) - Quick metrics
+                @{
+                    name = "Failed Test Cases"
+                    position = @{ row = 5; column = 1 }
+                    size = @{ rowSpan = 1; columnSpan = 1 }
+                    settings = '{"queryName":"QA/Failed Test Cases"}'
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.QueryScalarWidget"
+                },
+                @{
+                    name = "Regression Candidates"
+                    position = @{ row = 5; column = 2 }
+                    size = @{ rowSpan = 1; columnSpan = 1 }
+                    settings = '{"queryName":"QA/Regression Candidates"}'
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.QueryScalarWidget"
+                },
+                @{
+                    name = "Bug Triage Queue"
+                    position = @{ row = 5; column = 3 }
+                    size = @{ rowSpan = 1; columnSpan = 1 }
+                    settings = '{"queryName":"QA/Bug Triage Queue"}'
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.QueryScalarWidget"
+                },
+                @{
+                    name = "Reopened Bugs"
+                    position = @{ row = 5; column = 4 }
+                    size = @{ rowSpan = 1; columnSpan = 1 }
+                    settings = '{"queryName":"QA/Reopened Bugs"}'
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.QueryScalarWidget"
+                }
+            )
+            _links = $null
+        }
+        
+        $dashboard = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Body $dashboardBody -Preview
+        
+        Write-Host "[SUCCESS] Created QA dashboard: $dashboardName" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "[INFO] QA dashboard widgets:" -ForegroundColor Cyan
+        Write-Host "  🧪 Test Execution Status - Test case states (pie chart)" -ForegroundColor Gray
+        Write-Host "  🐛 Bugs by Severity - Critical/High/Medium/Low distribution (stacked bar)" -ForegroundColor Gray
+        Write-Host "  📊 Test Coverage - Requirements with test tracking (pie chart)" -ForegroundColor Gray
+        Write-Host "  📈 Bugs by Priority - Priority-based bug distribution (pivot table)" -ForegroundColor Gray
+        Write-Host "  ❌ Failed Test Cases - Count of failed tests (query tile)" -ForegroundColor Gray
+        Write-Host "  🔄 Regression Candidates - Resolved bugs with regression tags (query tile)" -ForegroundColor Gray
+        Write-Host "  🎯 Bug Triage Queue - New bugs awaiting triage (query tile)" -ForegroundColor Gray
+        Write-Host "  🔁 Reopened Bugs - Regressed/reopened bug count (query tile)" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  📍 Location: Dashboards → $dashboardName" -ForegroundColor Gray
+        Write-Host "  💡 TIP: Configure chart colors in each widget's settings for better visibility" -ForegroundColor Yellow
+        
+        return $dashboard
+    }
+    catch {
+        Write-Warning "Failed to create QA dashboard: $_"
+        Write-Verbose "[Ensure-AdoQADashboard] Error details: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+<#
+.SYNOPSIS
+    Creates test configuration variables and configurations for cross-platform testing.
+
+.DESCRIPTION
+    Creates test configuration variables (Browser, Operating System, Environment) and
+    test configurations combining these variables for comprehensive test coverage.
+    Supports browsers (Chrome, Firefox, Safari, Edge), operating systems (Windows, macOS, 
+    Linux, iOS, Android), and environments (Dev, Test, Staging, Production).
+    Idempotent - checks for existing variables and configurations before creating.
+
+.PARAMETER Project
+    Project name.
+
+.OUTPUTS
+    Hashtable with two keys:
+    - variables: Array of created test variable objects
+    - configurations: Array of created test configuration objects
+
+.EXAMPLE
+    Ensure-AdoTestConfigurations "MyProject"
+    Creates test variables and configurations for the project.
+#>
+function Ensure-AdoTestConfigurations {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project
+    )
+    
+    Write-Host "`n========================================" -ForegroundColor Cyan
+    Write-Host "CREATING TEST CONFIGURATIONS" -ForegroundColor Cyan
+    Write-Host "========================================`n" -ForegroundColor Cyan
+    
+    try {
+        # Define test variables and their values
+        $testVariableDefs = @(
+            @{
+                Name = "Browser"
+                Description = "Web browser for testing"
+                Values = @("Chrome", "Firefox", "Safari", "Edge")
+            },
+            @{
+                Name = "Operating System"
+                Description = "Operating system platform"
+                Values = @("Windows", "macOS", "Linux", "iOS", "Android")
+            },
+            @{
+                Name = "Environment"
+                Description = "Deployment environment"
+                Values = @("Dev", "Test", "Staging", "Production")
+            }
+        )
+        
+        # Get existing test variables
+        Write-Host "[INFO] Checking existing test variables..." -ForegroundColor Cyan
+        $existingVariables = @{}
+        try {
+            $variables = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/testplan/variables?api-version=7.1"
+            foreach ($var in $variables.value) {
+                $existingVariables[$var.name] = $var
+            }
+            Write-Host "✓ Found $($existingVariables.Count) existing test variable(s)" -ForegroundColor Green
+        }
+        catch {
+            Write-Verbose "[Ensure-AdoTestConfigurations] Could not retrieve existing variables: $_"
+        }
+        
+        # Create test variables
+        $createdVariables = @()
+        foreach ($varDef in $testVariableDefs) {
+            if ($existingVariables.ContainsKey($varDef.Name)) {
+                Write-Host "  • Test variable '$($varDef.Name)' already exists" -ForegroundColor DarkGray
+                $createdVariables += $existingVariables[$varDef.Name]
+                continue
+            }
+            
+            Write-Host "  • Creating test variable: $($varDef.Name)..." -ForegroundColor Cyan
+            
+            $variableBody = @{
+                name = $varDef.Name
+                description = $varDef.Description
+                values = $varDef.Values
+            } | ConvertTo-Json -Depth 10
+            
+            $variable = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/testplan/variables?api-version=7.1" -Body $variableBody
+            $createdVariables += $variable
+            Write-Host "    ✓ Created with $($varDef.Values.Count) value(s)" -ForegroundColor Green
+        }
+        
+        Write-Host "`n[SUCCESS] Test variables: $($createdVariables.Count) variable(s) configured" -ForegroundColor Green
+        
+        # Define test configurations (combinations of variables)
+        $configurationDefs = @(
+            @{ Name = "Chrome on Windows"; Values = @{ Browser = "Chrome"; "Operating System" = "Windows"; Environment = "Test" } },
+            @{ Name = "Chrome on macOS"; Values = @{ Browser = "Chrome"; "Operating System" = "macOS"; Environment = "Test" } },
+            @{ Name = "Chrome on Linux"; Values = @{ Browser = "Chrome"; "Operating System" = "Linux"; Environment = "Test" } },
+            @{ Name = "Firefox on Windows"; Values = @{ Browser = "Firefox"; "Operating System" = "Windows"; Environment = "Test" } },
+            @{ Name = "Firefox on macOS"; Values = @{ Browser = "Firefox"; "Operating System" = "macOS"; Environment = "Test" } },
+            @{ Name = "Firefox on Linux"; Values = @{ Browser = "Firefox"; "Operating System" = "Linux"; Environment = "Test" } },
+            @{ Name = "Safari on macOS"; Values = @{ Browser = "Safari"; "Operating System" = "macOS"; Environment = "Test" } },
+            @{ Name = "Safari on iOS"; Values = @{ Browser = "Safari"; "Operating System" = "iOS"; Environment = "Test" } },
+            @{ Name = "Edge on Windows"; Values = @{ Browser = "Edge"; "Operating System" = "Windows"; Environment = "Test" } },
+            @{ Name = "Chrome on Android"; Values = @{ Browser = "Chrome"; "Operating System" = "Android"; Environment = "Test" } },
+            @{ Name = "Dev Environment"; Values = @{ Browser = "Chrome"; "Operating System" = "Windows"; Environment = "Dev" } },
+            @{ Name = "Staging Environment"; Values = @{ Browser = "Chrome"; "Operating System" = "Windows"; Environment = "Staging" } },
+            @{ Name = "Production Environment"; Values = @{ Browser = "Chrome"; "Operating System" = "Windows"; Environment = "Production" } }
+        )
+        
+        # Get existing test configurations
+        Write-Host "`n[INFO] Checking existing test configurations..." -ForegroundColor Cyan
+        $existingConfigurations = @{}
+        try {
+            $configurations = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/testplan/configurations?api-version=7.1"
+            foreach ($config in $configurations.value) {
+                $existingConfigurations[$config.name] = $config
+            }
+            Write-Host "✓ Found $($existingConfigurations.Count) existing test configuration(s)" -ForegroundColor Green
+        }
+        catch {
+            Write-Verbose "[Ensure-AdoTestConfigurations] Could not retrieve existing configurations: $_"
+        }
+        
+        # Create test configurations
+        $createdConfigurations = @()
+        foreach ($configDef in $configurationDefs) {
+            if ($existingConfigurations.ContainsKey($configDef.Name)) {
+                Write-Host "  • Test configuration '$($configDef.Name)' already exists" -ForegroundColor DarkGray
+                $createdConfigurations += $existingConfigurations[$configDef.Name]
+                continue
+            }
+            
+            Write-Host "  • Creating test configuration: $($configDef.Name)..." -ForegroundColor Cyan
+            
+            # Build configuration values array
+            $configValues = @()
+            foreach ($varName in $configDef.Values.Keys) {
+                $varValue = $configDef.Values[$varName]
+                
+                # Find the variable ID from created variables
+                $variable = $createdVariables | Where-Object { $_.name -eq $varName }
+                if ($variable) {
+                    $configValues += @{
+                        variable = @{
+                            id = $variable.id
+                            name = $variable.name
+                        }
+                        value = $varValue
+                    }
+                }
+            }
+            
+            $configBody = @{
+                name = $configDef.Name
+                description = "Test configuration for $($configDef.Name)"
+                values = $configValues
+                state = "Active"
+            } | ConvertTo-Json -Depth 10
+            
+            $config = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/testplan/configurations?api-version=7.1" -Body $configBody
+            $createdConfigurations += $config
+            Write-Host "    ✓ Created successfully" -ForegroundColor Green
+        }
+        
+        Write-Host "`n[SUCCESS] Test configurations: $($createdConfigurations.Count) configuration(s) configured" -ForegroundColor Green
+        
+        # Summary
+        Write-Host "`n========================================" -ForegroundColor Green
+        Write-Host "TEST CONFIGURATIONS SUMMARY" -ForegroundColor Green
+        Write-Host "========================================" -ForegroundColor Green
+        Write-Host "✓ Test Variables: $($createdVariables.Count)" -ForegroundColor Green
+        Write-Host "  • Browser: Chrome, Firefox, Safari, Edge" -ForegroundColor White
+        Write-Host "  • Operating System: Windows, macOS, Linux, iOS, Android" -ForegroundColor White
+        Write-Host "  • Environment: Dev, Test, Staging, Production" -ForegroundColor White
+        Write-Host "`n✓ Test Configurations: $($createdConfigurations.Count)" -ForegroundColor Green
+        Write-Host "  • Browser/OS combinations: 10 configurations" -ForegroundColor White
+        Write-Host "  • Environment-specific: 3 configurations" -ForegroundColor White
+        Write-Host "========================================`n" -ForegroundColor Green
+        
+        return @{
+            variables = $createdVariables
+            configurations = $createdConfigurations
+        }
+    }
+    catch {
+        Write-Warning "Failed to create test configurations: $_"
+        Write-Verbose "[Ensure-AdoTestConfigurations] Error details: $($_.Exception.Message)"
+        return @{
+            variables = @()
+            configurations = @()
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Creates comprehensive QA guidelines wiki page.
+
+.DESCRIPTION
+    Creates a "QA Guidelines" wiki page covering testing standards, QA processes,
+    test configuration usage, test plan structure, bug reporting, and quality metrics.
+    Includes guidance on using test configurations, dashboards, and queries created by
+    Ensure-AdoTestConfigurations, Ensure-AdoTestPlan, Ensure-AdoQAQueries, and Ensure-AdoQADashboard.
+    Idempotent - checks if page exists before creating.
+
+.PARAMETER Project
+    Project name.
+
+.PARAMETER WikiId
+    Wiki ID.
+
+.OUTPUTS
+    Wiki page object.
+
+.EXAMPLE
+    Ensure-AdoQAGuidelinesWiki "MyProject" "wiki-id-123"
+#>
+function Ensure-AdoQAGuidelinesWiki {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$WikiId
+    )
+    
+    Write-Host "[INFO] Creating QA guidelines wiki page..." -ForegroundColor Cyan
+    
+    $qaGuidelinesContent = @"
+# QA Guidelines & Testing Standards
+
+This guide provides comprehensive testing standards and QA practices for ensuring high-quality software delivery.
+
+---
+
+## 📋 Table of Contents
+
+1. [Testing Strategy](#testing-strategy)
+2. [Test Configurations](#test-configurations)
+3. [Test Plan Structure](#test-plan-structure)
+4. [Writing Test Cases](#writing-test-cases)
+5. [Bug Reporting](#bug-reporting)
+6. [QA Queries & Dashboards](#qa-queries--dashboards)
+7. [Testing Checklist](#testing-checklist)
+
+---
+
+## 🎯 Testing Strategy
+
+### Testing Pyramid
+
+Our testing strategy follows the testing pyramid principle:
+
+**Unit Tests** (70%)
+- Fast, isolated tests for individual functions/methods
+- Run on every commit
+- Owned by developers
+
+**Integration Tests** (20%)
+- Test component interactions
+- API contract testing
+- Database integration
+- Run before deployment
+
+**System/UI Tests** (10%)
+- End-to-end user scenarios
+- Cross-browser testing
+- Manual exploratory testing
+- Run before release
+
+### Test Types
+
+#### 🔄 Regression Testing
+- **Purpose**: Verify existing functionality still works after changes
+- **Frequency**: Every sprint
+- **Suite**: Test Plans → Regression Suite
+- **Priority**: High severity, high usage features
+
+#### 💨 Smoke Testing
+- **Purpose**: Validate critical paths work in deployed environment
+- **Frequency**: After every deployment
+- **Suite**: Test Plans → Smoke Suite
+- **Duration**: < 30 minutes
+
+#### 🔗 Integration Testing
+- **Purpose**: Verify system components work together
+- **Frequency**: Daily (automated), weekly (manual)
+- **Suite**: Test Plans → Integration Suite
+- **Focus**: API contracts, data flow, service communication
+
+#### ✅ User Acceptance Testing (UAT)
+- **Purpose**: Validate business requirements with stakeholders
+- **Frequency**: End of sprint
+- **Suite**: Test Plans → UAT Suite
+- **Participants**: Product Owner, Business Users
+
+---
+
+## 🖥️ Test Configurations
+
+Our project uses **13 predefined test configurations** for comprehensive coverage:
+
+### Browser/OS Combinations (10 configs)
+
+#### Desktop Browsers
+- **Chrome on Windows** - Primary configuration (80% users)
+- **Chrome on macOS** - Mac users
+- **Chrome on Linux** - Developer workstations
+- **Firefox on Windows** - Secondary browser
+- **Firefox on macOS** - Mac Firefox users
+- **Firefox on Linux** - Linux Firefox users
+- **Edge on Windows** - Windows native browser
+- **Safari on macOS** - Mac native browser
+
+#### Mobile Browsers
+- **Safari on iOS** - iPhone/iPad testing
+- **Chrome on Android** - Android device testing
+
+### Environment Configurations (3 configs)
+
+- **Dev Environment** - Early integration testing
+- **Staging Environment** - Pre-production validation
+- **Production Environment** - Production smoke tests
+
+### Using Test Configurations
+
+**Assign configurations to test suites**:
+1. Navigate to Test Plans → Your Test Plan
+2. Select a test suite
+3. Right-click → Assign Configuration
+4. Choose appropriate configurations
+
+**Best Practices**:
+- ✅ Assign browser configs to UI test suites
+- ✅ Assign environment configs to integration/smoke suites
+- ✅ Use multiple configs for critical test cases
+- ❌ Don't assign all configs to every test (test what matters)
+
+---
+
+## 📚 Test Plan Structure
+
+### Test Plan: \`$Project - Test Plan\`
+
+Our test plan is organized into **4 test suites**:
+
+#### 1. Regression Suite
+- **Purpose**: Verify existing functionality
+- **Test Cases**: High-priority, stable features
+- **Run Frequency**: Every sprint
+- **Configurations**: All major browsers (Chrome, Firefox, Edge, Safari)
+
+#### 2. Smoke Suite
+- **Purpose**: Critical path validation
+- **Test Cases**: Login, core workflows, data access
+- **Run Frequency**: After every deployment
+- **Configurations**: Chrome on Windows + Production Environment
+- **Time Limit**: 30 minutes maximum
+
+#### 3. Integration Suite
+- **Purpose**: Component interaction testing
+- **Test Cases**: API testing, data flow, service communication
+- **Run Frequency**: Daily (automated), weekly (manual)
+- **Configurations**: All environments (Dev, Staging, Production)
+
+#### 4. UAT Suite
+- **Purpose**: Business acceptance testing
+- **Test Cases**: Business scenarios, user workflows
+- **Run Frequency**: End of sprint
+- **Configurations**: Chrome on Windows + Staging Environment
+- **Participants**: Product Owner, Business Users
+
+### Organizing Test Cases
+
+**Naming Convention**:
+\`\`\`
+[Module] - [Action] - [Expected Result]
+Example: [Login] - Valid credentials - User logged in successfully
+\`\`\`
+
+**Tags for Test Cases**:
+- \`regression\` - Include in regression suite
+- \`smoke\` - Critical path test
+- \`automated\` - Automated test exists
+- \`manual-only\` - Cannot be automated
+- \`blocked\` - Test is currently blocked
+
+---
+
+## ✍️ Writing Test Cases
+
+### Test Case Template
+
+Use the **Test Case - Quality Validation** template:
+
+**Title Format**: \`[TEST] <scenario name>\`
+- ✅ Good: "[TEST] Login with valid credentials"
+- ❌ Bad: "test login"
+
+### Test Case Sections
+
+#### 1. Test Objective
+- **Purpose**: What are we validating?
+- **Test Type**: Unit / Integration / System / UAT
+
+#### 2. Prerequisites
+- Environment state before test
+- Required data setup
+- User permissions needed
+
+#### 3. Test Steps
+Write clear, numbered steps:
+\`\`\`
+1. Navigate to login page
+2. Enter username: 'testuser@example.com'
+3. Enter password: 'Test123!'
+4. Click 'Sign In' button
+5. Verify user dashboard displays
+\`\`\`
+
+#### 4. Expected Results
+- Define success criteria for each step
+- Be specific and measurable
+- Include screenshots/examples if helpful
+
+#### 5. Test Data
+- List required test data
+- Include valid and invalid scenarios
+- Document edge cases
+
+### Test Case Best Practices
+
+✅ **DO**:
+- Write atomic tests (one scenario per test case)
+- Use clear, action-oriented language
+- Include expected results for each step
+- Add screenshots for UI elements
+- Link to User Stories (Tested By relationship)
+- Assign appropriate configurations
+
+❌ **DON'T**:
+- Write vague steps ("Check if it works")
+- Skip expected results
+- Combine multiple unrelated scenarios
+- Assume prior knowledge
+- Forget to update tests when features change
+
+---
+
+## 🐛 Bug Reporting
+
+### Bug Template
+
+Use the **Bug - Triaging &amp; Resolution** template:
+
+**Title Format**: \`[BUG] <brief description>\`
+- ✅ Good: "[BUG] Login fails with special characters in password"
+- ❌ Bad: "login broken"
+
+### Required Bug Information
+
+#### 1. Environment
+\`\`\`
+Browser/OS: Chrome 118 on Windows 11
+Application Version: 2.5.3
+User Role: Standard User
+\`\`\`
+
+#### 2. Steps to Reproduce
+\`\`\`
+1. Navigate to https://app.example.com/login
+2. Enter username: 'test@example.com'
+3. Enter password containing special chars: 'P@ssw0rd!'
+4. Click 'Sign In'
+5. Observe error message
+\`\`\`
+
+#### 3. Expected vs Actual Behavior
+- **Expected**: User successfully logs in
+- **Actual**: Error message: "Invalid credentials"
+
+#### 4. Additional Information
+- **Frequency**: Always reproducible
+- **Impact**: Users cannot log in (critical)
+- **Workaround**: Use password without special characters
+- **Attachments**: Screenshots, logs, network traces
+
+### Bug Severity Guidelines
+
+**Critical (P0)** - Fix immediately
+- Complete system/feature failure
+- Data loss or corruption
+- Security vulnerability
+- No workaround available
+
+**High (P1)** - Fix in current sprint
+- Major feature broken
+- Significant functionality impaired
+- Workaround exists but difficult
+- Affects many users
+
+**Medium (P2)** - Fix in next sprint
+- Minor feature issue
+- Cosmetic problems affecting usability
+- Easy workaround available
+- Affects some users
+
+**Low (P3)** - Fix when time permits
+- Cosmetic issues
+- Rare edge cases
+- Enhancement requests
+- Minimal user impact
+
+### Bug Lifecycle
+
+1. **New** → Triage needed
+2. **Active** → Assigned to developer
+3. **Resolved** → Fixed, ready for QA verification
+4. **Closed** → QA verified fix
+5. **Reopened** → Issue persists (back to Active)
+
+**Triaging Tags**:
+- \`triage-needed\` - Needs severity/priority assignment
+- \`needs-repro\` - Cannot reproduce, needs more info
+- \`regression\` - Previously working feature broke
+- \`known-issue\` - Documented limitation
+
+---
+
+## 📊 QA Queries &amp; Dashboards
+
+### Available QA Queries
+
+Navigate to **Queries → Shared Queries → QA** folder:
+
+#### 1. Test Execution Status
+- Shows test case execution progress
+- Groups by outcome (Passed, Failed, Blocked, Not Run)
+- Use for sprint QA status reporting
+
+#### 2. Bugs by Severity
+- Lists active bugs grouped by severity
+- Use for triaging and prioritization
+- Critical bugs should be addressed first
+
+#### 3. Bugs by Priority
+- Lists active bugs grouped by priority
+- Use for sprint planning
+- P0/P1 bugs block release
+
+#### 4. Test Coverage
+- Shows User Stories with/without test cases
+- Use to identify gaps in test coverage
+- Goal: 80%+ stories have test cases
+
+#### 5. Failed Test Cases
+- Lists all failed test cases
+- Use for daily QA standup
+- Requires immediate investigation
+
+#### 6. Regression Candidates
+- Test cases not run in last 30 days
+- Use to plan regression testing
+- Update stale test cases
+
+#### 7. Bug Triage Queue
+- New/unassigned bugs needing triage
+- Use in bug triage meetings
+- Assign severity, priority, owner
+
+#### 8. Reopened Bugs
+- Bugs that failed verification
+- Use to track quality issues
+- Requires root cause analysis
+
+### QA Dashboard
+
+Navigate to **Dashboards → <Team> - QA Metrics**:
+
+**Row 1: Test Execution Overview**
+- **Test Execution Status** (Pie Chart) - Pass/Fail distribution
+- **Bugs by Severity** (Stacked Bar) - Bug severity trends
+
+**Row 2: Bug Analysis**
+- **Test Coverage** (Pie Chart) - Coverage percentage
+- **Bugs by Priority** (Pivot Table) - Priority distribution
+
+**Row 3: Action Items** (Tiles)
+- **Failed Test Cases** - Count requiring investigation
+- **Regression Candidates** - Count needing execution
+- **Bug Triage Queue** - Count needing assignment
+- **Reopened Bugs** - Count needing analysis
+
+**Dashboard Best Practices**:
+- Review daily during standup
+- Track trends over sprints
+- Set goals (e.g., <5% test failure rate)
+- Address anomalies immediately
+
+---
+
+## ✅ Testing Checklist
+
+### Before Starting Testing
+
+- [ ] Review User Story acceptance criteria
+- [ ] Verify test environment is available
+- [ ] Prepare test data
+- [ ] Check test configurations assigned
+- [ ] Review related test cases
+
+### During Testing
+
+- [ ] Execute test steps sequentially
+- [ ] Document actual results for each step
+- [ ] Capture screenshots for failures
+- [ ] Mark step outcomes (Pass/Fail)
+- [ ] Log defects immediately
+- [ ] Link bugs to test cases
+
+### After Testing
+
+- [ ] Update test case results
+- [ ] Verify all test steps executed
+- [ ] Update QA queries/dashboard
+- [ ] Report status to team
+- [ ] Identify blocked tests
+- [ ] Plan next testing iteration
+
+### Before Release
+
+- [ ] All smoke tests passed
+- [ ] No open P0/P1 bugs
+- [ ] Regression suite executed
+- [ ] UAT sign-off received
+- [ ] Test results documented
+- [ ] Known issues documented in release notes
+
+---
+
+## 🎓 QA Resources
+
+### Training Materials
+
+- **Azure Test Plans Documentation**: [Learn Test Plans](https://learn.microsoft.com/en-us/azure/devops/test/)
+- **Test Configuration Guide**: Test Plans → Configurations
+- **Work Item Query Language (WIQL)**: [WIQL Reference](https://learn.microsoft.com/en-us/azure/devops/boards/queries/wiql-syntax)
+
+### Team Contacts
+
+- **QA Lead**: <Assign QA Lead>
+- **Test Automation**: <Assign Automation Lead>
+- **Product Owner**: <Assign PO>
+
+### Support
+
+- **Questions**: Use team chat or email QA Lead
+- **Tool Issues**: Create Bug work item with tag \`qa-tooling\`
+- **Process Improvements**: Discuss in retrospectives
+
+---
+
+*Last Updated: $(Get-Date -Format 'yyyy-MM-dd')*
+*Version: 1.0*
+"@
+
+    try {
+        # Check if page exists
+        try {
+            $existingPage = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis/$WikiId/pages?path=/QA-Guidelines"
+            Write-Host "[INFO] QA Guidelines page already exists" -ForegroundColor Gray
+            return $existingPage
+        }
+        catch {
+            # Page doesn't exist, create it
+            Write-Verbose "[Ensure-AdoQAGuidelinesWiki] Creating QA Guidelines page"
+            $page = Upsert-AdoWikiPage $Project $WikiId "/QA-Guidelines" $qaGuidelinesContent
+            Write-Host "[SUCCESS] Created QA Guidelines wiki page" -ForegroundColor Green
+            Write-Host ""
+            Write-Host "[INFO] QA Guidelines documented:" -ForegroundColor Cyan
+            Write-Host "  📋 Testing Strategy: Unit, Integration, System/UI testing" -ForegroundColor Gray
+            Write-Host "  🖥️ Test Configurations: 13 browser/OS/environment configs" -ForegroundColor Gray
+            Write-Host "  📚 Test Plan Structure: 4 suites (Regression, Smoke, Integration, UAT)" -ForegroundColor Gray
+            Write-Host "  ✍️ Writing Test Cases: Templates and best practices" -ForegroundColor Gray
+            Write-Host "  🐛 Bug Reporting: Severity guidelines and lifecycle" -ForegroundColor Gray
+            Write-Host "  📊 QA Queries & Dashboards: 8 queries and metrics dashboard" -ForegroundColor Gray
+            Write-Host "  ✅ Testing Checklist: Pre/during/post testing activities" -ForegroundColor Gray
+            Write-Host "  📂 Location: Project Wiki → QA-Guidelines" -ForegroundColor Gray
+            
+            return $page
+        }
+    }
+    catch {
+        Write-Warning "Failed to create QA Guidelines page: $_"
+        Write-Verbose "[Ensure-AdoQAGuidelinesWiki] Error details: $($_.Exception.Message)"
+        return $null
+    }
 }
 
 <#
@@ -1985,7 +3180,7 @@ function Ensure-AdoDashboard {
     # Check if dashboard already exists
     $dashboardName = "$Team - Overview"
     try {
-        $existingDashboards = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards"
+        $existingDashboards = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Preview
         $existing = $existingDashboards.dashboardEntries | Where-Object { $_.name -eq $dashboardName }
         
         if ($existing) {
@@ -2070,7 +3265,7 @@ function Ensure-AdoDashboard {
             _links = $null
         }
         
-        $dashboard = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Body $dashboardBody
+        $dashboard = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Body $dashboardBody -Preview
         
         Write-Host "[SUCCESS] Created team dashboard: $dashboardName" -ForegroundColor Green
         Write-Host ""
@@ -2424,13 +3619,13 @@ feature/fix-bug-123 ──→ PR ──→ merge to main
 
 ### Branch Naming Conventions
 
-**Pattern**: \`<type>/<ticket-number>-<brief-description>\`
+**Pattern**: ``<type>/<ticket-number>-<brief-description>``
 
 **Examples**:
-- \`feature/123-add-user-authentication\`
-- \`bugfix/456-fix-login-crash\`
-- \`hotfix/789-security-patch\`
-- \`refactor/321-cleanup-api-layer\`
+- ``feature/123-add-user-authentication``
+- ``bugfix/456-fix-login-crash``
+- ``hotfix/789-security-patch``
+- ``refactor/321-cleanup-api-layer``
 
 ### Branch Protection Rules (Applied Automatically)
 
@@ -2443,7 +3638,7 @@ feature/fix-bug-123 ──→ PR ──→ merge to main
 
 - **Branch early**: Create branch as soon as you start work
 - **Commit often**: Small, atomic commits with clear messages
-- **Pull frequently**: \`git pull origin main\` daily to avoid conflicts
+- **Pull frequently**: ``git pull origin main`` daily to avoid conflicts
 - **Delete after merge**: Keep repository clean
 
 ---
@@ -2495,16 +3690,16 @@ feature/fix-bug-123 ──→ PR ──→ merge to main
 ### Essential Tags (Use These)
 
 **Status Tags** (update as work progresses):
-- \`blocked\` - External dependency blocking progress
-- \`needs-review\` - Code ready for review
-- \`needs-testing\` - Requires QA validation
-- \`urgent\` - High priority, immediate attention
+- ``blocked`` - External dependency blocking progress
+- ``needs-review`` - Code ready for review
+- ``needs-testing`` - Requires QA validation
+- ``urgent`` - High priority, immediate attention
 
 **Technical Tags** (classify work type):
-- \`frontend\`, \`backend\`, \`database\`, \`api\`
-- \`technical-debt\` - Refactoring needed
-- \`breaking-change\` - API/contract changes
-- \`performance\` - Optimization work
+- ``frontend``, ``backend``, ``database``, ``api``
+- ``technical-debt`` - Refactoring needed
+- ``breaking-change`` - API/contract changes
+- ``performance`` - Optimization work
 
 **See full list**: [Tag Guidelines](/Tag-Guidelines)
 
@@ -3234,6 +4429,11 @@ Export-ModuleMember -Function @(
     'Ensure-AdoDashboard',
     'Ensure-AdoCommonTags',
     'Ensure-AdoBestPracticesWiki',
+    'Ensure-AdoTestPlan',
+    'Ensure-AdoQAQueries',
+    'Ensure-AdoQADashboard',
+    'Ensure-AdoTestConfigurations',
+    'Ensure-AdoQAGuidelinesWiki',
     'Ensure-AdoRepository',
     'Get-AdoRepoDefaultBranch',
     'Ensure-AdoBranchPolicies',

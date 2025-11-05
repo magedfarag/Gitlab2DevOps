@@ -248,6 +248,11 @@ $env:GITLAB_PAT = "your-gitlab-token-here"
 - **Security Restrictions**: BA group cannot push/create PRs
 - **Work Item Templates**: Complete Agile template set (User Story, Task, Bug, Epic, Feature, Test Case)
 - **Project Wiki**: Automated setup with conventions documentation
+- **Test Plan**: 4 test suites (Regression, Smoke, Integration, UAT) ⭐ NEW
+- **QA Queries**: 8 specialized queries for testing workflow ⭐ NEW
+- **QA Dashboard**: Comprehensive testing metrics with 8 widgets ⭐ NEW
+- **Test Configurations**: 13 browser/OS/environment configurations ⭐ NEW
+- **QA Guidelines**: Complete testing documentation in wiki ⭐ NEW
 
 ### 📦 **Bulk Migration Support**
 - Multi-project preparation and analysis
@@ -433,6 +438,10 @@ Enter Destination Azure DevOps project name: MyProject
 - Creates project areas (Requirements, Development, QA)
 - Initializes project wiki with conventions
 - Creates work item templates
+- Creates test plan with 4 test suites (Regression, Smoke, Integration, UAT) ⭐ NEW
+- Creates 8 QA queries and QA dashboard for testing workflow ⭐ NEW
+- Configures 13 test configurations for cross-platform testing ⭐ NEW
+- Adds QA Guidelines wiki page with testing documentation ⭐ NEW
 - Configures target repository with branch policies
 - Applies security restrictions
 

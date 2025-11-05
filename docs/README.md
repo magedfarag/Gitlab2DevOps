@@ -12,7 +12,7 @@ Start here if you're new to the tool:
 
 ### 📖 User Guides
 Step-by-step guides for common workflows:
-- [Team Productivity Guide](guides/TEAM_PRODUCTIVITY_GUIDE.md) - ⭐ All auto-configured productivity features
+- [Team Productivity Guide](guides/TEAM_PRODUCTIVITY_GUIDE.md) - ⭐ All auto-configured productivity features (includes QA infrastructure!)
 - [Best Practices Alignment](BEST_PRACTICES_ALIGNMENT.md) - 🏆 How our configurations follow industry standards
 - [Sync Mode Guide](guides/SYNC_MODE_GUIDE.md) - Re-running migrations and keeping repositories in sync
 - [Bulk Migration Configuration](guides/BULK_MIGRATION_CONFIG.md) - Migrating multiple repositories at once
@@ -49,6 +49,7 @@ For contributors and maintainers:
 ### By Task
 - **First time setup**: Start with [Quickstart Guide](quickstart.md)
 - **Understanding productivity features**: See [Team Productivity Guide](guides/TEAM_PRODUCTIVITY_GUIDE.md) ⭐
+- **Setting up QA infrastructure**: See [Team Productivity Guide](guides/TEAM_PRODUCTIVITY_GUIDE.md) → QA Infrastructure section 🧪
 - **Verifying best practices**: See [Best Practices Alignment](BEST_PRACTICES_ALIGNMENT.md) 🏆
 - **Single repository migration**: See [README.md](../README.md) → Single Project Migration
 - **Bulk migration**: See [Bulk Migration Configuration](guides/BULK_MIGRATION_CONFIG.md)
@@ -59,6 +60,7 @@ For contributors and maintainers:
 ### By Role
 - **New Users**: Quickstart Guide → README.md → Quick Reference
 - **DevOps Engineers**: CLI Usage → Bulk Migration Config → Sync Mode Guide
+- **QA Engineers**: Team Productivity Guide (QA Infrastructure section) → Test Plans → QA Dashboard 🧪
 - **Contributors**: CONTRIBUTING.md → Implementation Roadmap → Architecture docs
 - **Maintainers**: Publishing Guide → Development docs
 
