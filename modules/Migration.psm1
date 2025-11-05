@@ -70,6 +70,15 @@ function Get-PreparedProjects {
         $reportFile = Join-Path $_.FullName "reports\preflight-report.json"
         try {
             $report = Get-Content $reportFile | ConvertFrom-Json
+            
+            # Check if project exists in Azure DevOps and if repo is migrated
+            $projectExists = Test-AdoProjectExists -ProjectName $_.Name
+            $repoMigrated = $false
+            if ($projectExists) {
+                $repos = Get-AdoProjectRepositories -ProjectName $_.Name
+                $repoMigrated = $repos | Where-Object { $_.name -eq $_.Name }
+            }
+            
             $prepared += [pscustomobject]@{
                 Type = "Single"
                 ProjectName = $_.Name
@@ -77,6 +86,8 @@ function Get-PreparedProjects {
                 RepoSizeMB = $report.repo_size_MB
                 PreparationTime = $report.preparation_time
                 Folder = $_.FullName
+                ProjectExists = $projectExists
+                RepoMigrated = $null -ne $repoMigrated
             }
         }
         catch {
@@ -91,6 +102,19 @@ function Get-PreparedProjects {
             try {
                 $template = Get-Content $templateFile | ConvertFrom-Json
                 $successfulCount = @($template.projects | Where-Object { $_.preparation_status -eq "SUCCESS" }).Count
+                
+                # Check if project exists in Azure DevOps
+                $projectExists = Test-AdoProjectExists -ProjectName $template.destination_project
+                $migratedCount = 0
+                if ($projectExists) {
+                    $repos = Get-AdoProjectRepositories -ProjectName $template.destination_project
+                    foreach ($proj in $template.projects) {
+                        if ($repos | Where-Object { $_.name -eq $proj.ado_repo_name }) {
+                            $migratedCount++
+                        }
+                    }
+                }
+                
                 $prepared += [pscustomobject]@{
                     Type = "Bulk"
                     ProjectName = $template.destination_project
@@ -100,6 +124,8 @@ function Get-PreparedProjects {
                     PreparationTime = $template.preparation_summary.preparation_time
                     Folder = $_.FullName
                     TemplateFile = $templateFile
+                    ProjectExists = $projectExists
+                    MigratedCount = $migratedCount
                 }
             }
             catch {
@@ -224,8 +250,36 @@ function Show-MigrationMenu {
             Write-Host "=== PREPARED PROJECTS ===" -ForegroundColor Cyan
             Write-Host ""
             
-            # Display single preparations
-            $singleProjects = @($preparedProjects | Where-Object { $_.Type -eq "Single" })
+            # Filter out already-created projects (keep only those not yet in Azure DevOps)
+            $availableProjects = @($preparedProjects | Where-Object { -not $_.ProjectExists })
+            
+            if ($availableProjects.Count -eq 0) {
+                Write-Host "[INFO] All prepared projects have already been created in Azure DevOps." -ForegroundColor Yellow
+                Write-Host "[INFO] Use Option 3 (Migrate) or Option 6 (Bulk Migrate) to sync repositories." -ForegroundColor Yellow
+                Write-Host ""
+                
+                # Still allow creating new independent project
+                Write-Host "  1) Create new independent Azure DevOps project (not from preparation)" -ForegroundColor Yellow
+                Write-Host ""
+                
+                $selection = Read-Host "Select an option (1 or press Enter to cancel)"
+                if ($selection -eq "1") {
+                    Write-Host ""
+                    Write-Host "=== CREATE NEW INDEPENDENT PROJECT ===" -ForegroundColor Cyan
+                    $DestProjectName = Read-Host "Enter Azure DevOps project name (e.g., MyProject)"
+                    $RepoName = Read-Host "Enter initial repository name (e.g., my-repo)"
+                    if (-not [string]::IsNullOrWhiteSpace($DestProjectName) -and -not [string]::IsNullOrWhiteSpace($RepoName)) {
+                        Initialize-AdoProject -DestProject $DestProjectName -RepoName $RepoName -BuildDefinitionId $script:BuildDefinitionId -SonarStatusContext $script:SonarStatusContext
+                    }
+                    else {
+                        Write-Host "[ERROR] Project name and repository name cannot be empty." -ForegroundColor Red
+                    }
+                }
+                return
+            }
+            
+            # Display single preparations (not yet created)
+            $singleProjects = @($availableProjects | Where-Object { $_.Type -eq "Single" })
             if ($singleProjects.Count -gt 0) {
                 Write-Host "Single Project Preparations:" -ForegroundColor Green
                 for ($i = 0; $i -lt $singleProjects.Count; $i++) {
@@ -236,8 +290,8 @@ function Show-MigrationMenu {
                 Write-Host ""
             }
             
-            # Display bulk preparations
-            $bulkProjects = @($preparedProjects | Where-Object { $_.Type -eq "Bulk" })
+            # Display bulk preparations (not yet created)
+            $bulkProjects = @($availableProjects | Where-Object { $_.Type -eq "Bulk" })
             $bulkStartIndex = $singleProjects.Count
             if ($bulkProjects.Count -gt 0) {
                 Write-Host "Bulk Preparations:" -ForegroundColor Green
@@ -250,7 +304,7 @@ function Show-MigrationMenu {
             }
             
             # Add option to create new independent project
-            $newProjectIndex = $preparedProjects.Count + 1
+            $newProjectIndex = $availableProjects.Count + 1
             Write-Host "  $newProjectIndex) Create new independent Azure DevOps project (not from preparation)" -ForegroundColor Yellow
             Write-Host ""
             
@@ -273,7 +327,7 @@ function Show-MigrationMenu {
                 }
                 else {
                     # Initialize from prepared project
-                    $selectedProject = $preparedProjects[$selectionNum - 1]
+                    $selectedProject = $availableProjects[$selectionNum - 1]
                     
                     if ($selectedProject.Type -eq "Single") {
                         $DestProjectName = Read-Host "Enter Azure DevOps project name (press Enter for '$($selectedProject.ProjectName)')"

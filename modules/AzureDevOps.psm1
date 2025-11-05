@@ -111,6 +111,75 @@ function Get-AdoProjectList {
 
 <#
 .SYNOPSIS
+    Tests if an Azure DevOps project exists.
+
+.DESCRIPTION
+    Checks if the specified project exists in Azure DevOps.
+
+.PARAMETER ProjectName
+    Name of the Azure DevOps project to check.
+
+.OUTPUTS
+    Boolean indicating if project exists.
+
+.EXAMPLE
+    Test-AdoProjectExists -ProjectName "MyProject"
+#>
+function Test-AdoProjectExists {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ProjectName
+    )
+    
+    try {
+        $projects = Get-AdoProjectList
+        $project = $projects | Where-Object { $_.name -eq $ProjectName }
+        return $null -ne $project
+    }
+    catch {
+        Write-Verbose "[Test-AdoProjectExists] Error checking project: $_"
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets repositories in an Azure DevOps project.
+
+.DESCRIPTION
+    Returns all repositories in the specified Azure DevOps project.
+
+.PARAMETER ProjectName
+    Name of the Azure DevOps project.
+
+.OUTPUTS
+    Array of repository objects.
+
+.EXAMPLE
+    Get-AdoProjectRepositories -ProjectName "MyProject"
+#>
+function Get-AdoProjectRepositories {
+    [CmdletBinding()]
+    [OutputType([array])]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ProjectName
+    )
+    
+    try {
+        $result = Invoke-AdoRest GET "/$ProjectName/_apis/git/repositories"
+        return $result.value
+    }
+    catch {
+        Write-Verbose "[Get-AdoProjectRepositories] Error getting repositories: $_"
+        return @()
+    }
+}
+
+<#
+.SYNOPSIS
     Waits for an Azure DevOps asynchronous operation to complete.
 
 .DESCRIPTION
@@ -922,6 +991,9 @@ function Ensure-AdoRepoDeny {
 # Export public functions
 Export-ModuleMember -Function @(
     'Wait-AdoOperation',
+    'Get-AdoProjectList',
+    'Test-AdoProjectExists',
+    'Get-AdoProjectRepositories',
     'Ensure-AdoProject',
     'Get-AdoProjectDescriptor',
     'Get-AdoBuiltInGroupDescriptor',
