@@ -4,6 +4,8 @@
 
 This guide documents all the **team productivity features** automatically configured during project initialization. These features are designed to help teams hit the ground running with best practices already in place.
 
+> 📖 **NEW**: Check out the [Best Practices Wiki Page](../README.md) created in your project's wiki for comprehensive guidance on using Azure DevOps effectively!
+
 ## ✨ What's Configured Automatically
 
 When you initialize a new Azure DevOps project (Option 2 in the menu), the migration tool automatically sets up:
@@ -12,10 +14,11 @@ When you initialize a new Azure DevOps project (Option 2 in the menu), the migra
 2. ✅ **Work Item Templates** - 6 comprehensive templates with DoR/DoD
 3. ✅ **Shared Queries** - 5 essential queries for common scenarios
 4. ✅ **Team Settings** - Backlog levels, working days, default iteration
-5. ✅ **Tag Guidelines** - Documented tag taxonomy in wiki
-6. ✅ **Repository Templates** - README.md and PR template
-7. ✅ **Areas** - Frontend, Backend, Infrastructure, Documentation
-8. ✅ **Wiki** - Welcome page and guidelines
+5. ✅ **Team Dashboard** - World-class dashboard with key metrics ⭐ NEW
+6. ✅ **Tag Guidelines** - Documented tag taxonomy in wiki
+7. ✅ **Repository Templates** - README.md and PR template
+8. ✅ **Areas** - Frontend, Backend, Infrastructure, Documentation
+9. ✅ **Wiki** - Welcome page and guidelines
 
 ---
 
@@ -188,6 +191,289 @@ When you create a new work item, the template fields automatically populate.
 2. Select: **Boards** → **Team configuration**
 3. Choose your team
 4. Review **Backlog levels** and **Working days** tabs
+
+---
+
+## 📊 Team Dashboard
+
+### What's Created
+
+A comprehensive **Team Overview Dashboard** with 8 essential widgets providing real-time insights into team performance and work status.
+
+**Dashboard Name**: `<Team Name> - Overview`  
+**Location**: Overview → Dashboards → Team Name - Overview
+
+### Dashboard Widgets
+
+#### 📈 Row 1: Sprint Metrics (2x2 widgets)
+
+##### 1. Sprint Burndown Chart
+**Purpose**: Track daily progress against sprint commitment
+
+**What it shows**:
+- Ideal burndown line (expected progress)
+- Actual remaining work
+- Work added mid-sprint
+- Sprint goal trajectory
+
+**Use Case**: 
+- Daily standup discussions
+- Identify if team is on track
+- Spot scope creep early
+- Predict sprint completion
+
+**How to Read**:
+- ✅ Green: Ahead of schedule
+- ⚠️ Yellow: Slightly behind
+- 🔴 Red: Significantly behind
+- 📈 Upward spike: Work added
+
+##### 2. Velocity Chart
+**Purpose**: Measure team capacity and predictability over multiple sprints
+
+**What it shows**:
+- Planned work per sprint
+- Completed work per sprint
+- Incomplete work carried over
+- Average velocity trend
+
+**Use Case**:
+- Sprint planning (how much to commit)
+- Capacity forecasting
+- Process improvement discussions
+- Team performance trends
+
+**Metrics**:
+- **Velocity**: Story points completed per sprint
+- **Trend**: Is velocity increasing, stable, or declining?
+- **Predictability**: Consistency of delivery
+
+---
+
+#### 📊 Row 2: Work Distribution (2x2 widgets)
+
+##### 3. Work Items by State (Pie Chart)
+**Purpose**: Visualize current work distribution across workflow states
+
+**What it shows**:
+- New: Not started
+- Active: In progress
+- Resolved: Ready for review
+- Closed: Complete
+- Custom states (if any)
+
+**Use Case**:
+- Identify bottlenecks (too much in one state)
+- Balance work-in-progress
+- Sprint health check
+- Flow efficiency analysis
+
+**Red Flags**:
+- 🚩 Too many "In Progress" (WIP overload)
+- 🚩 Large "Resolved" pile (review bottleneck)
+- 🚩 Very few "New" (backlog not refined)
+
+##### 4. Work Items by Assigned To (Stacked Bar)
+**Purpose**: Show workload distribution across team members
+
+**What it shows**:
+- Work items assigned to each person
+- Breakdown by work item type
+- Unassigned work items
+- Relative team member workloads
+
+**Use Case**:
+- Balance workload
+- Identify overloaded team members
+- Find unassigned work
+- Capacity planning
+
+**Best Practices**:
+- Aim for balanced distribution
+- Leave some capacity for unplanned work
+- Reassign if someone is overloaded
+- Keep some items unassigned for flexibility
+
+---
+
+#### 🎯 Row 3: Quick Metrics (4x1 query tiles)
+
+##### 5. My Active Work Tile
+**Purpose**: Show count of work items assigned to viewer
+
+**What it shows**: Number of active work items assigned to current user
+
+**Use Case**: Personal dashboard, quick status check
+
+##### 6. Active Bugs Tile
+**Purpose**: Track open bug count
+
+**What it shows**: Total count of bugs not yet closed
+
+**Use Case**: Bug triage priority, quality metrics
+
+**Thresholds**:
+- ✅ 0-5 bugs: Healthy
+- ⚠️ 6-15 bugs: Needs attention
+- 🔴 16+ bugs: Quality issue
+
+##### 7. Blocked Items Tile
+**Purpose**: Highlight impediments needing resolution
+
+**What it shows**: Work items tagged as "blocked" or "impediment"
+
+**Use Case**: 
+- Daily standup focus
+- Management escalation
+- Dependency tracking
+
+**Action Items**:
+- Red count: Review in standup
+- Assign owners to remove blockers
+- Track blocker resolution time
+
+##### 8. Ready for Review Tile
+**Purpose**: Show work awaiting code review
+
+**What it shows**: Items in "Ready for Review" state or tagged "needs-review"
+
+**Use Case**:
+- Code review backlog
+- Pull request tracking
+- Flow bottleneck detection
+
+**Best Practice**: Keep this number low (review within 24 hours)
+
+---
+
+### Dashboard Layout
+
+```
+┌─────────────────────────────────────────────────────┐
+│              Team Name - Overview Dashboard          │
+├──────────────────────┬──────────────────────────────┤
+│                      │                              │
+│  Sprint Burndown     │      Velocity Chart          │
+│      (2x2)           │         (2x2)                │
+│                      │                              │
+├──────────────────────┼──────────────────────────────┤
+│                      │                              │
+│  Work Items by       │   Work Items by              │
+│     State (2x2)      │   Assigned To (2x2)          │
+│                      │                              │
+├──────┬───────┬───────┼───────┬──────────────────────┤
+│ My   │Active │Blocked│Ready  │                      │
+│Active│ Bugs  │ Items │for    │                      │
+│Work  │ (1x1) │ (1x1) │Review │                      │
+│(1x1) │       │       │ (1x1) │                      │
+└──────┴───────┴───────┴───────┴──────────────────────┘
+```
+
+---
+
+### How to Use the Dashboard
+
+#### Daily Standup
+1. **Open dashboard** at start of standup
+2. **Review Burndown**: Are we on track?
+3. **Check Blocked Items**: What needs unblocking?
+4. **Look at Ready for Review**: Any PRs waiting?
+5. **Quick scan** of work distribution
+
+#### Sprint Planning
+1. **Review Velocity**: What's our average capacity?
+2. **Check Work by Assignment**: Is anyone overloaded?
+3. **Plan commitment** based on historical velocity
+
+#### Sprint Review
+1. **Show Burndown** to stakeholders
+2. **Demonstrate Velocity** trend
+3. **Discuss** improvements based on data
+
+#### Continuous Monitoring
+- **Morning**: Check personal work + blocked items
+- **Afternoon**: Review code review queue
+- **Weekly**: Analyze velocity and work distribution trends
+
+---
+
+### Customization Options
+
+#### Add More Widgets
+Navigate to dashboard → Edit → Add Widget
+
+**Recommended additions**:
+- **Build Status**: Show recent build results
+- **Test Results Trend**: Track test pass rate
+- **Pull Request Summary**: PR metrics
+- **Work Item Age**: Track aging items
+- **CFD (Cumulative Flow Diagram)**: Advanced flow metrics
+
+#### Modify Queries
+Click widget → Configure → Change query
+
+Example: Change "Active Bugs" to show only P0/P1 bugs
+
+#### Adjust Layout
+Drag and drop widgets to rearrange
+
+**Tips**:
+- Put most-used widgets at top
+- Group related widgets together
+- Use 2-column layout for key metrics
+
+#### Create Multiple Dashboards
+Consider creating specialized dashboards:
+- **Leadership Dashboard**: High-level metrics, trends
+- **Developer Dashboard**: Personal work, PRs, builds
+- **QA Dashboard**: Test results, bug trends
+- **Sprint Dashboard**: Sprint-specific detailed view
+
+---
+
+### Dashboard Best Practices
+
+#### ✅ DO
+- **Review daily** - Make it part of standup ritual
+- **Keep it visible** - Pin tab in browser
+- **Update regularly** - Widgets refresh automatically, but check accuracy
+- **Share with stakeholders** - Transparent metrics build trust
+- **Use for decisions** - Data-driven sprint planning
+
+#### ❌ DON'T
+- **Ignore red flags** - Act on concerning trends
+- **Micromanage from dashboard** - Use for insights, not surveillance
+- **Add too many widgets** - Keep it focused and scannable
+- **Forget to explain** - Train team on how to read charts
+- **Use as blame tool** - Metrics for improvement, not punishment
+
+---
+
+### Troubleshooting
+
+#### Dashboard Not Loading
+**Solution**: Check permissions. You need "View dashboards" permission for the team.
+
+#### Widgets Show "No Data"
+**Causes**:
+1. **New project** - No sprint data yet (wait for first sprint)
+2. **No work items** - Create some work items first
+3. **Query issues** - Verify shared queries exist
+
+#### Burndown Chart Empty
+**Solution**: 
+1. Assign work items to current sprint
+2. Set story points on work items
+3. Wait 24 hours for data to populate
+
+#### Velocity Chart Shows One Sprint
+**Solution**: Need at least 2 completed sprints for trend analysis
+
+#### Query Tiles Show Wrong Count
+**Solution**: 
+1. Edit widget → Configure
+2. Re-select the query from dropdown
+3. Save widget
 
 ---
 

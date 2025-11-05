@@ -547,8 +547,12 @@ This project was migrated from GitLab using automated tooling.
     # Configure team settings
     Ensure-AdoTeamSettings $DestProject "$DestProject Team"
     
-    # Create tag guidelines wiki page
+    # Create team dashboard
+    Ensure-AdoDashboard $DestProject "$DestProject Team"
+    
+    # Create wiki pages (tag guidelines and best practices)
     Ensure-AdoCommonTags $DestProject $wiki.id
+    Ensure-AdoBestPracticesWiki $DestProject $wiki.id
     
     # Create repository
     $repo = Ensure-AdoRepository $DestProject $projId $RepoName
@@ -610,12 +614,14 @@ This project was migrated from GitLab using automated tooling.
     Write-Host "   ✅ Sprints: 6 upcoming 2-week iterations" -ForegroundColor Green
     Write-Host "   ✅ Queries: 5 shared queries (My Work, Backlog, Bugs, etc.)" -ForegroundColor Green
     Write-Host "   ✅ Team Settings: Backlog levels, working days, bugs on backlog" -ForegroundColor Green
+    Write-Host "   ✅ Dashboard: Team overview with burndown, velocity, charts" -ForegroundColor Green
     
     # Documentation & Guidelines
     Write-Host ""
     Write-Host "📚 Documentation:" -ForegroundColor Cyan
     Write-Host "   ✅ Wiki: Initialized with welcome page" -ForegroundColor Green
     Write-Host "   ✅ Tag Guidelines: Common tags documented" -ForegroundColor Green
+    Write-Host "   ✅ Best Practices: Comprehensive team productivity guide" -ForegroundColor Green
     
     # Repository Configuration
     Write-Host ""
@@ -635,9 +641,11 @@ This project was migrated from GitLab using automated tooling.
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host "Next Steps:" -ForegroundColor White
     Write-Host "  1. Use Option 3 (Migrate) or Option 6 (Bulk) to push code" -ForegroundColor Gray
-    Write-Host "  2. Review shared queries in Queries → Shared Queries" -ForegroundColor Gray
-    Write-Host "  3. Check sprint schedule in Boards → Sprints" -ForegroundColor Gray
-    Write-Host "  4. Review tag guidelines in Wiki → Tag-Guidelines" -ForegroundColor Gray
+    Write-Host "  2. 📖 Read Best Practices: Wiki → Best-Practices (START HERE!)" -ForegroundColor Cyan
+    Write-Host "  3. View team dashboard: Dashboards → $DestProject Team - Overview" -ForegroundColor Gray
+    Write-Host "  4. Review shared queries in Queries → Shared Queries" -ForegroundColor Gray
+    Write-Host "  5. Check sprint schedule in Boards → Sprints" -ForegroundColor Gray
+    Write-Host "  6. Review tag guidelines in Wiki → Tag-Guidelines" -ForegroundColor Gray
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
 }
