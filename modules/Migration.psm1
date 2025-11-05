@@ -363,20 +363,66 @@ function Show-MigrationMenu {
         '3' {
             $SourceProjectPath = Read-Host "Enter Source GitLab project path (e.g., group/my-project)"
             $DestProjectName = Read-Host "Enter Destination Azure DevOps project name (e.g., MyProject)"
-            $allowSyncInput = Read-Host "Allow sync of existing repository? (Y/N, default: N)"
-            $allowSyncFlag = $allowSyncInput -match '^[Yy]'
             
-            if (-not [string]::IsNullOrWhiteSpace($SourceProjectPath) -and -not [string]::IsNullOrWhiteSpace($DestProjectName)) {
-                if ($allowSyncFlag) {
-                    Write-Host "[INFO] Sync mode enabled - will update existing repository if it exists" -ForegroundColor Yellow
-                    Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName -AllowSync
+            if ([string]::IsNullOrWhiteSpace($SourceProjectPath) -or [string]::IsNullOrWhiteSpace($DestProjectName)) {
+                Write-Host "[ERROR] Project path and name cannot be empty." -ForegroundColor Red
+                return
+            }
+            
+            # Check if project and repository already exist
+            $projectExists = Test-AdoProjectExists -ProjectName $DestProjectName
+            $repoExists = $false
+            $repoName = ($SourceProjectPath -split '/')[-1]
+            
+            if ($projectExists) {
+                Write-Host "[INFO] Project '$DestProjectName' exists in Azure DevOps" -ForegroundColor Cyan
+                $repos = Get-AdoProjectRepositories -ProjectName $DestProjectName
+                $repoExists = $null -ne ($repos | Where-Object { $_.name -eq $repoName })
+                
+                if ($repoExists) {
+                    Write-Host "[INFO] Repository '$repoName' already migrated in project '$DestProjectName'" -ForegroundColor Yellow
+                    Write-Host ""
+                    Write-Host "Options:" -ForegroundColor Cyan
+                    Write-Host "  1) SYNC - Pull latest from GitLab and push to Azure DevOps (recommended)" -ForegroundColor Green
+                    Write-Host "  2) SKIP - Do nothing" -ForegroundColor Yellow
+                    Write-Host "  3) FORCE - Replace existing repository (destructive)" -ForegroundColor Red
+                    Write-Host ""
+                    $choice = Read-Host "Select option (1-3)"
+                    
+                    switch ($choice) {
+                        '1' {
+                            Write-Host "[INFO] Starting SYNC operation..." -ForegroundColor Green
+                            Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName -AllowSync
+                        }
+                        '2' {
+                            Write-Host "[INFO] Skipping migration" -ForegroundColor Yellow
+                        }
+                        '3' {
+                            Write-Host "[WARN] This will REPLACE the existing repository!" -ForegroundColor Red
+                            $confirm = Read-Host "Are you sure? Type 'REPLACE' to confirm"
+                            if ($confirm -eq 'REPLACE') {
+                                Write-Host "[INFO] Starting FORCE migration..." -ForegroundColor Red
+                                Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName -Replace -Force
+                            }
+                            else {
+                                Write-Host "[INFO] Cancelling operation" -ForegroundColor Yellow
+                            }
+                        }
+                        default {
+                            Write-Host "[ERROR] Invalid selection" -ForegroundColor Red
+                        }
+                    }
                 }
                 else {
+                    # Project exists but repo doesn't - normal migration
+                    Write-Host "[INFO] Repository '$repoName' not found in project - starting migration" -ForegroundColor Cyan
                     Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName
                 }
             }
             else {
-                Write-Host "[ERROR] Project path and name cannot be empty." -ForegroundColor Red
+                # Project doesn't exist - normal migration
+                Write-Host "[INFO] Project '$DestProjectName' not found - will create new project" -ForegroundColor Cyan
+                Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName
             }
         }
         '4' {
@@ -1185,9 +1231,40 @@ function Invoke-BulkMigrationWorkflow {
             return
         }
         
+        # Check which repositories already exist
+        $projectExists = Test-AdoProjectExists -ProjectName $DestProjectName
+        $existingRepos = @()
+        $newRepos = @()
+        
+        if ($projectExists) {
+            Write-Host "[INFO] Project '$DestProjectName' exists - checking repository status..." -ForegroundColor Cyan
+            $repos = Get-AdoProjectRepositories -ProjectName $DestProjectName
+            
+            foreach ($proj in $successfulProjects) {
+                $repoExists = $null -ne ($repos | Where-Object { $_.name -eq $proj.ado_repo_name })
+                if ($repoExists) {
+                    $existingRepos += $proj
+                }
+                else {
+                    $newRepos += $proj
+                }
+            }
+            
+            Write-Host ""
+            Write-Host "Repository Status:" -ForegroundColor Cyan
+            Write-Host "  ✨ New repositories: $($newRepos.Count)" -ForegroundColor Green
+            Write-Host "  🔄 Already migrated: $($existingRepos.Count)" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "[INFO] Project '$DestProjectName' doesn't exist - all repositories will be new" -ForegroundColor Cyan
+            $newRepos = $successfulProjects
+        }
+        
+        Write-Host ""
         Write-Host "Projects to migrate:"
         foreach ($proj in $successfulProjects) {
-            Write-Host "  $($proj.gitlab_path) → $($proj.ado_repo_name)"
+            $status = if ($existingRepos -contains $proj) { " (already migrated - will sync)" } else { " (new)" }
+            Write-Host "  $($proj.gitlab_path) → $($proj.ado_repo_name)$status"
         }
         Write-Host ""
     }
@@ -1196,12 +1273,38 @@ function Invoke-BulkMigrationWorkflow {
         return
     }
     
-    # Ask about sync mode
-    $allowSyncInput = Read-Host "Allow sync of existing repositories? (Y/N, default: N)"
-    $allowSyncFlag = $allowSyncInput -match '^[Yy]'
-    
-    if ($allowSyncFlag) {
-        Write-Host "[INFO] Sync mode enabled - existing repositories will be updated" -ForegroundColor Yellow
+    # Ask about sync mode if there are existing repositories
+    $allowSyncFlag = $false
+    if ($existingRepos.Count -gt 0) {
+        Write-Host "⚠️  $($existingRepos.Count) repositor(ies) already exist in Azure DevOps" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Options:" -ForegroundColor Cyan
+        Write-Host "  1) SYNC - Update existing repositories with latest from GitLab (recommended)" -ForegroundColor Green
+        Write-Host "  2) SKIP - Only migrate new repositories" -ForegroundColor Yellow
+        Write-Host ""
+        $syncChoice = Read-Host "Select option (1-2, default: 1)"
+        
+        if ([string]::IsNullOrWhiteSpace($syncChoice) -or $syncChoice -eq '1') {
+            $allowSyncFlag = $true
+            Write-Host "[INFO] Sync mode enabled - existing repositories will be updated" -ForegroundColor Green
+        }
+        elseif ($syncChoice -eq '2') {
+            Write-Host "[INFO] Skipping existing repositories" -ForegroundColor Yellow
+            # Filter out existing repos from migration list
+            $successfulProjects = @($newRepos)
+            
+            if ($successfulProjects.Count -eq 0) {
+                Write-Host "[INFO] All repositories already exist and sync was not selected. Nothing to do." -ForegroundColor Yellow
+                return
+            }
+        }
+        else {
+            Write-Host "[ERROR] Invalid selection" -ForegroundColor Red
+            return
+        }
+    }
+    else {
+        Write-Host "[INFO] All repositories are new - proceeding with normal migration" -ForegroundColor Cyan
     }
     
     # Final confirmation
