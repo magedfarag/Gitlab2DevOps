@@ -929,12 +929,12 @@ function Invoke-BulkMigrationWorkflow {
     # Read template
     try {
         $templateData = Get-Content $selectedTemplate.TemplateFile | ConvertFrom-Json
-        $successfulProjects = $templateData.projects | Where-Object { $_.preparation_status -eq "SUCCESS" }
-        $failedProjects = $templateData.projects | Where-Object { $_.preparation_status -eq "FAILED" }
+        $successfulProjects = @($templateData.projects | Where-Object { $_.preparation_status -eq "SUCCESS" })
+        $failedProjects = @($templateData.projects | Where-Object { $_.preparation_status -eq "FAILED" })
         
         Write-Host "=== MIGRATION PREVIEW ===" -ForegroundColor Cyan
         Write-Host "Destination project: $DestProjectName"
-        Write-Host "Total projects in template: $($templateData.projects.Count)"
+        Write-Host "Total projects in template: $(@($templateData.projects).Count)"
         Write-Host "✅ Ready for migration: $($successfulProjects.Count)" -ForegroundColor Green
         if ($failedProjects.Count -gt 0) {
             Write-Host "❌ Failed preparation (will be skipped): $($failedProjects.Count)" -ForegroundColor Red
