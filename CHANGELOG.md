@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] - v2.1.0 Development
 
 ### Added (Post-v2.0.0)
+- **curl Fallback System**: Automatic fallback to curl with `-k` flag when PowerShell SSL/TLS fails on on-premise servers
+  - Detects "connection forcibly closed" and SSL certificate errors
+  - Uses Basic authentication (`-u ":$PAT"`) for Azure DevOps
+  - HTTP header parsing with status code extraction (`-i -w '\nHTTP_CODE:%{http_code}'`)
+  - Network error retry logic (connection reset → HTTP 503)
+  - Lines 458-590 in Core.Rest.psm1
+- **Agile Process Template**: Dynamic work item type detection with 3-second initialization wait
+  - Supports User Story (Agile), Product Backlog Item (Scrum), Issue (Basic)
+  - Enhanced Get-AdoWorkItemTypes with detailed logging and defaults
+  - Automatic fallback for different process templates
+- **Branch Policy Workflow Refactor**: Moved from project creation to post-migration
+  - Option 2 (Create Project): Skips branch policies for empty repositories
+  - Option 6 (Bulk Migration): Applies policies after successful git push
+  - 2-second wait for Azure DevOps branch recognition
+  - Empty repository detection prevents policy application errors
 - **Comprehensive Test Suite**: 83 tests (29 offline + 54 extended) with 100% pass rate
 - **Test Coverage Documentation**: TEST_COVERAGE.md with detailed breakdown by component
 - **.env Configuration System**: Auto-loading of .env and .env.local files with priority order
@@ -18,25 +33,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Telemetry System**: Optional usage telemetry collection (opt-in, local only)
 - **Dry-Run Mode**: Preview changes without executing them
 - **API Error Catalog**: Comprehensive error handling with specific guidance
+- **.github/copilot-instructions.md**: AI agent guidance for codebase architecture and patterns
 
 ### Changed (Post-v2.0.0)
+- **SSL/TLS Handling**: All Azure DevOps REST calls require `-SkipCertificateCheck` parameter
+- **Authentication**: Azure DevOps curl fallback uses Basic auth instead of headers
+- **Work Item Detection**: Enhanced with process template awareness and better error messages
+- **Repository Setup**: Get-AdoRepoDefaultBranch returns null for empty repos instead of errors
+- **Migration Workflow**: Separated project structure setup from actual code migration
 - **Configuration Priority**: .env.local > .env > environment variables > parameters
 - **Entry Point**: Consolidated to single Gitlab2DevOps.ps1 (removed legacy devops.ps1)
 - **Documentation Structure**: Reorganized with comprehensive guides in docs/ directory
 - **Test Organization**: Separated offline tests (no API) from extended tests (comprehensive)
 
 ### Fixed (Post-v2.0.0)
+- **SSL/TLS Errors**: PowerShell Invoke-RestMethod failures with on-premise Azure DevOps servers
+- **Connection Resets**: Network error retry logic treats HTTP 0 (connection reset) as retryable HTTP 503
+- **Empty Repository Policies**: Branch policies no longer fail on repositories without branches
+- **Work Item Templates**: Bug template creation with proper 3-second initialization delay
+- **HTTP Parsing**: Proper separation of HTTP headers and JSON body in curl responses
+- **Array Handling**: Safe handling of single objects vs. arrays in curl output
 - EnvLoader variable expansion regex for PowerShell 5.1 compatibility (callback → iterative)
 - Template generation backtick escaping issues in New-DotEnvTemplate
 - Telemetry collection initialization handling for offline scenarios
 - Test expectations to match actual function implementations
 
 ### Documentation (Post-v2.0.0)
+- **.github/copilot-instructions.md**: Comprehensive AI agent guidance (250+ lines)
+  - Architecture overview with module separation
+  - SSL/TLS handling with curl fallback strategy
+  - Work item type detection patterns
+  - Migration workflow separation (Option 2 vs Option 6)
+  - REST API patterns and error handling
+  - Testing, configuration, and security best practices
 - **docs/QUICK_SETUP.md**: Complete .env setup guide (250+ lines)
 - **tests/TEST_COVERAGE.md**: Test documentation (323 lines)
 - **docs/advanced-features.md**: Progress, telemetry, dry-run documentation
 - **Updated README.md**: Comprehensive quick start and feature matrix
 - **Updated IMPLEMENTATION_ROADMAP.md**: Current status at 90% complete
+
+### Technical Details
+- **Core.Rest.psm1 Changes**:
+  - Lines 458-590: curl fallback implementation with Basic auth
+  - HTTP header parsing with status code extraction
+  - Network error detection and retry logic
+  - Automatic SSL/TLS error detection
+- **AzureDevOps.psm1 Changes**:
+  - Lines 650-780: Enhanced work item type detection
+  - Get-AdoRepoDefaultBranch null return for empty repos
+  - Ensure-AdoTeamTemplates with 3-second initialization wait
+- **Migration.psm1 Changes**:
+  - Lines 515-575: Project setup with conditional branch policy check
+  - Lines 858-938: Post-migration branch policy application
+  - Success messages clarify when policies are applied
 
 ---
 

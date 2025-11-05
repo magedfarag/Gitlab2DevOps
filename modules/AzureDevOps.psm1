@@ -220,12 +220,31 @@ function Wait-AdoOperation {
             Start-Sleep 3
         }
         catch {
-            Write-Warning "[Wait-AdoOperation] Poll failed (attempt $($i + 1)): $_"
+            $errorMsg = $_.Exception.Message
+            Write-Verbose "[Wait-AdoOperation] Poll failed (attempt $($i + 1)): $errorMsg"
+            
+            # If operation doesn't exist (404), it may have already completed or never existed
+            # This can happen if project already existed and Azure DevOps returned success without creating operation
+            if ($errorMsg -match "404|Not Found|does not exist") {
+                Write-Warning "[Wait-AdoOperation] Operation $Id not found (may have completed or project already existed)"
+                # Return a synthetic success status
+                return @{ 
+                    id = $Id
+                    status = 'succeeded'
+                    _message = 'Operation not found - assuming completion'
+                }
+            }
             
             # If it's a connection error, retry with shorter delay
-            if ($_.Exception.Message -match "connection was forcibly closed|Unable to read data") {
-                Write-Verbose "[Wait-AdoOperation] Connection error, retrying in 2 seconds..."
-                Start-Sleep 2
+            if ($errorMsg -match "connection was forcibly closed|Unable to read data|SSL|certificate") {
+                if ($i -lt 59) {
+                    Write-Verbose "[Wait-AdoOperation] Connection error, retrying in 2 seconds..."
+                    Start-Sleep 2
+                }
+                else {
+                    Write-Warning "[Wait-AdoOperation] Exhausted all retry attempts due to connection errors"
+                    throw
+                }
             }
             else {
                 # For other errors, throw immediately
@@ -271,8 +290,9 @@ function Ensure-AdoProject {
     
     Write-Verbose "[Ensure-AdoProject] Checking if project '$Name' exists..."
     
-    # Use cached project list for performance
-    $projects = Get-AdoProjectList -UseCache
+    # Force refresh cache to ensure we have latest project list
+    # This prevents attempting to create projects that already exist
+    $projects = Get-AdoProjectList -RefreshCache
     $p = $projects | Where-Object { $_.name -eq $Name }
     
     if ($p) {
@@ -344,13 +364,25 @@ function Get-AdoProjectDescriptor {
     )
     
     try {
+        # Suppress 404 errors since Graph API may not be available
+        $ErrorActionPreference = 'Stop'
         $result = Invoke-AdoRest GET "/_apis/graph/descriptors/$ProjectId"
+        Write-Verbose "[Get-AdoProjectDescriptor] Successfully retrieved descriptor for project $ProjectId"
         return $result.value
     }
     catch {
-        # Graph API may not be available or may require different permissions
-        Write-Verbose "[Get-AdoProjectDescriptor] Graph API unavailable for project $ProjectId : $_"
-        Write-Warning "Graph API not accessible. Some features (RBAC groups, security) may not work."
+        # Graph API may not be available (404) or may require different permissions
+        $statusCode = $_.Exception.Response.StatusCode.value__
+        
+        if ($statusCode -eq 404) {
+            Write-Verbose "[Get-AdoProjectDescriptor] Graph API not available (HTTP 404) - this is normal for some on-premise installations"
+            Write-Warning "Graph API not accessible. Some features (RBAC groups, security) may not work."
+        }
+        else {
+            Write-Verbose "[Get-AdoProjectDescriptor] Graph API error for project $ProjectId : $_"
+            Write-Warning "Graph API error (HTTP $statusCode). Some features (RBAC groups, security) may not work."
+        }
+        
         return $null
     }
 }
@@ -601,10 +633,49 @@ function Upsert-AdoWikiPage {
 
 <#
 .SYNOPSIS
+    Gets available work item types for a project.
+
+.DESCRIPTION
+    Queries the work item types available in the project's process template.
+
+.PARAMETER Project
+    Project name.
+
+.OUTPUTS
+    Array of work item type names.
+
+.EXAMPLE
+    Get-AdoWorkItemTypes "MyProject"
+#>
+function Get-AdoWorkItemTypes {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project
+    )
+    
+    try {
+        $projEscaped = [uri]::EscapeDataString($Project)
+        $types = Invoke-AdoRest GET "/$projEscaped/_apis/wit/workitemtypes"
+        $typeNames = $types.value | ForEach-Object { $_.name }
+        Write-Host "[INFO] Available work item types in project '$Project': $($typeNames -join ', ')" -ForegroundColor Cyan
+        return $typeNames
+    }
+    catch {
+        Write-Warning "[Get-AdoWorkItemTypes] Failed to get work item types: $_"
+        # For Agile process template, return common Agile types
+        Write-Host "[INFO] Using default Agile work item types" -ForegroundColor Yellow
+        return @('User Story', 'Task', 'Bug', 'Epic', 'Feature', 'Test Case')
+    }
+}
+
+<#
+.SYNOPSIS
     Ensures work item templates exist for a team.
 
 .DESCRIPTION
-    Creates standard User Story and Bug templates with DoR/DoD.
+    Creates standard work item templates with DoR/DoD.
+    Automatically detects available work item types and creates appropriate templates.
 
 .PARAMETER Project
     Project name.
@@ -625,41 +696,106 @@ function Ensure-AdoTeamTemplates {
         [string]$Team
     )
     
-    $base = "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/wit/templates"
-    $existing = Invoke-AdoRest GET $base
-    $byName = @{}
-    $existing.value | ForEach-Object { $byName[$_.name] = $_ }
+    # Wait a moment for project to fully initialize work item types
+    Write-Host "[INFO] Waiting 3 seconds for project work item types to initialize..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 3
     
-    if (-not $byName.ContainsKey('User Story – DoR/DoD')) {
-        Write-Host "[INFO] Creating User Story template"
-        Invoke-AdoRest POST $base -Body @{
-            name              = 'User Story – DoR/DoD'
-            description       = 'Template with Acceptance Criteria'
-            workItemTypeName  = 'User Story'
-            fields            = @{
-                'System.Title'                                = 'As a <role>, I want <capability> so that <outcome>'
-                'System.Description'                          = "## Context`n`n## Definition of Ready`n- [ ] ...`n`n## Definition of Done`n- [ ] ..."
-                'Microsoft.VSTS.Common.AcceptanceCriteria'    = "- [ ] Given ... When ... Then ..."
-                'Microsoft.VSTS.Common.Priority'              = 2
-                'System.Tags'                                 = 'template;user-story'
-            }
-        } | Out-Null
+    # Get available work item types for this project
+    Write-Host "[INFO] Detecting available work item types for project '$Project'..." -ForegroundColor Cyan
+    $availableTypes = Get-AdoWorkItemTypes -Project $Project
+    Write-Host "[INFO] Detected work item types: $($availableTypes -join ', ')" -ForegroundColor Green
+    
+    # Determine which story type to use
+    $storyType = if ($availableTypes -contains 'User Story') {
+        'User Story'
+    } elseif ($availableTypes -contains 'Product Backlog Item') {
+        'Product Backlog Item'  # Scrum template
+    } elseif ($availableTypes -contains 'Issue') {
+        'Issue'  # Basic template
+    } elseif ($availableTypes -contains 'Requirement') {
+        'Requirement'  # CMMI template
+    } else {
+        $null
     }
     
-    if (-not $byName.ContainsKey('Bug – Triaging')) {
-        Write-Host "[INFO] Creating Bug template"
-        Invoke-AdoRest POST $base -Body @{
-            name              = 'Bug – Triaging'
-            description       = 'Bug template with repro steps'
-            workItemTypeName  = 'Bug'
-            fields            = @{
-                'System.Title'                    = '[BUG] <brief>'
-                'Microsoft.VSTS.TCM.ReproSteps'   = "### Expected`n### Actual`n### Steps`n1. ..."
-                'Microsoft.VSTS.Common.Severity'  = '3 - Medium'
-                'Microsoft.VSTS.Common.Priority'  = 2
-                'System.Tags'                     = 'template;bug'
+    $base = "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/wit/templates"
+    
+    try {
+        $existing = Invoke-AdoRest GET $base
+        $byName = @{}
+        $existing.value | ForEach-Object { $byName[$_.name] = $_ }
+    }
+    catch {
+        Write-Warning "Unable to retrieve existing templates: $_"
+        $byName = @{}
+    }
+    
+    # Create story/requirement template if type is available
+    if ($storyType -and -not $byName.ContainsKey("$storyType – DoR/DoD")) {
+        Write-Host "[INFO] Creating $storyType template" -ForegroundColor Cyan
+        Write-Verbose "[Ensure-AdoTeamTemplates] Using work item type: $storyType"
+        Write-Verbose "[Ensure-AdoTeamTemplates] Template API endpoint: $base"
+        
+        try {
+            $templateBody = @{
+                name              = "$storyType – DoR/DoD"
+                description       = 'Template with Acceptance Criteria'
+                workItemTypeName  = $storyType
+                fields            = @{
+                    'System.Title'                                = 'As a <role>, I want <capability> so that <outcome>'
+                    'System.Description'                          = "## Context`n`n## Definition of Ready`n- [ ] ...`n`n## Definition of Done`n- [ ] ..."
+                    'Microsoft.VSTS.Common.Priority'              = 2
+                    'System.Tags'                                 = "template;$($storyType.ToLower().Replace(' ', '-'))"
+                }
             }
-        } | Out-Null
+            
+            # Add AcceptanceCriteria if the type supports it
+            if ($storyType -in @('User Story', 'Product Backlog Item')) {
+                $templateBody.fields['Microsoft.VSTS.Common.AcceptanceCriteria'] = "- [ ] Given ... When ... Then ..."
+            }
+            
+            Write-Verbose "[Ensure-AdoTeamTemplates] Template body: $($templateBody | ConvertTo-Json -Depth 5)"
+            Invoke-AdoRest POST $base -Body $templateBody | Out-Null
+            Write-Host "[SUCCESS] Created $storyType template" -ForegroundColor Green
+        }
+        catch {
+            Write-Warning "Failed to create $storyType template: $_"
+            Write-Host "[DEBUG] Error details: $($_.Exception.Message)" -ForegroundColor Yellow
+            if ($_.Exception.Response) {
+                Write-Host "[DEBUG] HTTP Status: $($_.Exception.Response.StatusCode)" -ForegroundColor Yellow
+            }
+        }
+    }
+    elseif (-not $storyType) {
+        Write-Warning "No suitable story/requirement work item type found. Available types: $($availableTypes -join ', ')"
+        Write-Host "[INFO] Skipping work item template creation" -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "[INFO] $storyType template already exists" -ForegroundColor Gray
+    }
+    
+    # Create Bug template if available
+    if (($availableTypes -contains 'Bug') -and -not $byName.ContainsKey('Bug – Triaging')) {
+        Write-Host "[INFO] Creating Bug template"
+        
+        try {
+            Invoke-AdoRest POST $base -Body @{
+                name              = 'Bug – Triaging'
+                description       = 'Bug template with repro steps'
+                workItemTypeName  = 'Bug'
+                fields            = @{
+                    'System.Title'                    = '[BUG] <brief>'
+                    'Microsoft.VSTS.TCM.ReproSteps'   = "### Expected`n### Actual`n### Steps`n1. ..."
+                    'Microsoft.VSTS.Common.Severity'  = '3 - Medium'
+                    'Microsoft.VSTS.Common.Priority'  = 2
+                    'System.Tags'                     = 'template;bug'
+                }
+            } | Out-Null
+            Write-Host "[SUCCESS] Created Bug template" -ForegroundColor Green
+        }
+        catch {
+            Write-Warning "Failed to create Bug template: $_"
+        }
     }
 }
 
@@ -799,12 +935,20 @@ function Get-AdoRepoDefaultBranch {
         [string]$RepoId
     )
     
-    $r = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId"
-    if ($r.defaultBranch) {
-        $r.defaultBranch
+    try {
+        $r = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId"
+        if ($r.PSObject.Properties['defaultBranch'] -and $r.defaultBranch) {
+            Write-Verbose "[Get-AdoRepoDefaultBranch] Found default branch: $($r.defaultBranch)"
+            return $r.defaultBranch
+        }
+        else {
+            Write-Warning "Repository has no default branch yet (empty repository). Branch policies will be skipped."
+            return $null
+        }
     }
-    else {
-        'refs/heads/main'
+    catch {
+        Write-Warning "Failed to get default branch: $_"
+        return $null
     }
 }
 
@@ -1047,6 +1191,7 @@ Export-ModuleMember -Function @(
     'Ensure-AdoArea',
     'Ensure-AdoProjectWiki',
     'Upsert-AdoWikiPage',
+    'Get-AdoWorkItemTypes',
     'Ensure-AdoTeamTemplates',
     'Ensure-AdoRepository',
     'Get-AdoRepoDefaultBranch',

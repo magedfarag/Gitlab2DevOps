@@ -542,14 +542,20 @@ This project was migrated from GitLab using automated tooling.
     Start-Sleep -Seconds 2
     $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
     
-    # Apply branch policies
-    Ensure-AdoBranchPolicies `
-        -Project $DestProject `
-        -RepoId $repo.id `
-        -Ref $defaultRef `
-        -Min 2 `
-        -BuildId $BuildDefinitionId `
-        -StatusContext $SonarStatusContext
+    # Apply branch policies only if repository has a default branch
+    if ($defaultRef) {
+        Ensure-AdoBranchPolicies `
+            -Project $DestProject `
+            -RepoId $repo.id `
+            -Ref $defaultRef `
+            -Min 2 `
+            -BuildId $BuildDefinitionId `
+            -StatusContext $SonarStatusContext
+    }
+    else {
+        Write-Host "[INFO] Skipping branch policies - repository has no branches yet" -ForegroundColor Yellow
+        Write-Host "[INFO] Branch policies will be applied after first push" -ForegroundColor Yellow
+    }
     
     # Apply security restrictions (BA group cannot push directly) - only if RBAC is available
     if ($desc -and $grpBA) {
@@ -563,9 +569,14 @@ This project was migrated from GitLab using automated tooling.
     }
     Write-Host "      - Work item areas: 4 created" -ForegroundColor Green
     Write-Host "      - Wiki: Initialized with welcome page" -ForegroundColor Green
-    Write-Host "      - Work item templates: User Story, Bug" -ForegroundColor Green
-    Write-Host "      - Repository: $RepoName" -ForegroundColor Green
-    Write-Host "      - Branch policies: Applied to $defaultRef" -ForegroundColor Green
+    Write-Host "      - Work item templates: Created" -ForegroundColor Green
+    Write-Host "      - Repository: $RepoName (empty)" -ForegroundColor Green
+    if ($defaultRef) {
+        Write-Host "      - Branch policies: Applied to $defaultRef" -ForegroundColor Green
+    }
+    else {
+        Write-Host "      - Branch policies: Will be applied during migration (Option 6)" -ForegroundColor Yellow
+    }
     if ($desc -and $grpBA) {
         Write-Host "      - Security: BA group restricted from direct push" -ForegroundColor Green
     }
@@ -874,6 +885,34 @@ function Invoke-SingleMigration {
         # Clean up temp repository
         if (-not $useLocalRepo -and (Test-Path $sourceRepo)) {
             Remove-Item -Recurse -Force $sourceRepo -ErrorAction SilentlyContinue
+        }
+        
+        # After successful push, apply branch policies if this is the first migration (not sync)
+        if (-not $isSync) {
+            Write-Host "[INFO] Applying branch policies to migrated repository..." -ForegroundColor Cyan
+            try {
+                # Get the default branch now that code has been pushed
+                Start-Sleep -Seconds 2  # Wait for Azure DevOps to recognize branches
+                $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
+                
+                if ($defaultRef) {
+                    Write-Host "[INFO] Applying policies to branch: $defaultRef" -ForegroundColor Cyan
+                    Ensure-AdoBranchPolicies `
+                        -Project $DestProject `
+                        -RepoId $repo.id `
+                        -Ref $defaultRef `
+                        -Min 2
+                    
+                    Write-Host "[SUCCESS] Branch policies applied successfully" -ForegroundColor Green
+                }
+                else {
+                    Write-Warning "Could not determine default branch. Branch policies not applied."
+                }
+            }
+            catch {
+                Write-Warning "Failed to apply branch policies: $_"
+                Write-Host "[INFO] You can manually configure branch policies in Azure DevOps" -ForegroundColor Yellow
+            }
         }
         
         $endTime = Get-Date

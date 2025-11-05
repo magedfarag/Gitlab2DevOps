@@ -2,12 +2,12 @@
 
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://github.com/PowerShell/PowerShell)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.0.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-2.1.0--dev-orange.svg)](CHANGELOG.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 > **Enterprise-grade migration toolkit for seamless GitLab to Azure DevOps transitions**
 
-Migrate Git repositories with full history, branch policies, and comprehensive audit trails. Built for production environments with idempotency, caching, and CLI automation.
+Migrate Git repositories with full history, branch policies, and comprehensive audit trails. Built for **on-premise Azure DevOps servers** with SSL/TLS challenges, featuring automatic **curl fallback** and robust retry logic.
 
 ---
 
@@ -16,6 +16,7 @@ Migrate Git repositories with full history, branch policies, and comprehensive a
 | Feature | Description |
 |---------|-------------|
 | 🔒 **Security-First** | Zero credential exposure, token masking, audit trails |
+| 🛡️ **SSL/TLS Resilience** | Automatic curl fallback for on-premise servers with certificate issues |
 | ✅ **Idempotent Operations** | Safe to re-run, `-WhatIf` preview, `-Force` override |
 | ⚡ **Performance Optimized** | Project caching, repository reuse, 2-5x faster re-runs |
 | 🤖 **CLI Automation** | 5 modes, GitHub Actions/Azure Pipelines ready |

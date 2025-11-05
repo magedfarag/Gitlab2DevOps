@@ -107,7 +107,7 @@ function Initialize-CoreRest {
     $script:GitLabBaseUrl = $GitLabBaseUrl
     $script:GitLabToken = $GitLabToken
     $script:AdoApiVersion = $AdoApiVersion
-    $script:SkipCertificateCheck = $SkipCertificateCheck
+    $script:SkipCertificateCheck = $SkipCertificateCheck.IsPresent
     $script:RetryAttempts = $RetryAttempts
     $script:RetryDelaySeconds = $RetryDelaySeconds
     $script:MaskSecrets = $MaskSecrets
@@ -119,7 +119,9 @@ function Initialize-CoreRest {
     
     Write-Verbose "[Core.Rest] Module initialized (v$script:ModuleVersion)"
     Write-Verbose "[Core.Rest] ADO API Version: $AdoApiVersion"
+    Write-Verbose "[Core.Rest] SkipCertificateCheck: $($script:SkipCertificateCheck)"
     Write-Verbose "[Core.Rest] Retry: $RetryAttempts attempts, ${RetryDelaySeconds}s delay"
+    Write-Host "[INFO] Core.Rest initialized - SkipCertificateCheck = $($script:SkipCertificateCheck)" -ForegroundColor Cyan
 }
 
 <#
@@ -393,16 +395,27 @@ function Invoke-RestWithRetry {
                 Method  = $Method
                 Uri     = $Uri
                 Headers = $Headers
-                Body    = $Body
             }
             
-            if ($script:SkipCertificateCheck) {
+            # Add body only for methods that support it
+            if ($Body -and $Method -in @('POST', 'PUT', 'PATCH')) {
+                $invokeParams.Body = $Body
+            }
+            
+            # CRITICAL: Always add SkipCertificateCheck for ADO calls when configured
+            # This MUST be present for every request to on-premise servers with self-signed certs
+            if ($script:SkipCertificateCheck -eq $true) {
                 $invokeParams.SkipCertificateCheck = $true
+                Write-Host "[DEBUG] ✓ SkipCertificateCheck=TRUE added to request" -ForegroundColor Green
+            }
+            else {
+                Write-Host "[DEBUG] ✗ SkipCertificateCheck=FALSE (script var = $script:SkipCertificateCheck)" -ForegroundColor Red
             }
             
             if ($script:LogRestCalls) {
                 $maskedUri = Hide-Secret -Text $Uri
-                Write-Verbose "[REST] $Side $Method $maskedUri (attempt $attempt/$maxAttempts)"
+                $skipCertStatus = if ($invokeParams.ContainsKey('SkipCertificateCheck')) { "SkipCert=TRUE" } else { "SkipCert=FALSE" }
+                Write-Verbose "[REST] $Side $Method $maskedUri ($skipCertStatus, attempt $attempt/$maxAttempts)"
             }
             
             # Measure request duration
@@ -421,6 +434,7 @@ function Invoke-RestWithRetry {
         catch {
             $normalizedError = New-NormalizedError -Exception $_ -Side $Side -Endpoint $Uri
             $status = $normalizedError.status
+            $errorMsg = $_.Exception.Message
             
             # Log failed REST call
             if ($script:LogRestCalls) {
@@ -428,11 +442,14 @@ function Invoke-RestWithRetry {
                 Write-Verbose "[REST] ✗ $Side $Method $maskedUri → $status"
             }
             
+            # Debug: Show curl fallback decision criteria
+            $isConnectionError = $errorMsg -match "connection was forcibly closed|Unable to read data from the transport|SSL|certificate|An error occurred while sending the request"
+            Write-Host "[DEBUG] Curl fallback check: SkipCert=$script:SkipCertificateCheck, Status=$status, IsConnErr=$isConnectionError" -ForegroundColor Magenta
+            Write-Host "[DEBUG] Error message: $errorMsg" -ForegroundColor Magenta
+            
             # Fallback to curl for connection issues when SkipCertificateCheck is enabled
             # PowerShell's Invoke-RestMethod sometimes fails with SSL even with -SkipCertificateCheck
-            $isConnectionError = $_.Exception.Message -match "connection was forcibly closed|Unable to read data from the transport|SSL|certificate"
-            
-            if ($script:SkipCertificateCheck -and $status -eq 0 -and $isConnectionError) {
+            if ($script:SkipCertificateCheck -eq $true -and $isConnectionError) {
                 
                 if ($attempt -eq 1) {
                     Write-Host "[WARN] PowerShell SSL/TLS issue detected - using curl fallback" -ForegroundColor Yellow
@@ -441,54 +458,131 @@ function Invoke-RestWithRetry {
                 
                 try {
                     # Build curl command
-                    $curlArgs = @('-k', '-s', '-X', $Method, '--max-time', '30')
+                    # -k: skip SSL verification
+                    # -s: silent (no progress bar)
+                    # -S: show errors even in silent mode
+                    # -i: include HTTP headers in output (to see response code)
+                    # -w: write out HTTP code at the end
+                    $curlArgs = @('-k', '-s', '-S', '-i', '-w', '\nHTTP_CODE:%{http_code}', '-X', $Method, '--max-time', '30')
                     
-                    # Add headers
-                    foreach ($key in $Headers.Keys) {
+                    # For Azure DevOps, use Basic auth with PAT
+                    # For GitLab, use headers
+                    if ($Side -eq 'ado') {
+                        # Azure DevOps uses Basic auth with empty username and PAT as password
+                        # IMPORTANT: Must pass as separate arguments to ensure proper variable expansion
+                        $curlArgs += '-u'
+                        $curlArgs += ":$($script:AdoPat)"
                         $curlArgs += '-H'
-                        $curlArgs += "$key`: $($Headers[$key])"
+                        $curlArgs += 'Content-Type: application/json'
+                        Write-Host "[DEBUG] Using curl with Basic auth, PAT length: $($script:AdoPat.Length) chars" -ForegroundColor Cyan
+                    }
+                    else {
+                        # GitLab uses PRIVATE-TOKEN header
+                        foreach ($key in $Headers.Keys) {
+                            $curlArgs += '-H'
+                            $curlArgs += "$key`: $($Headers[$key])"
+                        }
                     }
                     
                     # Add body for POST/PUT/PATCH
                     if ($Body -and $Method -in @('POST', 'PUT', 'PATCH')) {
-                        $curlArgs += '-H'
-                        $curlArgs += 'Content-Type: application/json'
+                        if ($Side -ne 'ado') {
+                            $curlArgs += '-H'
+                            $curlArgs += 'Content-Type: application/json'
+                        }
                         $curlArgs += '-d'
                         $curlArgs += $Body
+                        Write-Host "[DEBUG] POST body length: $($Body.Length) chars" -ForegroundColor Cyan
+                        Write-Host "[DEBUG] POST body preview: $($Body.Substring(0, [Math]::Min(150, $Body.Length)))..." -ForegroundColor Cyan
                     }
                     
                     $curlArgs += $Uri
                     
                     $maskedUri = Hide-Secret -Text $Uri
+                    Write-Host "[DEBUG] curl command: curl -k -s -X $Method -u ':***' '$maskedUri'" -ForegroundColor DarkGray
+                    if ($Body) {
+                        Write-Host "[DEBUG] with body: -d '<JSON payload>'" -ForegroundColor DarkGray
+                    }
                     Write-Verbose "[REST] curl fallback: $Method $maskedUri"
                     
-                    # Execute curl and filter progress output
-                    $curlOutput = & curl @curlArgs 2>&1 | Where-Object { 
-                        $_ -is [string] -and 
-                        $_ -notmatch '^\s*%' -and 
-                        $_ -notmatch '^\s*Total' -and 
-                        $_ -notmatch '^\s*Dload' -and 
-                        $_ -notmatch '^\s*0\s+0' -and 
-                        $_ -notmatch '^\s*100\s+' -and
-                        $_.Trim() -ne ''
+                    # Execute curl - capture ALL output including errors
+                    $curlOutput = & curl @curlArgs 2>&1
+                    
+                    # Safely handle output (may be single object or array)
+                    $outputArray = @($curlOutput)
+                    $outputCount = if ($curlOutput) { $outputArray.Count } else { 0 }
+                    Write-Host "[DEBUG] curl raw output ($outputCount items):" -ForegroundColor DarkGray
+                    $outputArray | Select-Object -First 10 | ForEach-Object { 
+                        Write-Host "[DEBUG]   $_" -ForegroundColor DarkGray
                     }
                     
-                    $jsonString = $curlOutput -join ''
+                    # Convert to string array
+                    $outputLines = $outputArray | Where-Object { $_ -is [string] } | ForEach-Object { $_.ToString() }
+                    
+                    # Extract HTTP status code from the write-out line
+                    $httpCodeLine = $outputLines | Where-Object { $_ -match '^HTTP_CODE:(\d+)' }
+                    $httpCode = if ($httpCodeLine -and $Matches[1]) { [int]$Matches[1] } else { 0 }
+                    
+                    Write-Host "[DEBUG] curl HTTP code: $httpCode" -ForegroundColor Cyan
+                    
+                    # Find where the JSON body starts (after headers, after blank line)
+                    $bodyStartIndex = -1
+                    for ($i = 0; $i -lt $outputLines.Count; $i++) {
+                        if ([string]::IsNullOrWhiteSpace($outputLines[$i]) -and $i -gt 0) {
+                            # Found blank line after headers, body starts next
+                            $bodyStartIndex = $i + 1
+                            break
+                        }
+                    }
+                    
+                    # Extract JSON body
+                    $jsonLines = if ($bodyStartIndex -ge 0) {
+                        $outputLines[$bodyStartIndex..($outputLines.Count - 1)] | Where-Object { 
+                            $_ -notmatch '^HTTP_CODE:' -and -not [string]::IsNullOrWhiteSpace($_)
+                        }
+                    } else {
+                        @()
+                    }
+                    
+                    $jsonString = $jsonLines -join "`n"
+                    
+                    Write-Host "[DEBUG] Extracted JSON length: $($jsonString.Length) chars" -ForegroundColor Cyan
                     
                     if ([string]::IsNullOrWhiteSpace($jsonString)) {
-                        Write-Warning "[$Side] curl returned empty response"
-                        throw "Empty response from curl"
+                        Write-Warning "[$Side] curl HTTP $httpCode with empty body"
+                        
+                        # Check if this is a network error (connection reset, timeout, etc.)
+                        $isNetworkError = $outputArray | Where-Object { 
+                            $_ -match 'Connection was reset' -or 
+                            $_ -match 'Recv failure' -or
+                            $_ -match 'Connection timed out' -or
+                            $_ -match 'Failed to connect'
+                        }
+                        
+                        if ($isNetworkError -or $httpCode -eq 0) {
+                            # Treat as 503 Service Unavailable for retry logic
+                            $status = 503
+                            throw "Network error - Connection reset or timeout"
+                        }
+                        elseif ($httpCode -ge 400) {
+                            $status = $httpCode
+                            throw "HTTP $httpCode - Empty error response from server"
+                        } 
+                        else {
+                            throw "Empty response from curl (HTTP $httpCode)"
+                        }
                     }
                     
                     $response = $jsonString | ConvertFrom-Json
                     
-                    Write-Verbose "[REST] ✓ $Side $Method (curl) → 200"
+                    Write-Verbose "[REST] ✓ $Side $Method (curl) → HTTP $httpCode"
                     
                     return $response
                 }
                 catch {
                     Write-Warning "[$Side] curl fallback also failed: $_"
-                    # Fall through to normal error handling
+                    # $status might have been set to 503 for retryable network errors
+                    # Fall through to retry logic
                 }
             }
             
