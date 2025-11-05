@@ -171,6 +171,28 @@ function Get-GitLabToken {
 
 <#
 .SYNOPSIS
+    Gets the SkipCertificateCheck setting.
+
+.DESCRIPTION
+    Returns whether SSL certificate validation should be skipped.
+    Used by other modules when making direct HTTP calls (e.g., git operations).
+
+.OUTPUTS
+    Boolean indicating if certificate validation should be skipped.
+
+.EXAMPLE
+    $skipCert = Get-SkipCertificateCheck
+#>
+function Get-SkipCertificateCheck {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    
+    return $script:SkipCertificateCheck
+}
+
+<#
+.SYNOPSIS
     Masks secrets in a URL or string.
 
 .DESCRIPTION
@@ -412,8 +434,10 @@ function Invoke-RestWithRetry {
             
             if ($script:SkipCertificateCheck -and $status -eq 0 -and $isConnectionError) {
                 
-                Write-Warning "[$Side] Invoke-RestMethod failed: $($_.Exception.Message)"
-                Write-Warning "[$Side] Falling back to curl for this request"
+                if ($attempt -eq 1) {
+                    Write-Host "[WARN] PowerShell SSL/TLS issue detected - using curl fallback" -ForegroundColor Yellow
+                    Write-Verbose "[$Side] Original error: $($_.Exception.Message)"
+                }
                 
                 try {
                     # Build curl command
@@ -435,9 +459,8 @@ function Invoke-RestWithRetry {
                     
                     $curlArgs += $Uri
                     
-                    if ($script:LogRestCalls) {
-                        Write-Verbose "[REST] Using curl fallback: curl $($curlArgs -join ' ')"
-                    }
+                    $maskedUri = Hide-Secret -Text $Uri
+                    Write-Verbose "[REST] curl fallback: $Method $maskedUri"
                     
                     # Execute curl and filter progress output
                     $curlOutput = & curl @curlArgs 2>&1 | Where-Object { 
@@ -453,19 +476,18 @@ function Invoke-RestWithRetry {
                     $jsonString = $curlOutput -join ''
                     
                     if ([string]::IsNullOrWhiteSpace($jsonString)) {
+                        Write-Warning "[$Side] curl returned empty response"
                         throw "Empty response from curl"
                     }
                     
                     $response = $jsonString | ConvertFrom-Json
                     
-                    if ($script:LogRestCalls) {
-                        Write-Verbose "[REST] ✓ $Side $Method (curl) → 200"
-                    }
+                    Write-Verbose "[REST] ✓ $Side $Method (curl) → 200"
                     
                     return $response
                 }
                 catch {
-                    Write-Verbose "[REST] curl fallback failed: $_"
+                    Write-Warning "[$Side] curl fallback also failed: $_"
                     # Fall through to normal error handling
                 }
             }
@@ -675,6 +697,7 @@ Export-ModuleMember -Function @(
     'Initialize-CoreRest',
     'Get-CoreRestVersion',
     'Get-GitLabToken',
+    'Get-SkipCertificateCheck',
     'Hide-Secret',
     'New-AuthHeader',
     'Invoke-AdoRest',
