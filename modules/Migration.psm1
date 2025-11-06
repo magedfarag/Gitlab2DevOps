@@ -213,9 +213,10 @@ function Show-MigrationMenu {
     Write-Host "  7) Provision Business Initialization Pack (wiki, queries, sprints, dashboard)"
     Write-Host "  8) Provision Development Initialization Pack (dev wiki, queries, repo files)"
     Write-Host "  9) Provision Security Initialization Pack (security wiki, queries, dashboard, security files)"
+    Write-Host " 10) Provision Management Initialization Pack (PMO wiki, queries, dashboard)"
     Write-Host ""
     
-    $choice = Read-Host "Enter 1, 2, 3, 4, 5, 6, 7, 8, or 9"
+    $choice = Read-Host "Enter 1, 2, 3, 4, 5, 6, 7, 8, 9, or 10"
     
     switch ($choice) {
         '1' {
@@ -499,6 +500,22 @@ function Show-MigrationMenu {
             }
             catch {
                 Write-Host "[ERROR] Security Initialization failed: $_" -ForegroundColor Red
+            }
+        }
+        '10' {
+            $DestProjectName = Read-Host "Enter Azure DevOps project name"
+            if ([string]::IsNullOrWhiteSpace($DestProjectName)) {
+                Write-Host "[ERROR] Project name cannot be empty." -ForegroundColor Red
+                return
+            }
+            
+            try {
+                Write-Host "[INFO] Provisioning Management Initialization Pack for '$DestProjectName'..." -ForegroundColor Cyan
+                Initialize-ManagementInit -DestProject $DestProjectName
+                Write-Host "[SUCCESS] Management Initialization Pack completed" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "[ERROR] Management Initialization failed: $_" -ForegroundColor Red
             }
         }
         default {
@@ -983,6 +1000,71 @@ function Initialize-SecurityInit {
     $reportFile = Join-Path $paths.reportsDir "security-init-summary.json"
     Write-MigrationReport -ReportFile $reportFile -Data $summary
     Write-Host "[SUCCESS] Security Initialization Pack complete" -ForegroundColor Green
+    Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
+}
+
+<#
+.SYNOPSIS
+    Provisions a Management/PMO Initialization Pack.
+
+.DESCRIPTION
+    Sets up program management office (PMO) infrastructure including:
+    - 8 Management wiki pages (Program Overview, Sprint Planning, Capacity Planning, Roadmap, RAID, Stakeholder Comms, Retrospectives, Metrics)
+    - 6 Management queries (Program Status, Sprint Progress, Risk Register, etc.)
+    - Program management dashboard
+
+.PARAMETER DestProject
+    Azure DevOps project name.
+
+.EXAMPLE
+    Initialize-ManagementInit -DestProject "MyProgram"
+#>
+function Initialize-ManagementInit {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$DestProject
+    )
+
+    Write-Host "[INFO] Starting Management Initialization Pack for '$DestProject'" -ForegroundColor Cyan
+    Write-Host "[NOTE] You may see some 404 errors - these are normal when checking if resources already exist" -ForegroundColor Gray
+
+    # Validate project exists
+    if (-not (Test-AdoProjectExists -ProjectName $DestProject)) {
+        throw "Project '$DestProject' was not found in Azure DevOps. Create it first (Initialize mode)."
+    }
+
+    # Get project and wiki
+    $proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($DestProject))?includeCapabilities=true"
+    $projId = $proj.id
+    $wiki = Ensure-AdoProjectWiki $projId $DestProject
+
+    # Provision management wiki pages
+    Write-Host "[INFO] Provisioning management wiki pages..." -ForegroundColor Cyan
+    Ensure-AdoManagementWiki -Project $DestProject -WikiId $wiki.id
+
+    # Create management dashboard
+    Write-Host "[INFO] Creating management dashboard..." -ForegroundColor Cyan
+    Ensure-AdoManagementDashboard -Project $DestProject
+
+    # Ensure management queries
+    Write-Host "[INFO] Creating management-focused queries..." -ForegroundColor Cyan
+    Ensure-AdoManagementQueries -Project $DestProject
+
+    # Generate readiness summary report
+    $paths = Get-ProjectPaths -ProjectName $DestProject
+    $summary = [pscustomobject]@{
+        timestamp           = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        ado_project         = $DestProject
+        wiki_pages          = @('Program-Overview','Sprint-Planning','Capacity-Planning','Roadmap','RAID-Log','Stakeholder-Communications','Retrospectives','Metrics-Dashboard')
+        management_queries  = @('Program Status','Sprint Progress','Active Risks','Open Issues','Cross-Team Dependencies','Milestone Tracker')
+        dashboard_created   = $true
+        notes               = 'Management initialization completed. PMO infrastructure ready for program oversight, sprint planning, risk management, and stakeholder reporting.'
+    }
+
+    $reportFile = Join-Path $paths.reportsDir "management-init-summary.json"
+    Write-MigrationReport -ReportFile $reportFile -Data $summary
+    Write-Host "[SUCCESS] Management Initialization Pack complete" -ForegroundColor Green
     Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
 }
 

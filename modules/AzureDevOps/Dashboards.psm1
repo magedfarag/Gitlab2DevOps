@@ -491,10 +491,120 @@ function Ensure-AdoDevDashboard {
     }
 }
 
+#>
+function Ensure-AdoSecurityDashboard {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Project
+    )
+    
+    Write-Host "[INFO] Creating Security Metrics dashboard..." -ForegroundColor Cyan
+    
+    try {
+        $dashboardConfig = @{
+            name = "Security Metrics"
+            description = "Security vulnerability tracking, compliance status, and threat intelligence"
+            widgets = @(
+                @{
+                    name = "Security Overview"
+                    position = @{ row = 1; column = 1 }
+                    size = @{ rowSpan = 2; columnSpan = 2 }
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.QueryScalarWidget"
+                },
+                @{
+                    name = "Vulnerability Trend"
+                    position = @{ row = 1; column = 3 }
+                    size = @{ rowSpan = 2; columnSpan = 2 }
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.QueryScalarWidget"
+                },
+                @{
+                    name = "Compliance Status"
+                    position = @{ row = 3; column = 1 }
+                    size = @{ rowSpan = 1; columnSpan = 2 }
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.MarkdownWidget"
+                }
+            )
+        }
+        
+        $dashboard = Invoke-AdoRest POST "/$Project/_apis/dashboard/dashboards?api-version=7.1-preview.3" -Body $dashboardConfig
+        Write-Host "  ✅ Security Metrics dashboard created" -ForegroundColor Gray
+        Write-Host "[SUCCESS] Security dashboard created" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Failed to create security dashboard: $_"
+        Write-Host "[INFO] Note: Dashboard creation requires appropriate permissions" -ForegroundColor DarkYellow
+    }
+}
+
+#>
+function Ensure-AdoManagementDashboard {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Project
+    )
+    
+    Write-Host "[INFO] Creating Program Management dashboard..." -ForegroundColor Cyan
+    
+    try {
+        $dashboardConfig = @{
+            name = "Program Management"
+            description = "Executive overview with program health, sprint progress, risks, and KPIs"
+            widgets = @(
+                @{
+                    name = "Program Health"
+                    position = @{ row = 1; column = 1 }
+                    size = @{ rowSpan = 1; columnSpan = 2 }
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.MarkdownWidget"
+                },
+                @{
+                    name = "Sprint Velocity"
+                    position = @{ row = 1; column = 3 }
+                    size = @{ rowSpan = 2; columnSpan = 2 }
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.VelocityWidget"
+                },
+                @{
+                    name = "Active Risks"
+                    position = @{ row = 2; column = 1 }
+                    size = @{ rowSpan = 2; columnSpan = 2 }
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.QueryScalarWidget"
+                },
+                @{
+                    name = "Sprint Burndown"
+                    position = @{ row = 3; column = 3 }
+                    size = @{ rowSpan = 2; columnSpan = 2 }
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.BurndownWidget"
+                },
+                @{
+                    name = "Milestone Progress"
+                    position = @{ row = 4; column = 1 }
+                    size = @{ rowSpan = 2; columnSpan = 2 }
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.QueryResultsWidget"
+                },
+                @{
+                    name = "Cross-Team Dependencies"
+                    position = @{ row = 5; column = 3 }
+                    size = @{ rowSpan = 1; columnSpan = 2 }
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.QueryScalarWidget"
+                }
+            )
+        }
+        
+        $dashboard = Invoke-AdoRest POST "/$Project/_apis/dashboard/dashboards?api-version=7.1-preview.3" -Body $dashboardConfig
+        Write-Host "  ✅ Program Management dashboard created" -ForegroundColor Gray
+        Write-Host "[SUCCESS] Management dashboard created" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Failed to create management dashboard: $_"
+        Write-Host "[INFO] Note: Dashboard creation requires appropriate permissions" -ForegroundColor DarkYellow
+    }
+}
+
 # Export functions
 Export-ModuleMember -Function @(
     'Ensure-AdoTeamSettings',
     'Ensure-AdoDashboard',
     'Ensure-AdoQADashboard',
-    'Ensure-AdoDevDashboard'
+    'Ensure-AdoDevDashboard',
+    'Ensure-AdoSecurityDashboard',
+    'Ensure-AdoManagementDashboard'
 )

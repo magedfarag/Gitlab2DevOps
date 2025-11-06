@@ -1121,6 +1121,122 @@ ORDER BY [Microsoft.VSTS.Common.Priority], [System.CreatedDate]
     }
 }
 
+#>
+function Ensure-AdoManagementQueries {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Project
+    )
+
+    Write-Host "[INFO] Setting up management queries..." -ForegroundColor Cyan
+
+    # Program Status - All active work across the program
+    $programStatusQuery = @"
+SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [System.Priority], [System.AssignedTo], [System.Tags], [Microsoft.VSTS.Scheduling.TargetDate]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story', 'Bug', 'Task')
+  AND [System.State] <> 'Closed'
+  AND [System.State] <> 'Removed'
+ORDER BY [System.WorkItemType], [System.Priority], [Microsoft.VSTS.Scheduling.TargetDate]
+"@
+
+    # Sprint Progress - Current sprint work items
+    $sprintProgressQuery = @"
+SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [System.AssignedTo], [Microsoft.VSTS.Scheduling.StoryPoints], [System.IterationPath]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND [System.IterationPath] = @currentIteration
+  AND [System.State] <> 'Removed'
+ORDER BY [System.State], [System.WorkItemType], [System.Priority]
+"@
+
+    # Active Risks - Risk work items or items tagged with risk
+    $activeRisksQuery = @"
+SELECT [System.Id], [System.Title], [System.State], [System.Priority], [Microsoft.VSTS.Common.Severity], [System.AssignedTo], [System.Tags], [System.CreatedDate], [Microsoft.VSTS.Scheduling.TargetDate]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND (
+    [System.WorkItemType] = 'Risk' OR
+    [System.WorkItemType] = 'Issue' OR
+    [System.Tags] CONTAINS 'risk' OR
+    [System.Tags] CONTAINS 'blocker' OR
+    [System.Tags] CONTAINS 'critical'
+  )
+  AND [System.State] <> 'Closed'
+  AND [System.State] <> 'Removed'
+ORDER BY [System.Priority], [Microsoft.VSTS.Common.Severity] DESC, [System.CreatedDate]
+"@
+
+    # Open Issues - All issues requiring attention
+    $openIssuesQuery = @"
+SELECT [System.Id], [System.Title], [System.State], [System.Priority], [Microsoft.VSTS.Common.Severity], [System.AssignedTo], [System.Tags], [System.CreatedDate]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND [System.WorkItemType] = 'Issue'
+  AND [System.State] <> 'Closed'
+  AND [System.State] <> 'Removed'
+ORDER BY [System.Priority], [Microsoft.VSTS.Common.Severity] DESC, [System.CreatedDate]
+"@
+
+    # Cross-Team Dependencies - Items with dependency tags
+    $dependenciesQuery = @"
+SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [System.AssignedTo], [System.Tags], [Microsoft.VSTS.Scheduling.TargetDate], [System.AreaPath]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND (
+    [System.Tags] CONTAINS 'dependency' OR
+    [System.Tags] CONTAINS 'blocked' OR
+    [System.Tags] CONTAINS 'waiting' OR
+    [System.Tags] CONTAINS 'external-dependency'
+  )
+  AND [System.State] <> 'Closed'
+  AND [System.State] <> 'Removed'
+ORDER BY [System.Priority], [Microsoft.VSTS.Scheduling.TargetDate], [System.CreatedDate]
+"@
+
+    # Milestone Tracker - Epics and Features by target date
+    $milestoneTrackerQuery = @"
+SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [System.AssignedTo], [Microsoft.VSTS.Scheduling.TargetDate], [System.Tags], [Microsoft.VSTS.Common.Priority]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND [System.WorkItemType] IN ('Epic', 'Feature')
+  AND [System.State] <> 'Closed'
+  AND [System.State] <> 'Removed'
+ORDER BY [Microsoft.VSTS.Scheduling.TargetDate], [System.WorkItemType], [Microsoft.VSTS.Common.Priority]
+"@
+
+    try {
+        # Ensure "Management" folder exists
+        $folderPath = "Shared Queries/Management"
+        Ensure-AdoQueryFolder -Project $Project -Path $folderPath
+
+        # Create queries
+        Upsert-AdoQuery -Project $Project -Path "$folderPath/Program Status" -Wiql $programStatusQuery
+        Write-Host "  ✅ Program Status" -ForegroundColor Gray
+
+        Upsert-AdoQuery -Project $Project -Path "$folderPath/Sprint Progress" -Wiql $sprintProgressQuery
+        Write-Host "  ✅ Sprint Progress" -ForegroundColor Gray
+
+        Upsert-AdoQuery -Project $Project -Path "$folderPath/Active Risks" -Wiql $activeRisksQuery
+        Write-Host "  ✅ Active Risks" -ForegroundColor Gray
+
+        Upsert-AdoQuery -Project $Project -Path "$folderPath/Open Issues" -Wiql $openIssuesQuery
+        Write-Host "  ✅ Open Issues" -ForegroundColor Gray
+
+        Upsert-AdoQuery -Project $Project -Path "$folderPath/Cross-Team Dependencies" -Wiql $dependenciesQuery
+        Write-Host "  ✅ Cross-Team Dependencies" -ForegroundColor Gray
+
+        Upsert-AdoQuery -Project $Project -Path "$folderPath/Milestone Tracker" -Wiql $milestoneTrackerQuery
+        Write-Host "  ✅ Milestone Tracker" -ForegroundColor Gray
+
+        Write-Host "[SUCCESS] All 6 management queries created" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Failed to create some management queries: $_"
+    }
+}
+
 # Export functions
 Export-ModuleMember -Function @(
     'Ensure-AdoTeamTemplates',
@@ -1131,5 +1247,6 @@ Export-ModuleMember -Function @(
     'Ensure-AdoCommonTags',
     'Ensure-AdoBusinessQueries',
     'Ensure-AdoDevQueries',
-    'Ensure-AdoSecurityQueries'
+    'Ensure-AdoSecurityQueries',
+    'Ensure-AdoManagementQueries'
 )

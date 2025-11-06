@@ -306,6 +306,54 @@ function Ensure-AdoSecurityWiki {
     }
 }
 
+#>
+function Ensure-AdoManagementWiki {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$WikiId
+    )
+    
+    Write-Host "[INFO] Creating Management wiki pages..." -ForegroundColor Cyan
+    
+    # Define all Management wiki pages
+    $pages = @(
+        @{ path = '/Management/Program-Overview'; template = 'Management/ProgramOverview'; title = 'Program Overview' },
+        @{ path = '/Management/Sprint-Planning'; template = 'Management/SprintPlanning'; title = 'Sprint Planning' },
+        @{ path = '/Management/Capacity-Planning'; template = 'Management/CapacityPlanning'; title = 'Capacity Planning' },
+        @{ path = '/Management/Roadmap'; template = 'Management/Roadmap'; title = 'Product Roadmap' },
+        @{ path = '/Management/RAID-Log'; template = 'Management/RAID'; title = 'RAID Log (Risks, Assumptions, Issues, Dependencies)' },
+        @{ path = '/Management/Stakeholder-Communications'; template = 'Management/StakeholderComms'; title = 'Stakeholder Communications' },
+        @{ path = '/Management/Retrospectives'; template = 'Management/Retrospectives'; title = 'Retrospective Insights' },
+        @{ path = '/Management/Metrics-Dashboard'; template = 'Management/MetricsDashboard'; title = 'Metrics Dashboard' }
+    )
+    
+    foreach ($page in $pages) {
+        try {
+            $content = Get-WikiTemplate $page.template
+            Upsert-AdoWikiPage $Project $WikiId $page.path $content | Out-Null
+            Write-Host "[SUCCESS] Created/updated wiki page: $($page.title)" -ForegroundColor Green
+        }
+        catch {
+            Write-Warning "Failed to create page $($page.path): $_"
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "[INFO] Management wiki structure created with 8 comprehensive guides:" -ForegroundColor Cyan
+    Write-Host "  📊 Program Overview: Mission, structure, and governance" -ForegroundColor Gray
+    Write-Host "  📅 Sprint Planning: Sprint goals, backlog, and ceremonies" -ForegroundColor Gray
+    Write-Host "  👥 Capacity Planning: Team capacity and resource allocation" -ForegroundColor Gray
+    Write-Host "  🗺️ Product Roadmap: Vision, strategy, and feature timeline" -ForegroundColor Gray
+    Write-Host "  🎯 RAID Log: Risks, assumptions, issues, dependencies tracking" -ForegroundColor Gray
+    Write-Host "  📢 Stakeholder Communications: Communication plan and templates" -ForegroundColor Gray
+    Write-Host "  🔄 Retrospectives: Sprint insights and continuous improvement" -ForegroundColor Gray
+    Write-Host "  📈 Metrics Dashboard: KPIs, health metrics, and performance indicators" -ForegroundColor Gray
+}
+
 # Export functions
 Export-ModuleMember -Function @(
     'Ensure-AdoProjectWiki',
@@ -314,5 +362,6 @@ Export-ModuleMember -Function @(
     'Ensure-AdoBestPracticesWiki',
     'Ensure-AdoBusinessWiki',
     'Ensure-AdoDevWiki',
-    'Ensure-AdoSecurityWiki'
+    'Ensure-AdoSecurityWiki',
+    'Ensure-AdoManagementWiki'
 )
