@@ -800,6 +800,383 @@ function New-MigrationSummary {
 }
 
 # Export public functions
+<#
+.SYNOPSIS
+    Generates an HTML status report for a single migration project.
+
+.DESCRIPTION
+    Creates a visually appealing HTML report showing the current status of a migration project.
+    The report includes project details, status, timestamps, and progress indicators.
+
+.PARAMETER ProjectPath
+    Path to the project migration folder.
+
+.PARAMETER OutputPath
+    Optional custom output path. Defaults to reports/migration-status.html in project folder.
+
+.OUTPUTS
+    Path to generated HTML report.
+
+.EXAMPLE
+    New-MigrationHtmlReport -ProjectPath "migrations/MyProject/my-repo"
+#>
+function New-MigrationHtmlReport {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ProjectPath,
+        
+        [Parameter()]
+        [string]$OutputPath
+    )
+    
+    try {
+        # Load template
+        $templatePath = Join-Path $PSScriptRoot "templates\migration-status.html"
+        if (-not (Test-Path $templatePath)) {
+            Write-Warning "[New-MigrationHtmlReport] Template not found: $templatePath"
+            return $null
+        }
+        
+        $template = Get-Content -Path $templatePath -Raw
+        
+        # Load migration config
+        $configFile = Join-Path $ProjectPath "migration-config.json"
+        if (-not (Test-Path $configFile)) {
+            Write-Warning "[New-MigrationHtmlReport] Config not found: $configFile"
+            return $null
+        }
+        
+        $config = Get-Content -Path $configFile -Raw | ConvertFrom-Json
+        
+        # Determine output path
+        if (-not $OutputPath) {
+            $reportsDir = Join-Path $ProjectPath "reports"
+            if (-not (Test-Path $reportsDir)) {
+                New-Item -ItemType Directory -Path $reportsDir -Force | Out-Null
+            }
+            $OutputPath = Join-Path $reportsDir "migration-status.html"
+        }
+        
+        # Build project card HTML
+        $statusClass = $config.status.ToUpper() -replace '[^A-Z_]', '_'
+        $projectCard = @"
+<div class="project-card">
+    <div class="project-header">
+        <div class="project-name">$($config.gitlab_project)</div>
+        <span class="status-badge $statusClass">$($config.status)</span>
+    </div>
+    
+    <div class="project-details">
+        <div class="detail-item">
+            <span class="icon">📦</span>
+            <div class="content">
+                <div class="label">Azure DevOps Project</div>
+                <div class="value">$($config.ado_project)</div>
+            </div>
+        </div>
+        <div class="detail-item">
+            <span class="icon">🔗</span>
+            <div class="content">
+                <div class="label">GitLab Repository</div>
+                <div class="value">$($config.gitlab_repo_name)</div>
+            </div>
+        </div>
+        <div class="detail-item">
+            <span class="icon">📊</span>
+            <div class="content">
+                <div class="label">Migration Type</div>
+                <div class="value">$($config.migration_type)</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="timestamps">
+        <div class="timestamp">
+            <span class="icon">🕒</span>
+            Created: $($config.created_date)
+        </div>
+        <div class="timestamp">
+            <span class="icon">🔄</span>
+            Updated: $($config.last_updated)
+        </div>
+    </div>
+</div>
+"@
+        
+        # Add back navigation link
+        $backNavigation = @'
+<div class="refresh-info" style="background: #e3f2fd; border-bottom-color: #2196f3;">
+    <a href="../../../index.html" style="color: #1565c0; text-decoration: none; font-weight: 600;">
+        ← Back to Migration Overview Dashboard
+    </a>
+</div>
+'@
+        
+        # Replace template placeholders
+        $html = $template `
+            -replace '{{REPORT_TITLE}}', "Migration Status: $($config.gitlab_project)" `
+            -replace '{{REPORT_SUBTITLE}}', "Azure DevOps Project: $($config.ado_project)" `
+            -replace '{{REFRESH_INFO}}', $backNavigation `
+            -replace '{{SUMMARY_STATS}}', '' `
+            -replace '{{PROJECT_CARDS}}', $projectCard `
+            -replace '{{GENERATION_TIME}}', (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+        
+        # Write HTML file
+        $html | Set-Content -Path $OutputPath -Encoding UTF8
+        Write-Verbose "[New-MigrationHtmlReport] Generated report: $OutputPath"
+        
+        return $OutputPath
+    }
+    catch {
+        Write-Warning "[New-MigrationHtmlReport] Failed to generate HTML report: $_"
+        return $null
+    }
+}
+
+<#
+.SYNOPSIS
+    Generates a consolidated HTML report for all migrations in the migrations folder.
+
+.DESCRIPTION
+    Creates a comprehensive HTML dashboard showing all migration projects with their
+    current status, statistics, and details. Auto-refreshes every 30 seconds.
+
+.PARAMETER MigrationsPath
+    Optional path to migrations directory. Defaults to ./migrations.
+
+.PARAMETER OutputPath
+    Optional custom output path. Defaults to migrations/index.html.
+
+.OUTPUTS
+    Path to generated HTML report.
+
+.EXAMPLE
+    New-MigrationsOverviewReport
+#>
+function New-MigrationsOverviewReport {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()]
+        [string]$MigrationsPath,
+        
+        [Parameter()]
+        [string]$OutputPath
+    )
+    
+    try {
+        # Get migrations directory
+        if (-not $MigrationsPath) {
+            $MigrationsPath = Get-MigrationsDirectory
+        }
+        
+        # Determine output path
+        if (-not $OutputPath) {
+            $OutputPath = Join-Path $MigrationsPath "index.html"
+        }
+        
+        # Load template
+        $templatePath = Join-Path $PSScriptRoot "templates\migration-status.html"
+        if (-not (Test-Path $templatePath)) {
+            Write-Warning "[New-MigrationsOverviewReport] Template not found: $templatePath"
+            return $null
+        }
+        
+        $template = Get-Content -Path $templatePath -Raw
+        
+        # Collect all migration projects
+        $allProjects = @()
+        $stats = @{
+            total = 0
+            prepared = 0
+            migrated = 0
+            completed = 0
+            failed = 0
+        }
+        
+        # Find all migration-config.json and bulk-migration-config.json files
+        $configFiles = Get-ChildItem -Path $MigrationsPath -Recurse -Filter "*migration-config.json" -File
+        
+        foreach ($configFile in $configFiles) {
+            try {
+                $config = Get-Content -Path $configFile.FullName -Raw | ConvertFrom-Json
+                
+                # Handle bulk migration configs
+                if ($config.migration_type -eq 'BULK' -and $config.projects) {
+                    foreach ($project in $config.projects) {
+                        $projectObj = [PSCustomObject]@{
+                            ado_project = $config.destination_project
+                            gitlab_project = $project.gitlab_path
+                            gitlab_repo_name = $project.ado_repo_name
+                            status = $project.preparation_status
+                            migration_type = 'BULK'
+                            created_date = $config.preparation_summary.preparation_time
+                            last_updated = $config.preparation_summary.preparation_time
+                            repo_size_MB = $project.repo_size_MB
+                            lfs_enabled = $project.lfs_enabled
+                        }
+                        $allProjects += $projectObj
+                        $stats.total++
+                        if ($project.preparation_status -eq 'SUCCESS') { $stats.prepared++ }
+                    }
+                }
+                # Handle single migration configs
+                elseif ($config.ado_project) {
+                    $allProjects += $config
+                    $stats.total++
+                    
+                    switch ($config.status) {
+                        'PREPARED' { $stats.prepared++ }
+                        'MIGRATED' { $stats.migrated++ }
+                        'COMPLETED' { $stats.completed++ }
+                        'FAILED' { $stats.failed++ }
+                    }
+                }
+            }
+            catch {
+                Write-Verbose "[New-MigrationsOverviewReport] Failed to parse config: $($configFile.FullName)"
+            }
+        }
+        
+        # Build summary stats HTML
+        $summaryHtml = @"
+<div class="stat-card total">
+    <div class="value">$($stats.total)</div>
+    <div class="label">Total Projects</div>
+</div>
+<div class="stat-card prepared">
+    <div class="value">$($stats.prepared)</div>
+    <div class="label">Prepared</div>
+</div>
+<div class="stat-card migrated">
+    <div class="value">$($stats.migrated)</div>
+    <div class="label">Migrated</div>
+</div>
+<div class="stat-card completed">
+    <div class="value">$($stats.completed)</div>
+    <div class="label">Completed</div>
+</div>
+<div class="stat-card failed">
+    <div class="value">$($stats.failed)</div>
+    <div class="label">Failed</div>
+</div>
+"@
+        
+        # Build project cards HTML with links
+        $cardsHtml = ""
+        foreach ($project in $allProjects) {
+            $statusClass = $project.status.ToUpper() -replace '[^A-Z_]', '_'
+            $repoSize = if ($project.PSObject.Properties['repo_size_MB'] -and $project.repo_size_MB) { "$($project.repo_size_MB) MB" } else { "N/A" }
+            $lfsStatus = if ($project.PSObject.Properties['lfs_enabled'] -and $project.lfs_enabled) { "✓ Enabled" } else { "✗ Disabled" }
+            
+            # Build relative path to individual project report
+            $projectReportPath = ""
+            if ($project.ado_project -and $project.gitlab_repo_name) {
+                $projectReportPath = "./$($project.ado_project)/$($project.gitlab_repo_name)/reports/migration-status.html"
+            }
+            
+            # Add clickable link if report path exists
+            $nameHtml = if ($projectReportPath) {
+                "<a href=`"$projectReportPath`" style=`"color: inherit; text-decoration: none;`">$($project.gitlab_project) 🔗</a>"
+            } else {
+                $project.gitlab_project
+            }
+            
+            $cardsHtml += @"
+<div class="project-card" style="cursor: pointer;" onclick="window.location.href='$projectReportPath'">
+    <div class="project-header">
+        <div class="project-name">$nameHtml</div>
+        <span class="status-badge $statusClass">$($project.status)</span>
+    </div>
+    
+    <div class="project-details">
+        <div class="detail-item">
+            <span class="icon">📦</span>
+            <div class="content">
+                <div class="label">Azure DevOps Project</div>
+                <div class="value">$($project.ado_project)</div>
+            </div>
+        </div>
+        <div class="detail-item">
+            <span class="icon">🔗</span>
+            <div class="content">
+                <div class="label">Repository Name</div>
+                <div class="value">$($project.gitlab_repo_name)</div>
+            </div>
+        </div>
+        <div class="detail-item">
+            <span class="icon">📊</span>
+            <div class="content">
+                <div class="label">Migration Type</div>
+                <div class="value">$($project.migration_type)</div>
+            </div>
+        </div>
+        <div class="detail-item">
+            <span class="icon">💾</span>
+            <div class="content">
+                <div class="label">Repository Size</div>
+                <div class="value">$repoSize</div>
+            </div>
+        </div>
+        <div class="detail-item">
+            <span class="icon">📁</span>
+            <div class="content">
+                <div class="label">Git LFS</div>
+                <div class="value">$lfsStatus</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="timestamps">
+        <div class="timestamp">
+            <span class="icon">🕒</span>
+            Created: $($project.created_date)
+        </div>
+        <div class="timestamp">
+            <span class="icon">🔄</span>
+            Updated: $($project.last_updated)
+        </div>
+    </div>
+</div>
+
+"@
+        }
+        
+        # Add refresh info
+        $refreshInfo = @'
+<div class="refresh-info">
+    ⚡ This page auto-refreshes every 30 seconds to show the latest migration status
+</div>
+<script>
+    setTimeout(function() {
+        location.reload();
+    }, 30000);
+</script>
+'@
+        
+        # Replace template placeholders
+        $html = $template `
+            -replace '{{REPORT_TITLE}}', "GitLab to Azure DevOps Migration Dashboard" `
+            -replace '{{REPORT_SUBTITLE}}', "Overview of all migration projects" `
+            -replace '{{REFRESH_INFO}}', $refreshInfo `
+            -replace '{{SUMMARY_STATS}}', $summaryHtml `
+            -replace '{{PROJECT_CARDS}}', $cardsHtml `
+            -replace '{{GENERATION_TIME}}', (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+        
+        # Write HTML file
+        $html | Set-Content -Path $OutputPath -Encoding UTF8
+        Write-Host "[SUCCESS] Generated migrations overview: $OutputPath" -ForegroundColor Green
+        
+        return $OutputPath
+    }
+    catch {
+        Write-Warning "[New-MigrationsOverviewReport] Failed to generate overview report: $_"
+        return $null
+    }
+}
+
 Export-ModuleMember -Function @(
     'Get-MigrationsDirectory',
     'Get-ProjectPaths',
@@ -812,5 +1189,7 @@ Export-ModuleMember -Function @(
     'New-MigrationSummary',
     'New-RunManifest',
     'Update-RunManifest',
-    'Write-RestCallLog'
+    'Write-RestCallLog',
+    'New-MigrationHtmlReport',
+    'New-MigrationsOverviewReport'
 )
