@@ -33,6 +33,46 @@ $script:GIT_BITS = @{
 
 <#
 .SYNOPSIS
+    Loads a wiki template from an external markdown file.
+
+.DESCRIPTION
+    Helper function to load wiki page content from markdown template files
+    stored in the WikiTemplates subdirectory. This separates content from logic.
+
+.PARAMETER TemplateName
+    Name of the template file relative to WikiTemplates directory.
+    Example: "Dev/DevSetup" loads "WikiTemplates/Dev/DevSetup.md"
+
+.OUTPUTS
+    String content of the template file.
+
+.EXAMPLE
+    $content = Get-WikiTemplate "Security/SecurityPolicies"
+
+.NOTES
+    Templates are stored in modules/AzureDevOps/WikiTemplates/
+    Uses UTF-8 encoding and -Raw to preserve formatting.
+#>
+function Get-WikiTemplate {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$TemplateName
+    )
+    
+    $templatePath = Join-Path $PSScriptRoot "WikiTemplates\$TemplateName.md"
+    
+    if (-not (Test-Path $templatePath)) {
+        throw "[Get-WikiTemplate] Template not found: $templatePath"
+    }
+    
+    Write-Verbose "[Get-WikiTemplate] Loading template: $TemplateName"
+    return (Get-Content -Path $templatePath -Raw -Encoding UTF8)
+}
+
+<#
+.SYNOPSIS
     Gets the list of Azure DevOps projects with caching.
 
 .DESCRIPTION
@@ -7844,7 +7884,7 @@ stages:
           
           # Container scan
           - script: |
-              trivy image myapp:${{BUILD_ID}}
+              trivy image myapp:`${{BUILD_ID}}
             displayName: 'Scan container image'
 ````````````
 
