@@ -212,9 +212,10 @@ function Show-MigrationMenu {
     Write-Host "  6) Execute bulk migration from prepared template"
     Write-Host "  7) Provision Business Initialization Pack (wiki, queries, sprints, dashboard)"
     Write-Host "  8) Provision Development Initialization Pack (dev wiki, queries, repo files)"
+    Write-Host "  9) Provision Security Initialization Pack (security wiki, queries, dashboard, security files)"
     Write-Host ""
     
-    $choice = Read-Host "Enter 1, 2, 3, 4, 5, 6, 7, or 8"
+    $choice = Read-Host "Enter 1, 2, 3, 4, 5, 6, 7, 8, or 9"
     
     switch ($choice) {
         '1' {
@@ -482,6 +483,22 @@ function Show-MigrationMenu {
             }
             catch {
                 Write-Host "[ERROR] Development Initialization failed: $_" -ForegroundColor Red
+            }
+        }
+        '9' {
+            $DestProjectName = Read-Host "Enter Azure DevOps project name"
+            if ([string]::IsNullOrWhiteSpace($DestProjectName)) {
+                Write-Host "[ERROR] Project name cannot be empty." -ForegroundColor Red
+                return
+            }
+            
+            try {
+                Write-Host "[INFO] Provisioning Security Initialization Pack for '$DestProjectName'..." -ForegroundColor Cyan
+                Initialize-SecurityInit -DestProject $DestProjectName
+                Write-Host "[SUCCESS] Security Initialization Pack completed" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "[ERROR] Security Initialization failed: $_" -ForegroundColor Red
             }
         }
         default {
@@ -900,6 +917,86 @@ function Initialize-DevInit {
     $reportFile = Join-Path $paths.reportsDir "dev-init-summary.json"
     Write-MigrationReport -ReportFile $reportFile -Data $summary
     Write-Host "[SUCCESS] Development Initialization Pack complete" -ForegroundColor Green
+    Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
+}
+
+<#
+.SYNOPSIS
+    Initializes security resources for DevSecOps teams.
+
+.DESCRIPTION
+    Creates comprehensive security resources in an Azure DevOps project:
+    - 7 security wiki pages (policies, threat modeling, testing, incident response, compliance, secret management, security champions)
+    - 5 security-focused queries (security bugs, vulnerability backlog, security review required, compliance items, security debt)
+    - Security dashboard
+    - Security repository files (SECURITY.md, security-scan-config.yml, .trivyignore, .snyk)
+
+.PARAMETER DestProject
+    The name of the Azure DevOps project to initialize.
+
+.EXAMPLE
+    Initialize-SecurityInit -DestProject "MyProject"
+#>
+function Initialize-SecurityInit {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$DestProject
+    )
+
+    Write-Host "[INFO] Starting Security Initialization Pack for '$DestProject'" -ForegroundColor Cyan
+    Write-Host "[NOTE] You may see some 404 errors - these are normal when checking if resources already exist" -ForegroundColor Gray
+
+    # Validate project exists
+    if (-not (Test-AdoProjectExists -ProjectName $DestProject)) {
+        throw "Project '$DestProject' was not found in Azure DevOps. Create it first (Initialize mode)."
+    }
+
+    # Get project and wiki
+    $proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($DestProject))?includeCapabilities=true"
+    $projId = $proj.id
+    $wiki = Ensure-AdoProjectWiki $projId $DestProject
+
+    # Provision security wiki pages
+    Write-Host "[INFO] Provisioning security wiki pages..." -ForegroundColor Cyan
+    Ensure-AdoSecurityWiki -Project $DestProject -WikiId $wiki.id
+
+    # Create security dashboard
+    Write-Host "[INFO] Creating security dashboard..." -ForegroundColor Cyan
+    Ensure-AdoSecurityDashboard -Project $DestProject
+
+    # Ensure security queries
+    Write-Host "[INFO] Creating security-focused queries..." -ForegroundColor Cyan
+    Ensure-AdoSecurityQueries -Project $DestProject
+
+    # Get repository for adding security files
+    $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($DestProject))/_apis/git/repositories"
+    $repo = $repos.value | Where-Object { $_.name -eq $DestProject } | Select-Object -First 1
+    
+    if ($repo) {
+        Write-Host "[INFO] Adding security repository files..." -ForegroundColor Cyan
+        Ensure-AdoSecurityRepoFiles -Project $DestProject -RepoId $repo.id
+    }
+    else {
+        Write-Host "[WARN] No repository found - skipping security repository files" -ForegroundColor Yellow
+        Write-Host "[INFO] Security files will be added after code migration" -ForegroundColor Gray
+    }
+
+    # Generate readiness summary report
+    $paths = Get-ProjectPaths -ProjectName $DestProject
+    $summary = [pscustomobject]@{
+        timestamp         = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        ado_project       = $DestProject
+        wiki_pages        = @('Security-Policies','Threat-Modeling-Guide','Security-Testing-Checklist','Incident-Response-Plan','Compliance-Requirements','Secret-Management','Security-Champions-Program')
+        security_queries  = @('Security Bugs (Priority 0-1)','Vulnerability Backlog','Security Review Required','Compliance Items','Security Debt')
+        repo_files        = @('SECURITY.md','security-scan-config.yml','.trivyignore','.snyk')
+        repository_found  = ($null -ne $repo)
+        notes             = 'Security initialization completed. Repository files added if repository exists. Embed shift-left security practices from day one.'
+    }
+
+    $reportFile = Join-Path $paths.reportsDir "security-init-summary.json"
+    Write-MigrationReport -ReportFile $reportFile -Data $summary
+    Write-Host "[SUCCESS] Security Initialization Pack complete" -ForegroundColor Green
     Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
 }
 
@@ -1766,6 +1863,7 @@ Export-ModuleMember -Function @(
     'Initialize-AdoProject',
     'Initialize-BusinessInit',
     'Initialize-DevInit',
+    'Initialize-SecurityInit',
     'New-MigrationPreReport',
     'Invoke-SingleMigration',
     'Invoke-BulkPreparationWorkflow',

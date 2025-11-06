@@ -129,7 +129,7 @@
 param(
     # CLI Mode Parameters
     [Parameter(ParameterSetName='CLI', Mandatory)]
-    [ValidateSet('Preflight', 'Initialize', 'Migrate', 'BulkPrepare', 'BulkMigrate', 'BusinessInit', 'DevInit')]
+    [ValidateSet('Preflight', 'Initialize', 'Migrate', 'BulkPrepare', 'BulkMigrate', 'BusinessInit', 'DevInit', 'SecurityInit')]
     [string]$Mode,
     
     [Parameter(ParameterSetName='CLI')]
@@ -406,6 +406,16 @@ if ($PSCmdlet.ParameterSetName -eq 'CLI') {
             }
             
             Initialize-DevInit -DestProject $Project -ProjectType $projectType
+        }
+        'SecurityInit' {
+            if ([string]::IsNullOrWhiteSpace($Project)) {
+                Write-Host "[ERROR] -Project parameter is required for SecurityInit mode" -ForegroundColor Red
+                Write-Host "Usage: .\Gitlab2DevOps.ps1 -Mode SecurityInit -Project 'MyProject'" -ForegroundColor Yellow
+                exit 1
+            }
+
+            Write-Host "[INFO] Provisioning Security Initialization Pack for project: $Project" -ForegroundColor Cyan
+            Initialize-SecurityInit -DestProject $Project
         }
         }
     }
