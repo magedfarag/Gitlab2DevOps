@@ -472,8 +472,14 @@ function Ensure-AdoDevDashboard {
         $dashboard = Invoke-AdoRest POST "/$Project/_apis/dashboard/dashboards?api-version=7.1-preview.3" -Body $dashboardConfig
         Write-Host "  ✅ Development Metrics dashboard created" -ForegroundColor Gray
         
-        # Create component tags wiki page
-        $componentTagsContent = @"
+        # Create component tags wiki page - load from template
+        $templatePath = Join-Path $PSScriptRoot "..\templates\ComponentTags.md"
+        if (-not (Test-Path $templatePath)) {
+            Write-Error "[Ensure-AdoDashboard] Template file not found: $templatePath"
+            return $null
+        }
+        $componentTagsContent = Get-Content -Path $templatePath -Raw -Encoding UTF8
+        <#OLD_CONTENT_START $componentTagsContent = @"
 # Component Tags & Categorization
 
 This page documents the tagging conventions used to categorize work items, PRs, and code components.
@@ -654,7 +660,7 @@ az boards query --wiql "SELECT [System.Id] FROM WorkItems WHERE [System.Tags] CO
 ---
 
 **Questions?** Ask in #team-devops or update this wiki page.
-"@
+OLD_CONTENT_END#>
         
         Upsert-AdoWikiPage $Project $WikiId "/Development/Component-Tags" $componentTagsContent
         Write-Host "  ✅ Component Tags wiki page created" -ForegroundColor Gray

@@ -52,8 +52,15 @@ function Ensure-AdoRepositoryTemplates {
     # Extract branch name from refs/heads/main
     $branchName = $defaultBranch -replace '^refs/heads/', ''
     
-    # Define template files
-    $readmeContent = @"
+    # Define template files - load from external templates
+    $readmeTemplatePath = Join-Path $PSScriptRoot "..\templates\README.template.md"
+    if (-not (Test-Path $readmeTemplatePath)) {
+        Write-Error "[Ensure-AdoRepositoryTemplates] README template not found: $readmeTemplatePath"
+        return
+    }
+    $readmeTemplate = Get-Content -Path $readmeTemplatePath -Raw -Encoding UTF8
+    $readmeContent = $readmeTemplate -replace '{{REPO_NAME}}', $RepoName
+    <#OLD_README $readmeContent = @"
 # $RepoName
 
 ## Overview
@@ -118,9 +125,16 @@ git clone <repository-url>
 
 ## Support
 For questions or issues, contact the team or create a work item.
-"@
+OLD_README#>
 
-    $prTemplateContent = @"
+    # Load PR template
+    $prTemplatePath = Join-Path $PSScriptRoot "..\templates\PullRequestTemplate.md"
+    if (-not (Test-Path $prTemplatePath)) {
+        Write-Error "[Ensure-AdoRepositoryTemplates] PR template not found: $prTemplatePath"
+        return
+    }
+    $prTemplateContent = Get-Content -Path $prTemplatePath -Raw -Encoding UTF8
+    <#OLD_PR $prTemplateContent = @"
 ## Description
 <!-- Provide a brief description of the changes in this PR -->
 
@@ -157,7 +171,7 @@ For questions or issues, contact the team or create a work item.
 
 ## Additional Notes
 <!-- Any additional information reviewers should know -->
-"@
+OLD_PR#>
 
     $filesCreated = @()
     $createdCount = 0
@@ -585,8 +599,15 @@ function Ensure-AdoRepoFiles {
         $defaultBranch = 'main'
     }
     
-    # .gitignore content
-    $gitignoreContent = @"
+    # .gitignore content - load from template
+    $gitignoreTemplatePath = Join-Path $PSScriptRoot "..\templates\gitignore.template"
+    if (-not (Test-Path $gitignoreTemplatePath)) {
+        Write-Error "[Ensure-AdoRepoFiles] Gitignore template not found: $gitignoreTemplatePath"
+        return
+    }
+    $gitignoreTemplate = Get-Content -Path $gitignoreTemplatePath -Raw -Encoding UTF8
+    $gitignoreContent = $gitignoreTemplate -replace '{{PROJECT_TYPE}}', $ProjectType
+    <#OLD_GITIGNORE $gitignoreContent = @"
 # Gitlab2DevOps - Enhanced .gitignore
 # Generated for project type: $ProjectType
 
@@ -713,10 +734,16 @@ Pipfile.lock
 ## Azure
 local.settings.json
 .azure/
-"@
+OLD_GITIGNORE#>
 
-    # .editorconfig content
-    $editorconfigContent = @"
+    # .editorconfig content - load from template
+    $editorconfigTemplatePath = Join-Path $PSScriptRoot "..\templates\editorconfig.template"
+    if (-not (Test-Path $editorconfigTemplatePath)) {
+        Write-Error "[Ensure-AdoRepoFiles] Editorconfig template not found: $editorconfigTemplatePath"
+        return
+    }
+    $editorconfigContent = Get-Content -Path $editorconfigTemplatePath -Raw -Encoding UTF8
+    <#OLD_EDITORCONFIG $editorconfigContent = @"
 # EditorConfig - Consistent coding styles
 # https://editorconfig.org
 
@@ -815,7 +842,7 @@ indent_size = 2
 indent_style = space
 indent_size = 4
 max_line_length = 88
-"@
+OLD_EDITORCONFIG#>
 
     # Create files via Git push API
     $filesCreated = @()

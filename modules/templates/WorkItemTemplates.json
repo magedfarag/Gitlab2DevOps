@@ -1,0 +1,69 @@
+{
+  "User Story": {
+    "name": "User Story – DoR/DoD",
+    "description": "User Story template with acceptance criteria and DoR/DoD checklists",
+    "fields": {
+      "System.Title": "As a <role>, I want <capability> so that <outcome>",
+      "System.Description": "<h2>User Story Context</h2>\n<p><strong>Business Value:</strong> Why is this story important?</p>\n<p><strong>Assumptions:</strong> What assumptions are we making?</p>\n\n<h2>Definition of Ready</h2>\n<ul>\n<li>☐ Story is well-defined and understood</li>\n<li>☐ Acceptance criteria are clear and testable</li>\n<li>☐ Dependencies identified and resolved</li>\n<li>☐ Story is appropriately sized (fits in one sprint)</li>\n<li>☐ UI/UX designs available (if applicable)</li>\n</ul>\n\n<h2>Definition of Done</h2>\n<ul>\n<li>☐ Code is complete and peer reviewed</li>\n<li>☐ Unit tests written and passing</li>\n<li>☐ Integration tests passing</li>\n<li>☐ Documentation updated</li>\n<li>☐ Deployed to test environment</li>\n<li>☐ Acceptance criteria verified</li>\n<li>☐ Product Owner acceptance</li>\n</ul>",
+      "Microsoft.VSTS.Common.AcceptanceCriteria": "<p><strong>Scenario 1:</strong> Happy path</p>\n<ul>\n<li><strong>Given</strong> I am a &lt;user type&gt;</li>\n<li><strong>When</strong> I &lt;action&gt;</li>\n<li><strong>Then</strong> I should &lt;expected result&gt;</li>\n</ul>\n\n<p><strong>Scenario 2:</strong> Edge case</p>\n<ul>\n<li><strong>Given</strong> &lt;precondition&gt;</li>\n<li><strong>When</strong> &lt;action&gt;</li>\n<li><strong>Then</strong> &lt;expected result&gt;</li>\n</ul>",
+      "Microsoft.VSTS.Common.Priority": 2,
+      "Microsoft.VSTS.Scheduling.StoryPoints": 3,
+      "System.Tags": "template;user-story;team-standard"
+    }
+  },
+  "Task": {
+    "name": "Task – Implementation",
+    "description": "Development task template with implementation checklist",
+    "fields": {
+      "System.Title": "[TASK] <brief description of work>",
+      "System.Description": "<h2>Task Description</h2>\n<p><strong>Objective:</strong> What needs to be accomplished?</p>\n<p><strong>Technical Approach:</strong> Brief overview of implementation approach</p>\n\n<h2>Implementation Checklist</h2>\n<ul>\n<li>☐ Design approach reviewed</li>\n<li>☐ Implementation completed</li>\n<li>☐ Code follows team standards</li>\n<li>☐ Unit tests written and passing</li>\n<li>☐ Code reviewed and approved</li>\n<li>☐ Documentation updated</li>\n<li>☐ Integration testing completed</li>\n</ul>\n\n<h2>Dependencies</h2>\n<ul>\n<li><strong>Depends on:</strong> &lt;list any blocking work items&gt;</li>\n<li><strong>Blocks:</strong> &lt;list any work items waiting on this&gt;</li>\n</ul>\n\n<h2>Acceptance Criteria</h2>\n<ul>\n<li>☐ &lt;specific deliverable 1&gt;</li>\n<li>☐ &lt;specific deliverable 2&gt;</li>\n<li>☐ &lt;specific deliverable 3&gt;</li>\n</ul>",
+      "Microsoft.VSTS.Common.Priority": 2,
+      "Microsoft.VSTS.Scheduling.RemainingWork": 8,
+      "System.Tags": "template;task;implementation"
+    }
+  },
+  "Bug": {
+    "name": "Bug – Triaging & Resolution",
+    "description": "Bug template with structured reproduction steps and triage information",
+    "fields": {
+      "System.Title": "[BUG] <brief description of the issue>",
+      "Microsoft.VSTS.TCM.ReproSteps": "<h2>Environment</h2>\n<ul>\n<li><strong>Browser/OS:</strong> </li>\n<li><strong>Application Version:</strong> </li>\n<li><strong>User Role:</strong> </li>\n</ul>\n\n<h2>Steps to Reproduce</h2>\n<ol>\n<li>Navigate to &lt;URL or screen&gt;</li>\n<li>Click on &lt;element&gt;</li>\n<li>Enter &lt;data&gt;</li>\n<li>Observe the result</li>\n</ol>\n\n<h2>Expected Behavior</h2>\n<p>Describe what should happen</p>\n\n<h2>Actual Behavior</h2>\n<p>Describe what actually happens</p>\n\n<h2>Additional Information</h2>\n<ul>\n<li><strong>Frequency:</strong> Always / Sometimes / Rarely</li>\n<li><strong>Impact:</strong> &lt;business impact description&gt;</li>\n<li><strong>Workaround:</strong> &lt;any known workarounds&gt;</li>\n</ul>",
+      "Microsoft.VSTS.Common.Severity": "3 - Medium",
+      "Microsoft.VSTS.Common.Priority": 2,
+      "System.Tags": "template;bug;triage-needed"
+    }
+  },
+  "Epic": {
+    "name": "Epic – Strategic Initiative",
+    "description": "Epic template for large strategic initiatives with success metrics",
+    "fields": {
+      "System.Title": "[EPIC] <strategic initiative name>",
+      "System.Description": "<h2>Epic Overview</h2>\n<p><strong>Business Objective:</strong> High-level business goal this epic addresses</p>\n\n<p><strong>Success Metrics:</strong> How will we measure success?</p>\n<ul>\n<li>Metric 1: &lt;measurable outcome&gt;</li>\n<li>Metric 2: &lt;measurable outcome&gt;</li>\n</ul>\n\n<h2>Scope &amp; Features</h2>\n<h3>In Scope</h3>\n<ul>\n<li>Feature 1: &lt;description&gt;</li>\n<li>Feature 2: &lt;description&gt;</li>\n</ul>\n\n<h3>Out of Scope</h3>\n<ul>\n<li>&lt;what's explicitly not included&gt;</li>\n</ul>\n\n<h2>Dependencies &amp; Risks</h2>\n<h3>Dependencies</h3>\n<ul>\n<li>External dependency 1</li>\n<li>Internal dependency 2</li>\n</ul>\n\n<h3>Risks</h3>\n<ul>\n<li>Risk 1: &lt;description and mitigation&gt;</li>\n<li>Risk 2: &lt;description and mitigation&gt;</li>\n</ul>\n\n<h2>Timeline &amp; Milestones</h2>\n<ul>\n<li><strong>Phase 1:</strong> &lt;milestone&gt; - &lt;target date&gt;</li>\n<li><strong>Phase 2:</strong> &lt;milestone&gt; - &lt;target date&gt;</li>\n<li><strong>Go Live:</strong> &lt;target date&gt;</li>\n</ul>",
+      "Microsoft.VSTS.Common.Priority": 1,
+      "Microsoft.VSTS.Scheduling.Effort": 20,
+      "System.Tags": "template;epic;strategic;roadmap"
+    }
+  },
+  "Feature": {
+    "name": "Feature – Product Capability",
+    "description": "Feature template for product capabilities with user value",
+    "fields": {
+      "System.Title": "[FEATURE] <feature name>",
+      "System.Description": "<h2>Feature Summary</h2>\n<p><strong>User Value:</strong> What value does this feature provide to users?</p>\n<p><strong>Target Users:</strong> Who will use this feature?</p>\n\n<h2>Functional Requirements</h2>\n<h3>Core Capabilities</h3>\n<ul>\n<li>Capability 1: &lt;description&gt;</li>\n<li>Capability 2: &lt;description&gt;</li>\n</ul>\n\n<h3>User Experience</h3>\n<ul>\n<li>&lt;key UX considerations&gt;</li>\n</ul>\n\n<h2>Technical Requirements</h2>\n<h3>Performance</h3>\n<ul>\n<li>Response time: &lt;requirement&gt;</li>\n<li>Capacity: &lt;requirement&gt;</li>\n</ul>\n\n<h3>Security</h3>\n<ul>\n<li>Authentication: &lt;requirements&gt;</li>\n<li>Authorization: &lt;requirements&gt;</li>\n</ul>\n\n<h2>Success Criteria</h2>\n<ul>\n<li>☐ Feature delivers intended user value</li>\n<li>☐ Performance requirements met</li>\n<li>☐ Security requirements satisfied</li>\n<li>☐ User acceptance testing passed</li>\n</ul>\n\n<h2>Child Stories</h2>\n<p>Link related User Stories here</p>",
+      "Microsoft.VSTS.Common.Priority": 2,
+      "Microsoft.VSTS.Scheduling.Effort": 13,
+      "System.Tags": "template;feature;product;capability"
+    }
+  },
+  "Test Case": {
+    "name": "Test Case – Quality Validation",
+    "description": "Test case template with structured test steps and validation criteria",
+    "fields": {
+      "System.Title": "[TEST] <test scenario name>",
+      "System.Description": "<h2>Test Objective</h2>\n<p><strong>Purpose:</strong> What are we validating with this test?</p>\n<p><strong>Test Type:</strong> Unit / Integration / System / User Acceptance</p>\n\n<h2>Prerequisites</h2>\n<ul>\n<li>Precondition 1</li>\n<li>Precondition 2</li>\n</ul>\n\n<h2>Test Data Requirements</h2>\n<ul>\n<li>Data set 1: &lt;description&gt;</li>\n<li>Data set 2: &lt;description&gt;</li>\n</ul>\n\n<h2>Expected Results</h2>\n<p><strong>Success Criteria:</strong></p>\n<ul>\n<li>Result 1: &lt;expected outcome&gt;</li>\n<li>Result 2: &lt;expected outcome&gt;</li>\n</ul>\n\n<h2>Test Environment</h2>\n<ul>\n<li>Environment: &lt;Dev/Test/Staging&gt;</li>\n<li>Configuration: &lt;any special setup&gt;</li>\n</ul>",
+      "Microsoft.VSTS.TCM.Steps": "<steps id=\"0\" last=\"2\">\n  <step id=\"2\" type=\"ValidateStep\">\n    <parameterizedString isformatted=\"true\">\n      <DIV><P>1. &lt;action description&gt;</P></DIV>\n    </parameterizedString>\n    <parameterizedString isformatted=\"true\">\n      <DIV><P>&lt;expected result&gt;</P></DIV>\n    </parameterizedString>\n    <description/>\n  </step>\n</steps>",
+      "Microsoft.VSTS.Common.Priority": 2,
+      "System.Tags": "template;test-case;quality"
+    }
+  }
+}

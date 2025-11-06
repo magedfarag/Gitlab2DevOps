@@ -93,8 +93,14 @@ function Ensure-AdoTeamTemplates {
         $byName = @{}
     }
     
-    # Define comprehensive work item templates for all Agile types
-    $templateDefinitions = @{
+    # Define comprehensive work item templates for all Agile types - load from JSON
+    $templateJsonPath = Join-Path $PSScriptRoot "..\templates\WorkItemTemplates.json"
+    if (-not (Test-Path $templateJsonPath)) {
+        Write-Error "[Ensure-AdoTeamTemplates] Template JSON file not found: $templateJsonPath"
+        return
+    }
+    $templateDefinitions = Get-Content -Path $templateJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable
+    <#OLD_TEMPLATES $templateDefinitions = @{
         'User Story' = @{
             name = 'User Story – DoR/DoD'
             description = 'User Story template with acceptance criteria and DoR/DoD checklists'
@@ -384,6 +390,7 @@ function Ensure-AdoTeamTemplates {
             }
         }
     }
+    OLD_TEMPLATES#>
     
     # Create templates for all available work item types
     $createdCount = 0
@@ -1086,7 +1093,15 @@ function Ensure-AdoCommonTags {
     
     Write-Host "[INFO] Creating tag guidelines wiki page..." -ForegroundColor Cyan
     
-    $tagGuidelinesContent = @"
+    # Load tag guidelines template
+    $templatePath = Join-Path $PSScriptRoot "..\templates\TagGuidelines.md"
+    if (-not (Test-Path $templatePath)) {
+        Write-Error "[Ensure-AdoCommonTags] Template file not found: $templatePath"
+        return $null
+    }
+    $tagGuidelinesTemplate = Get-Content -Path $templatePath -Raw -Encoding UTF8
+    $tagGuidelinesContent = $tagGuidelinesTemplate -replace '{{CURRENT_DATE}}', (Get-Date -Format 'yyyy-MM-dd')
+    <#OLD_TAG_GUIDELINES $tagGuidelinesContent = @"
 # Work Item Tag Guidelines
 
 This page documents the standard tags used across the project for consistent work item organization.
@@ -1181,7 +1196,7 @@ Use these queries to find tagged work items:
 ---
 
 *Last Updated: $(Get-Date -Format 'yyyy-MM-dd')*
-"@
+OLD_TAG_GUIDELINES#>
 
     try {
         # Check if page exists
