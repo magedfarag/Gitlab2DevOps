@@ -367,93 +367,24 @@ function Write-MigrationPreviewHtml {
         ""
     }
     
-    $html = @"
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Migration Preview - $($Preview.DestinationProject)</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; padding: 20px; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        h1 { color: #0078d4; border-bottom: 3px solid #0078d4; padding-bottom: 10px; margin-bottom: 20px; }
-        h2 { color: #323130; margin-top: 30px; margin-bottom: 15px; }
-        h3 { color: #605e5c; margin-bottom: 10px; }
-        .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .summary-card { background: #f3f2f1; padding: 20px; border-radius: 4px; border-left: 4px solid #0078d4; }
-        .summary-card h3 { color: #0078d4; font-size: 14px; margin-bottom: 5px; }
-        .summary-card p { font-size: 24px; font-weight: bold; color: #323130; }
-        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-        th { background: #0078d4; color: white; padding: 12px; text-align: left; }
-        td { padding: 12px; border-bottom: 1px solid #e1dfdd; }
-        tr:hover { background: #f3f2f1; }
-        tr.warning { background: #fff4ce; }
-        tr.success { background: #dff6dd; }
-        .warnings { background: #fff4ce; border-left: 4px solid #ffaa44; padding: 15px; margin: 20px 0; border-radius: 4px; }
-        .prerequisites { background: #e1f5fe; border-left: 4px solid #039be5; padding: 15px; margin: 20px 0; border-radius: 4px; }
-        .success { color: #107c10; }
-        .warning { color: #d83b01; }
-        ul { margin-left: 20px; }
-        li { margin: 5px 0; }
-        .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #e1dfdd; color: #605e5c; font-size: 14px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🚀 Migration Preview Report</h1>
-        <p><strong>Generated:</strong> $timestamp</p>
-        <p><strong>Destination Project:</strong> $($Preview.DestinationProject)</p>
-        
-        <h2>Summary</h2>
-        <div class="summary">
-            <div class="summary-card">
-                <h3>Projects</h3>
-                <p>$($Preview.SourceProjects.Count)</p>
-            </div>
-            <div class="summary-card">
-                <h3>Total Size</h3>
-                <p>$($Preview.TotalSize) MB</p>
-            </div>
-            <div class="summary-card">
-                <h3>LFS Data</h3>
-                <p>$($Preview.TotalLfsSize) MB</p>
-            </div>
-            <div class="summary-card">
-                <h3>Estimated Duration</h3>
-                <p>$($Preview.EstimatedDuration) min</p>
-            </div>
-        </div>
-        
-        $prereqHtml
-        $warningsHtml
-        
-        <h2>Projects to Migrate</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>GitLab Path</th>
-                    <th>Repository Name</th>
-                    <th>Size</th>
-                    <th>LFS</th>
-                    <th>Default Branch</th>
-                    <th>Est. Duration</th>
-                </tr>
-            </thead>
-            <tbody>
-                $projectRows
-            </tbody>
-        </table>
-        
-        <div class="footer">
-            <p><strong>GitLab to Azure DevOps Migration Tool</strong> v2.0.0</p>
-            <p>This is a preview report. Actual migration times may vary based on network conditions and repository complexity.</p>
-        </div>
-    </div>
-</body>
-</html>
-"@
+    # Load HTML template from external file
+    $templatePath = Join-Path $PSScriptRoot "templates\migration-preview.html"
+    if (-not (Test-Path $templatePath)) {
+        Write-Error "[DryRunPreview] HTML template not found: $templatePath"
+        return
+    }
+    $html = Get-Content -Path $templatePath -Raw -Encoding UTF8
+    
+    # Replace placeholders with actual values
+    $html = $html -replace '{{TIMESTAMP}}', $timestamp
+    $html = $html -replace '{{DESTINATION_PROJECT}}', $Preview.DestinationProject
+    $html = $html -replace '{{PROJECT_COUNT}}', $Preview.SourceProjects.Count
+    $html = $html -replace '{{TOTAL_SIZE}}', $Preview.TotalSize
+    $html = $html -replace '{{TOTAL_LFS_SIZE}}', $Preview.TotalLfsSize
+    $html = $html -replace '{{ESTIMATED_DURATION}}', $Preview.EstimatedDuration
+    $html = $html -replace '{{PREREQUISITES_HTML}}', $prereqHtml
+    $html = $html -replace '{{WARNINGS_HTML}}', $warningsHtml
+    $html = $html -replace '{{PROJECT_ROWS}}', $projectRows
     
     $html | Out-File -FilePath $OutputPath -Encoding UTF8
 }

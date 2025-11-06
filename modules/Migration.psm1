@@ -583,24 +583,10 @@ function Initialize-AdoProject {
     
     # Set up project wiki
     $wiki = Ensure-AdoProjectWiki $projId $DestProject
-    Upsert-AdoWikiPage $DestProject $wiki.id "/Home" @"
-# Welcome to $DestProject
-
-This project was migrated from GitLab using automated tooling.
-
-## Project Structure
-
-- **Frontend**: Web UI components
-- **Backend**: API and services
-- **Infrastructure**: DevOps and deployment
-- **Documentation**: Technical docs and guides
-
-## Getting Started
-
-1. Clone the repository
-2. Review branch policies
-3. Check work item templates
-"@
+    # Load welcome wiki template
+    $welcomeTemplate = Get-Content -Path (Join-Path $PSScriptRoot "templates\welcome-wiki.md") -Raw -Encoding UTF8
+    $welcomeContent = $welcomeTemplate -replace '{{PROJECT_NAME}}', $DestProject
+    Upsert-AdoWikiPage $DestProject $wiki.id "/Home" $welcomeContent
     
     # Create work item templates
     Ensure-AdoTeamTemplates $DestProject "$DestProject Team"
