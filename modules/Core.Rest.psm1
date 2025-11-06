@@ -466,12 +466,14 @@ function Invoke-RestWithRetry {
             Write-Host "($durationMs ms)" -ForegroundColor $durationColor
             
             if ($script:LogRestCalls) {
-                # Log response highlights
+                # Log response highlights - use .Length instead of .Count for safety
                 $responseType = $response.GetType().Name
                 if ($response.PSObject.Properties['value'] -and $response.value -is [array]) {
-                    Write-Verbose "[REST] Response: $($response.value.Count) items in array"
+                    $itemCount = if ($response.value) { $response.value.Length } else { 0 }
+                    Write-Verbose "[REST] Response: $itemCount items in array"
                 } elseif ($response -is [array]) {
-                    Write-Verbose "[REST] Response: $($response.Count) items"
+                    $itemCount = if ($response) { $response.Length } else { 0 }
+                    Write-Verbose "[REST] Response: $itemCount items"
                 } elseif ($response.PSObject.Properties['count']) {
                     Write-Verbose "[REST] Response: count=$($response.count)"
                 } else {
@@ -572,45 +574,142 @@ function Invoke-RestWithRetry {
                     $curlOutput = & curl @curlArgs 2>&1
                     $curlStopwatch.Stop()
                     
-                    # Safely handle output (may be single object or array)
-                    $outputArray = @($curlOutput)
-                    $outputCount = if ($curlOutput) { $outputArray.Count } else { 0 }
-                    Write-Verbose "[Core.Rest] curl raw output lines: $outputCount"
+                    # Debug: Check if curl is available
+                    if ($LASTEXITCODE -eq 127 -or $LASTEXITCODE -eq 9009) {
+                        throw "curl command not found. Please install curl and ensure it's in PATH."
+                    }
                     
-                    # Convert to string array
-                    $outputLines = $outputArray | Where-Object { $_ -is [string] } | ForEach-Object { $_.ToString() }
+                    # Safely handle output (may be single object or array)
+                    # CRITICAL: Avoid .Count property access - it can fail on non-array objects
+                    try {
+                        $outputArray = @($curlOutput)
+                        # Use type checking instead of .Count property which can fail
+                        $isValidArray = ($null -ne $outputArray) -and (($outputArray -is [array] -and $outputArray.Length -gt 0) -or ($outputArray -isnot [array] -and $outputArray))
+                        $outputCount = if ($isValidArray) { 
+                            if ($outputArray -is [array]) { $outputArray.Length } else { 1 } 
+                        } else { 0 }
+                        Write-Verbose "[Core.Rest] curl raw output: $outputCount lines (type: $($outputArray.GetType().Name))"
+                        Write-Verbose "[Core.Rest] curl exit code: $LASTEXITCODE"
+                    }
+                    catch {
+                        Write-Verbose "[Core.Rest] Error processing curl output: $_"
+                        $outputArray = @()
+                        $outputCount = 0
+                        $isValidArray = $false
+                    }
+                    
+                    # Convert to string array - ENSURE it's always an array
+                    # CRITICAL: Use if/else to handle null/empty cases properly
+                    if ($isValidArray) {
+                        $tempLines = $outputArray | Where-Object { $_ -is [string] } | ForEach-Object { $_.ToString() }
+                        $outputLines = if ($tempLines) { @($tempLines) } else { @() }
+                    } else {
+                        $outputLines = @()
+                    }
+                    
+                    # Safe line count - use .Length which works reliably on arrays
+                    $lineCount = if ($outputLines -and $outputLines -is [array]) { 
+                        $outputLines.Length 
+                    } elseif ($outputLines) { 
+                        1 
+                    } else { 
+                        0 
+                    }
+                    Write-Verbose "[Core.Rest] curl output string lines: $lineCount"
                     
                     # Extract HTTP status code from the write-out line
                     # HTTP code marker might be on the last line or appended to body; search anywhere
                     $httpCode = 0
-                    foreach ($line in $outputLines) {
-                        if ($line -match 'HTTP_CODE:(\d{3})') { $httpCode = [int]$Matches[1] }
+                    if ($outputLines -and $lineCount -gt 0) {
+                        foreach ($line in $outputLines) {
+                            if ($line -match 'HTTP_CODE:(\d{3})') { $httpCode = [int]$Matches[1] }
+                        }
                     }
                     
                     Write-Verbose "[Core.Rest] curl HTTP code: $httpCode"
                     
                     # Find where the JSON body starts (after headers, after blank line)
+                    # HTTP response format: HTTP/1.1 200 OK\nHeaders...\n\nBody
                     $bodyStartIndex = -1
-                    for ($i = 0; $i -lt $outputLines.Count; $i++) {
-                        if ([string]::IsNullOrWhiteSpace($outputLines[$i]) -and $i -gt 0) {
-                            # Found blank line after headers, body starts next
-                            $bodyStartIndex = $i + 1
-                            break
+                    $foundBlankLine = $false
+                    
+                    if ($lineCount -gt 0) {
+                        for ($i = 0; $i -lt $lineCount; $i++) {
+                            $currentLine = $outputLines[$i]
+                            
+                            # Skip HTTP status line (e.g., "HTTP/1.1 404 Not Found")
+                            if ($currentLine -match '^HTTP/\d\.\d \d{3}') {
+                                Write-Verbose "[Core.Rest] Found HTTP status line at index $i"
+                                continue
+                            }
+                            
+                            # Blank line marks end of headers
+                            if ([string]::IsNullOrWhiteSpace($currentLine)) {
+                                if ($i -gt 0) {
+                                    $foundBlankLine = $true
+                                    $bodyStartIndex = $i + 1
+                                    Write-Verbose "[Core.Rest] Found blank line (end of headers) at index $i, body starts at $bodyStartIndex"
+                                    break
+                                }
+                            }
                         }
                     }
                     
-                    # Extract JSON body
-                    $jsonLines = if ($bodyStartIndex -ge 0) {
-                        $outputLines[$bodyStartIndex..($outputLines.Count - 1)] | Where-Object { 
-                            $_ -notmatch '^HTTP_CODE:' -and -not [string]::IsNullOrWhiteSpace($_)
+                    # Extract JSON body - skip HTTP_CODE marker, HTTP headers, and empty lines
+                    # CRITICAL: Must filter aggressively to avoid "Additional text" JSON parse errors
+                    Write-Verbose "[Core.Rest] Extracting JSON from curl output (bodyStart: $bodyStartIndex, lineCount: $lineCount)"
+                    
+                    # Strategy: Find first line starting with { or [ regardless of blank line detection
+                    # This handles cases where blank line detection fails or headers slip through
+                    $jsonStarted = $false
+                    $jsonLines = @($outputLines | Where-Object { 
+                        $currentLine = $_
+                        
+                        # Skip HTTP_CODE marker always
+                        if ($currentLine -match '^HTTP_CODE:') {
+                            return $false
                         }
-                    } else {
-                        @()
-                    }
+                        
+                        # Skip HTTP status lines
+                        if ($currentLine -match '^HTTP/\d\.\d') {
+                            return $false
+                        }
+                        
+                        # Skip typical HTTP headers (Header-Name: value)
+                        if ($currentLine -match '^[A-Za-z][A-Za-z0-9-]+\s*:') {
+                            return $false
+                        }
+                        
+                        # Once JSON starts, include everything
+                        if ($jsonStarted) {
+                            return $true
+                        }
+                        
+                        # Look for JSON start (opening brace or bracket)
+                        if ($currentLine -match '^\s*[{\[]') {
+                            $jsonStarted = $true
+                            Write-Verbose "[Core.Rest] JSON body starts at line: $currentLine"
+                            return $true
+                        }
+                        
+                        # Skip empty lines before JSON starts
+                        return $false
+                    })
+                    
+                    # Safe count for verbose logging
+                    $filteredCount = if ($jsonLines -and $jsonLines -is [array]) { $jsonLines.Length } elseif ($jsonLines) { 1 } else { 0 }
+                    Write-Verbose "[Core.Rest] Filtered JSON lines: $filteredCount"
                     
                     $jsonString = $jsonLines -join "`n"
                     
                     Write-Verbose "[Core.Rest] Extracted JSON length: $($jsonString.Length) chars"
+                    # Safe count - use .Length instead of .Count
+                    $jsonLineCount = if ($jsonLines -and $jsonLines -is [array]) { $jsonLines.Length } elseif ($jsonLines) { 1 } else { 0 }
+                    Write-Verbose "[Core.Rest] JSON lines extracted: $jsonLineCount"
+                    
+                    if ($script:LogRestCalls -and $jsonString.Length -gt 0) {
+                        Write-Verbose "[Core.Rest] First 200 chars of JSON: $($jsonString.Substring(0, [Math]::Min(200, $jsonString.Length)))"
+                    }
                     
                     # Log curl response
                     $curlDurationMs = [int]$curlStopwatch.ElapsedMilliseconds
@@ -625,18 +724,28 @@ function Invoke-RestWithRetry {
                     if ([string]::IsNullOrWhiteSpace($jsonString)) {
                         Write-Warning "[$Side] curl HTTP $httpCode with empty body"
                         
+                        # Log raw output for debugging
+                        if ($script:LogRestCalls) {
+                            Write-Verbose "[Core.Rest] Raw curl output (first 500 chars):"
+                            $rawOutput = ($outputArray | ForEach-Object { $_.ToString() }) -join "`n"
+                            Write-Verbose $rawOutput.Substring(0, [Math]::Min(500, $rawOutput.Length))
+                        }
+                        
                         # Check if this is a network error (connection reset, timeout, etc.)
                         $isNetworkError = $outputArray | Where-Object { 
                             $_ -match 'Connection was reset' -or 
                             $_ -match 'Recv failure' -or
                             $_ -match 'Connection timed out' -or
-                            $_ -match 'Failed to connect'
+                            $_ -match 'Failed to connect' -or
+                            $_ -match 'SSL' -or
+                            $_ -match 'certificate'
                         }
                         
                         if ($isNetworkError -or $httpCode -eq 0) {
                             # Treat as 503 Service Unavailable for retry logic
                             $status = 503
-                            throw "Network error - Connection reset or timeout"
+                            $errorDetail = if ($isNetworkError) { $isNetworkError[0] } else { "Connection reset (HTTP $httpCode)" }
+                            throw "Network error - $errorDetail"
                         }
                         elseif ($httpCode -ge 400) {
                             $status = $httpCode
@@ -647,20 +756,33 @@ function Invoke-RestWithRetry {
                         }
                     }
                     
-                    $response = $jsonString | ConvertFrom-Json
-                    
-                    if ($script:LogRestCalls) {
-                        # Log response highlights for curl
-                        if ($response.PSObject.Properties['value'] -and $response.value -is [array]) {
-                            Write-Verbose "[REST] Response: $($response.value.Count) items in array"
-                        } elseif ($response -is [array]) {
-                            Write-Verbose "[REST] Response: $($response.Count) items"
-                        } else {
-                            Write-Verbose "[REST] Response: $($response.GetType().Name)"
+                    try {
+                        $response = $jsonString | ConvertFrom-Json -ErrorAction Stop
+                        
+                        if ($script:LogRestCalls) {
+                            # Log response highlights for curl - use .Length instead of .Count
+                            if ($response.PSObject.Properties['value'] -and $response.value -is [array]) {
+                                $itemCount = if ($response.value) { $response.value.Length } else { 0 }
+                                Write-Verbose "[REST] Response: $itemCount items in array"
+                            } elseif ($response -is [array]) {
+                                $itemCount = if ($response) { $response.Length } else { 0 }
+                                Write-Verbose "[REST] Response: $itemCount items"
+                            } else {
+                                Write-Verbose "[REST] Response: $($response.GetType().Name)"
+                            }
                         }
+                        
+                        return $response
                     }
-                    
-                    return $response
+                    catch {
+                        Write-Warning "[$Side] Failed to parse JSON response: $_"
+                        if ($script:LogRestCalls) {
+                            Write-Verbose "[Core.Rest] JSON string (first 500 chars): $($jsonString.Substring(0, [Math]::Min(500, $jsonString.Length)))"
+                        }
+                        # Treat as 503 for retry
+                        $status = 503
+                        throw "Invalid JSON response from server"
+                    }
                 }
                 catch {
                     Write-Warning "[$Side] curl fallback also failed: $_"

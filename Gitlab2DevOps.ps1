@@ -178,7 +178,7 @@ param(
     
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
-    [switch]$SkipCertificateCheck,
+    [bool]$SkipCertificateCheck = $true,  # CRITICAL: Default to TRUE for on-premise servers
     
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
@@ -264,13 +264,15 @@ Write-Host "[INFO] Modules loaded successfully"
 Write-Host ""
 
 # Initialize Core.Rest module with configuration
+# CRITICAL: SkipCertificateCheck defaults to $true for on-premise servers with self-signed certs
+$skipCertSwitch = if ($SkipCertificateCheck) { @{SkipCertificateCheck = $true} } else { @{} }
 Initialize-CoreRest `
     -CollectionUrl $CollectionUrl `
     -AdoPat $AdoPat `
     -GitLabBaseUrl $GitLabBaseUrl `
     -GitLabToken $GitLabToken `
     -AdoApiVersion $AdoApiVersion `
-    -SkipCertificateCheck:$SkipCertificateCheck
+    @skipCertSwitch
 
 # Display configuration
 Write-Host "[INFO] Configuration loaded successfully"

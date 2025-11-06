@@ -259,10 +259,10 @@ function Show-MigrationMenu {
     Write-Host "Select action:"
     Write-Host "  1) Download & analyze single GitLab project (prepare for migration)"
     Write-Host "  2) Create & setup Azure DevOps project with policies"
-    Write-Host "  3) Migrate single GitLab project to Azure DevOps"
+    Write-Host "  3) Migrate single GitLab project to Azure DevOps (requires Option 1 first)"
     Write-Host "  4) Download & analyze multiple GitLab projects (bulk preparation)"
     Write-Host "  5) Review & update bulk migration template"
-    Write-Host "  6) Execute bulk migration from prepared template"
+    Write-Host "  6) Execute bulk migration from prepared template (requires Option 4 first)"
     Write-Host "  7) Provision Business Initialization Pack (wiki, queries, sprints, dashboard)"
     Write-Host "  8) Provision Development Initialization Pack (dev wiki, queries, repo files)"
     Write-Host "  9) Provision Security Initialization Pack (security wiki, queries, dashboard, security files)"
@@ -318,6 +318,23 @@ function Show-MigrationMenu {
             
             $config | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 $paths.configFile
             Write-Host "[INFO] Migration config created: $($paths.configFile)" -ForegroundColor Green
+            
+            # Generate HTML report after preparation
+            try {
+                $htmlReport = New-MigrationHtmlReport -ProjectPath (Split-Path $paths.configFile -Parent)
+                if ($htmlReport) {
+                    Write-Host "[INFO] HTML report generated: $htmlReport" -ForegroundColor Cyan
+                }
+                
+                # Update overview dashboard
+                $overviewReport = New-MigrationsOverviewReport
+                if ($overviewReport) {
+                    Write-Host "[INFO] Overview dashboard updated: $overviewReport" -ForegroundColor Cyan
+                }
+            }
+            catch {
+                Write-Warning "Failed to generate HTML reports: $_"
+            }
         }
         '2' {
             # Show prepared projects
@@ -891,6 +908,27 @@ function Initialize-AdoProject {
     Write-Host " 10. Review tag guidelines in Wiki → Tag-Guidelines" -ForegroundColor Gray
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
+    
+    # Generate HTML report if migration config was created
+    try {
+        $paths = Get-ProjectPaths -AdoProject $DestProject -GitLabProject $RepoName -ErrorAction SilentlyContinue
+        if ($paths -and (Test-Path $paths.configFile)) {
+            $htmlReport = New-MigrationHtmlReport -ProjectPath (Split-Path $paths.configFile -Parent)
+            if ($htmlReport) {
+                Write-Host "[INFO] HTML report generated: $htmlReport" -ForegroundColor Cyan
+            }
+            
+            # Update overview dashboard
+            $overviewReport = New-MigrationsOverviewReport
+            if ($overviewReport) {
+                Write-Host "[INFO] Overview dashboard updated: $overviewReport" -ForegroundColor Cyan
+            }
+        }
+    }
+    catch {
+        Write-Verbose "Could not generate HTML reports: $_"
+        # Non-critical, continue
+    }
 }
 
 <#
@@ -1345,34 +1383,11 @@ function Invoke-SingleMigration {
     }
     
     Write-Host "[INFO] Starting migration: $SrcPath → $DestProject" -ForegroundColor Cyan
+    Write-Host "[INFO] IMPORTANT: Migration requires preparation (Option 1) to be completed first" -ForegroundColor Yellow
+    Write-Host "          All GitLab connections must happen during preparation." -ForegroundColor Gray
     
-    # ENFORCE PRE-MIGRATION REPORT REQUIREMENT (unless -Force)
+    # Extract repository name from path
     $repoName = ($SrcPath -split '/')[-1]
-    try {
-        $preReport = New-MigrationPreReport -GitLabPath $SrcPath -AdoProject $DestProject -AdoRepoName $repoName -AllowSync:$AllowSync
-        
-        # Check for blocking issues
-        if ($preReport.blocking_issues -gt 0 -and -not $Force) {
-            $msg = "Pre-migration validation found $($preReport.blocking_issues) blocking issue(s). "
-            $msg += "Review the preflight report or use -Force to proceed anyway."
-            throw $msg
-        }
-        
-        Write-Host "[OK] Pre-migration validation passed" -ForegroundColor Green
-        if ($AllowSync -and $preReport.ado_repo_exists) {
-            Write-Host "[INFO] SYNC MODE: Will update existing repository with latest changes" -ForegroundColor Yellow
-        }
-    }
-    catch {
-        if ($Force) {
-            Write-Warning "Pre-migration validation failed, but -Force specified. Proceeding anyway..."
-            Write-Warning "Error was: $_"
-        }
-        else {
-            Write-Host "[ERROR] Pre-migration validation failed: $_" -ForegroundColor Red
-            throw "Migration cannot proceed without successful pre-migration validation. Use -Force to override."
-        }
-    }
     
     # Detect project structure (new v2.1.0+ vs legacy)
     $migrationsDir = Get-MigrationsDirectory
@@ -1442,16 +1457,17 @@ function Invoke-SingleMigration {
         }
     }
     else {
-        if ($Force) {
-            Write-Warning "No preflight report found, but -Force specified. Proceeding without validation..."
-            # Fetch minimal GitLab info on the fly
-            $gl = Get-GitLabProject -Path $SrcPath
-        }
-        else {
-            Write-Host "[ERROR] No preflight report found" -ForegroundColor Red
-            Write-Host "        Run preparation first (Option 1) or use -Force to bypass" -ForegroundColor Red
-            throw "Pre-migration validation required. Run preflight check first or use -Force."
-        }
+        # CRITICAL: Never connect to GitLab during migration execution
+        # All GitLab data must be gathered during preparation (Option 1 or 4)
+        Write-Host "[ERROR] No preflight report found" -ForegroundColor Red
+        Write-Host "        Run preparation first:" -ForegroundColor Red
+        Write-Host "          - Option 1 (Single Project Preparation)" -ForegroundColor Yellow
+        Write-Host "          - Option 4 (Bulk Preparation)" -ForegroundColor Yellow
+        Write-Host "" -ForegroundColor Red
+        Write-Host "        Migration cannot proceed without preparation data." -ForegroundColor Red
+        Write-Host "        This ensures all GitLab connections happen during preparation," -ForegroundColor Gray
+        Write-Host "        allowing execution to work in air-gapped environments." -ForegroundColor Gray
+        throw "Pre-migration validation required. Run preparation first (Option 1 or 4)."
     }
     
     # Ensure Azure DevOps project exists
@@ -1579,6 +1595,28 @@ function Invoke-SingleMigration {
         $summaryFile = Join-Path $reportsDir "migration-summary.json"
         Write-MigrationReport $summaryFile $summary
         
+        # Generate HTML report
+        try {
+            $htmlReport = New-MigrationHtmlReport -ProjectPath (Split-Path $reportsDir -Parent)
+            if ($htmlReport) {
+                Write-Host "[INFO] HTML report generated: $htmlReport" -ForegroundColor Cyan
+            }
+        }
+        catch {
+            Write-Warning "Failed to generate HTML report: $_"
+        }
+        
+        # Regenerate overview dashboard
+        try {
+            $overviewReport = New-MigrationsOverviewReport
+            if ($overviewReport) {
+                Write-Host "[INFO] Overview dashboard updated: $overviewReport" -ForegroundColor Cyan
+            }
+        }
+        catch {
+            Write-Warning "Failed to update overview dashboard: $_"
+        }
+        
         Write-MigrationLog $logFile @(
             "=== Migration Completed Successfully ==="
             "End time: $endTime"
@@ -1607,6 +1645,28 @@ function Invoke-SingleMigration {
         
         $errorFile = Join-Path $reportsDir "migration-error.json"
         Write-MigrationReport $errorFile $errorSummary
+        
+        # Generate HTML report for failed migration
+        try {
+            $htmlReport = New-MigrationHtmlReport -ProjectPath (Split-Path $reportsDir -Parent)
+            if ($htmlReport) {
+                Write-Host "[INFO] HTML error report generated: $htmlReport" -ForegroundColor Yellow
+            }
+        }
+        catch {
+            Write-Warning "Failed to generate HTML error report: $_"
+        }
+        
+        # Regenerate overview dashboard
+        try {
+            $overviewReport = New-MigrationsOverviewReport
+            if ($overviewReport) {
+                Write-Host "[INFO] Overview dashboard updated: $overviewReport" -ForegroundColor Yellow
+            }
+        }
+        catch {
+            Write-Warning "Failed to update overview dashboard: $_"
+        }
         
         Write-MigrationLog $logFile "=== Migration Failed ===" -Level ERROR
         Write-MigrationLog $logFile $_.ToString() -Level ERROR
@@ -2077,6 +2137,39 @@ function Invoke-BulkMigrationWorkflow {
     $resultsFile = Join-Path $selectedTemplate.Directory "bulk-migration-results-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
     $migrationResults | ConvertTo-Json -Depth 5 | Out-File -FilePath $resultsFile -Encoding utf8
     Write-Host "Results saved to: $resultsFile"
+    
+    # Generate HTML reports for all migrated projects
+    Write-Host ""
+    Write-Host "[INFO] Generating HTML reports..." -ForegroundColor Cyan
+    try {
+        # Find all individual project folders
+        $projectFolders = Get-ChildItem -Path $selectedTemplate.Directory -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne "reports" -and $_.Name -ne "logs" }
+        
+        foreach ($folder in $projectFolders) {
+            $configFile = Join-Path $folder.FullName "reports\migration-config.json"
+            if (Test-Path $configFile) {
+                try {
+                    $htmlReport = New-MigrationHtmlReport -ProjectPath $folder.FullName
+                    if ($htmlReport) {
+                        Write-Verbose "[INFO] Generated report: $htmlReport"
+                    }
+                }
+                catch {
+                    Write-Verbose "Could not generate report for $($folder.Name): $_"
+                }
+            }
+        }
+        
+        # Update overview dashboard
+        $overviewReport = New-MigrationsOverviewReport
+        if ($overviewReport) {
+            Write-Host "[INFO] Overview dashboard updated: $overviewReport" -ForegroundColor Cyan
+        }
+    }
+    catch {
+        Write-Warning "Failed to generate HTML reports: $_"
+    }
 }
 
 # Export public functions

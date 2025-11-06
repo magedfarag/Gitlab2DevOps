@@ -15,6 +15,9 @@
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
 
+# Load System.Web for HTML encoding
+Add-Type -AssemblyName System.Web
+
 <#
 .SYNOPSIS
     Gets the base migrations directory path.
@@ -859,8 +862,162 @@ function New-MigrationHtmlReport {
             $OutputPath = Join-Path $reportsDir "migration-status.html"
         }
         
-        # Build project card HTML
+        # Try to load additional data
+        $preflightData = $null
+        $migrationSummary = $null
+        $errorData = $null
+        
+        # Check for preflight report in GitLab subfolder
+        $gitlabSubfolder = Get-ChildItem -Path $ProjectPath -Directory -ErrorAction SilentlyContinue | 
+            Where-Object { $_.Name -ne "reports" -and $_.Name -ne "logs" } | Select-Object -First 1
+        
+        if ($gitlabSubfolder) {
+            $preflightFile = Join-Path $gitlabSubfolder.FullName "reports\preflight-report.json"
+            if (Test-Path $preflightFile) {
+                $preflightData = Get-Content -Path $preflightFile -Raw | ConvertFrom-Json
+            }
+        }
+        
+        # Check for migration summary
+        $summaryFile = Join-Path $ProjectPath "reports\migration-summary.json"
+        if (Test-Path $summaryFile) {
+            $migrationSummary = Get-Content -Path $summaryFile -Raw | ConvertFrom-Json
+        }
+        
+        # Check for error report
+        $errorFile = Join-Path $ProjectPath "reports\migration-error.json"
+        if (Test-Path $errorFile) {
+            $errorData = Get-Content -Path $errorFile -Raw | ConvertFrom-Json
+        }
+        
+        # Build enhanced project card HTML
         $statusClass = $config.status.ToUpper() -replace '[^A-Z_]', '_'
+        
+        # Build details HTML
+        $detailsHtml = @"
+        <div class="detail-item">
+            <span class="icon">📦</span>
+            <div class="content">
+                <div class="label">Azure DevOps Project</div>
+                <div class="value">$($config.ado_project)</div>
+            </div>
+        </div>
+"@
+        
+        # Add GitLab repository name if available (not present for bulk parent projects)
+        if ($config.PSObject.Properties['gitlab_repo_name'] -and $config.gitlab_repo_name) {
+            $detailsHtml += @"
+
+        <div class="detail-item">
+            <span class="icon">🔗</span>
+            <div class="content">
+                <div class="label">GitLab Repository</div>
+                <div class="value">$($config.gitlab_repo_name)</div>
+            </div>
+        </div>
+"@
+        }
+        
+        $detailsHtml += @"
+
+        <div class="detail-item">
+            <span class="icon">📊</span>
+            <div class="content">
+                <div class="label">Migration Type</div>
+                <div class="value">$($config.migration_type)</div>
+            </div>
+        </div>
+"@
+        
+        # Add repository size if available
+        if ($config.PSObject.Properties['repo_size_MB'] -and $config.repo_size_MB) {
+            $detailsHtml += @"
+
+        <div class="detail-item">
+            <span class="icon">�</span>
+            <div class="content">
+                <div class="label">Repository Size</div>
+                <div class="value">$($config.repo_size_MB) MB</div>
+            </div>
+        </div>
+"@
+        }
+        
+        # Add LFS info if available
+        if ($config.PSObject.Properties['lfs_enabled'] -and $config.lfs_enabled -and $preflightData) {
+            if ($preflightData.PSObject.Properties['lfs_size_MB'] -and $preflightData.lfs_size_MB -gt 0) {
+                $detailsHtml += @"
+
+        <div class="detail-item">
+            <span class="icon">�</span>
+            <div class="content">
+                <div class="label">Git LFS Size</div>
+                <div class="value">$($preflightData.lfs_size_MB) MB</div>
+            </div>
+        </div>
+"@
+            }
+        }
+        
+        # Add preflight data if available
+        if ($preflightData) {
+            if ($preflightData.PSObject.Properties['default_branch']) {
+                $detailsHtml += @"
+
+        <div class="detail-item">
+            <span class="icon">🌿</span>
+            <div class="content">
+                <div class="label">Default Branch</div>
+                <div class="value">$($preflightData.default_branch)</div>
+            </div>
+        </div>
+"@
+            }
+            
+            if ($preflightData.PSObject.Properties['visibility']) {
+                $detailsHtml += @"
+
+        <div class="detail-item">
+            <span class="icon">👁️</span>
+            <div class="content">
+                <div class="label">Visibility</div>
+                <div class="value">$($preflightData.visibility)</div>
+            </div>
+        </div>
+"@
+            }
+        }
+        
+        # Add migration duration if available
+        if ($migrationSummary) {
+            if ($migrationSummary.PSObject.Properties['duration_minutes']) {
+                $detailsHtml += @"
+
+        <div class="detail-item">
+            <span class="icon">⏱️</span>
+            <div class="content">
+                <div class="label">Migration Duration</div>
+                <div class="value">$($migrationSummary.duration_minutes) minutes</div>
+            </div>
+        </div>
+"@
+            }
+        }
+        
+        # Build error message if failed
+        $errorHtml = ""
+        if ($config.status -eq "FAILED" -and $errorData) {
+            if ($errorData.PSObject.Properties['error_message']) {
+                $errorMsg = [System.Web.HttpUtility]::HtmlEncode($errorData.error_message)
+                $errorHtml = @"
+
+    <div class="error-message">
+        <strong>❌ Error:</strong> $errorMsg
+    </div>
+"@
+            }
+        }
+        
         $projectCard = @"
 <div class="project-card">
     <div class="project-header">
@@ -869,27 +1026,7 @@ function New-MigrationHtmlReport {
     </div>
     
     <div class="project-details">
-        <div class="detail-item">
-            <span class="icon">📦</span>
-            <div class="content">
-                <div class="label">Azure DevOps Project</div>
-                <div class="value">$($config.ado_project)</div>
-            </div>
-        </div>
-        <div class="detail-item">
-            <span class="icon">🔗</span>
-            <div class="content">
-                <div class="label">GitLab Repository</div>
-                <div class="value">$($config.gitlab_repo_name)</div>
-            </div>
-        </div>
-        <div class="detail-item">
-            <span class="icon">📊</span>
-            <div class="content">
-                <div class="label">Migration Type</div>
-                <div class="value">$($config.migration_type)</div>
-            </div>
-        </div>
+$detailsHtml
     </div>
     
     <div class="timestamps">
@@ -902,6 +1039,7 @@ function New-MigrationHtmlReport {
             Updated: $($config.last_updated)
         </div>
     </div>
+$errorHtml
 </div>
 "@
         
@@ -1073,15 +1211,24 @@ function New-MigrationsOverviewReport {
             
             # Build relative path to individual project report
             $projectReportPath = ""
-            if ($project.ado_project -and $project.gitlab_repo_name) {
+            if ($project.PSObject.Properties['ado_project'] -and $project.ado_project -and 
+                $project.PSObject.Properties['gitlab_repo_name'] -and $project.gitlab_repo_name) {
                 $projectReportPath = "./$($project.ado_project)/$($project.gitlab_repo_name)/reports/migration-status.html"
             }
             
             # Add clickable link if report path exists
-            $nameHtml = if ($projectReportPath) {
-                "<a href=`"$projectReportPath`" style=`"color: inherit; text-decoration: none;`">$($project.gitlab_project) 🔗</a>"
+            $projectName = if ($project.PSObject.Properties['gitlab_project'] -and $project.gitlab_project) { 
+                $project.gitlab_project 
+            } elseif ($project.PSObject.Properties['ado_project'] -and $project.ado_project) {
+                $project.ado_project
             } else {
-                $project.gitlab_project
+                "Unknown Project"
+            }
+            
+            $nameHtml = if ($projectReportPath) {
+                "<a href=`"$projectReportPath`" style=`"color: inherit; text-decoration: none;`">$projectName 🔗</a>"
+            } else {
+                $projectName
             }
             
             $cardsHtml += @"

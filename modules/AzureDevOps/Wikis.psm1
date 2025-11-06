@@ -55,9 +55,68 @@ function Upsert-AdoWikiPage {
     )
     
     $enc = [uri]::EscapeDataString($Path)
-    Invoke-AdoRest PUT "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{
-        content = $Markdown
-    } | Out-Null
+    $projEnc = [uri]::EscapeDataString($Project)
+    
+    # Check if page exists (GET returns 404 if not found)
+    try {
+        $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc"
+        
+        # Page exists - use PATCH to update
+        # Extract eTag from response headers or gitItemPath (API uses different properties)
+        # For wiki pages, we need the version/eTag from the page object
+        $eTag = if ($existing.PSObject.Properties['eTag']) { 
+            $existing.eTag 
+        } elseif ($existing.PSObject.Properties['gitItemPath']) {
+            # Use gitItemPath as version identifier
+            $null  # PATCH without eTag for idempotent update
+        } else {
+            $null  # No version control needed
+        }
+        
+        Write-Verbose "[Wikis] Updating existing wiki page: $Path"
+        
+        $patchBody = @{ content = $Markdown }
+        if ($eTag) { $patchBody.eTag = $eTag }
+        
+        Invoke-AdoRest PATCH "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body $patchBody | Out-Null
+    }
+    catch {
+        # Check if it's a 404 (page doesn't exist) or WikiPageAlreadyExistsException
+        $errorMsg = $_.Exception.Message
+        
+        if ($errorMsg -match '404|Not Found|does not exist') {
+            # Page doesn't exist - use PUT to create
+            Write-Verbose "[Wikis] Creating new wiki page: $Path"
+            Invoke-AdoRest PUT "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{
+                content = $Markdown
+            } | Out-Null
+        }
+        elseif ($errorMsg -match 'WikiPageAlreadyExistsException|already exists') {
+            # Page exists but GET failed - likely a timing issue
+            # Try PATCH without eTag (handles race condition)
+            Write-Warning "[Wikis] Page $Path exists but couldn't retrieve version. Attempting update..."
+            try {
+                # Retry GET to get fresh page object
+                Start-Sleep -Seconds 1
+                $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc"
+                
+                $patchBody = @{ content = $Markdown }
+                if ($existing.PSObject.Properties['eTag']) {
+                    $patchBody.eTag = $existing.eTag
+                }
+                
+                Invoke-AdoRest PATCH "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body $patchBody | Out-Null
+            }
+            catch {
+                Write-Warning "[Wikis] Could not update page $Path : $_"
+                # Silently continue - page exists, that's good enough for idempotency
+            }
+        }
+        else {
+            # Unexpected error - rethrow
+            throw
+        }
+    }
 }
 
 #>

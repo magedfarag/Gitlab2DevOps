@@ -168,7 +168,13 @@ function Ensure-AdoTeamTemplates {
     Write-Host "[INFO] ✨ Templates are ready to use!" -ForegroundColor Green
     Write-Host ""
     Write-Host "[NEXT STEPS] To make templates auto-populate when creating work items:" -ForegroundColor Cyan
-    Write-Host "  1. Navigate to: $script:AdoBaseUrl/$([uri]::EscapeDataString($Project))/_settings/work-items" -ForegroundColor White
+    try {
+        $baseUrl = Get-AdoBaseUrl
+        Write-Host "  1. Navigate to: $baseUrl/$([uri]::EscapeDataString($Project))/_settings/work-items" -ForegroundColor White
+    }
+    catch {
+        Write-Host "  1. Navigate to your Azure DevOps project settings → Work items" -ForegroundColor White
+    }
     Write-Host "  2. Select the work item type (e.g., 'User Story', 'Task', 'Bug')" -ForegroundColor White
     Write-Host "  3. Find the template in the list" -ForegroundColor White
     Write-Host "  4. Click the ⋮ (actions menu) → 'Set as default'" -ForegroundColor White

@@ -10,6 +10,70 @@
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
 
+# Module-level cache for project list
+$script:ProjectListCache = $null
+$script:ProjectListCacheTime = $null
+$script:ProjectListCacheTTL = 300 # 5 minutes
+
+<#
+.SYNOPSIS
+    Gets a list of all Azure DevOps projects with caching.
+
+.PARAMETER RefreshCache
+    Force refresh the cache.
+
+.PARAMETER UseCache
+    Use cached data if available.
+
+.OUTPUTS
+    Array of project objects.
+#>
+function Get-AdoProjectList {
+    [CmdletBinding()]
+    [OutputType([array])]
+    param(
+        [switch]$RefreshCache,
+        [switch]$UseCache
+    )
+    
+    # Check if we should use cache
+    if ($UseCache -and $script:ProjectListCache -and $script:ProjectListCacheTime) {
+        $age = ((Get-Date) - $script:ProjectListCacheTime).TotalSeconds
+        if ($age -lt $script:ProjectListCacheTTL) {
+            Write-Verbose "[Get-AdoProjectList] Using cached project list (age: $([int]$age)s)"
+            return $script:ProjectListCache
+        }
+    }
+    
+    # Fetch project list
+    try {
+        $result = Invoke-AdoRest GET "/_apis/projects?`$top=5000"
+        $projects = $result.value
+        
+        # Update cache
+        $script:ProjectListCache = $projects
+        $script:ProjectListCacheTime = Get-Date
+        
+        Write-Verbose "[Get-AdoProjectList] Fetched $($projects.Count) projects from server"
+        return $projects
+    }
+    catch {
+        Write-Warning "[Get-AdoProjectList] Failed to fetch project list: $_"
+        # Return cached data if available, even if stale
+        if ($script:ProjectListCache) {
+            Write-Warning "[Get-AdoProjectList] Returning stale cached data"
+            return $script:ProjectListCache
+        }
+        return @()
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets all repositories for a specific Azure DevOps project.
+
+.OUTPUTS
+    Array of repository objects.
 #>
 function Get-AdoProjectRepositories {
     [CmdletBinding()]
