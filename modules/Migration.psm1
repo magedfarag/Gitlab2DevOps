@@ -46,24 +46,25 @@ function Get-PreparedProjects {
     
     # First, collect all project names that are part of bulk preparations
     $bulkProjectNames = @{}
-    Get-ChildItem -Path $migrationsDir -Directory -Filter "bulk-prep-*" | ForEach-Object {
-        $templateFile = Join-Path $_.FullName "bulk-migration-template.json"
-        if (Test-Path $templateFile) {
+    Get-ChildItem -Path $migrationsDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $configFile = Join-Path $_.FullName "bulk-migration-config.json"
+        if (Test-Path $configFile) {
             try {
-                $template = Get-Content $templateFile | ConvertFrom-Json
-                foreach ($proj in $template.projects) {
+                $config = Get-Content $configFile | ConvertFrom-Json
+                foreach ($proj in $config.projects) {
                     $bulkProjectNames[$proj.ado_repo_name] = $true
                 }
             }
             catch {
-                Write-Verbose "Failed to read template: $templateFile"
+                Write-Verbose "Failed to read config: $configFile"
             }
         }
     }
     
     # Scan for single project preparations (exclude those in bulk preparations)
-    Get-ChildItem -Path $migrationsDir -Directory | Where-Object {
-        $_.Name -notlike "bulk-prep-*" -and 
+    Get-ChildItem -Path $migrationsDir -Directory -ErrorAction SilentlyContinue | Where-Object {
+        $configFile = Join-Path $_.FullName "bulk-migration-config.json"
+        -not (Test-Path $configFile) -and 
         (Test-Path (Join-Path $_.FullName "reports\preflight-report.json")) -and
         -not $bulkProjectNames.ContainsKey($_.Name)
     } | ForEach-Object {
@@ -95,20 +96,20 @@ function Get-PreparedProjects {
         }
     }
     
-    # Scan for bulk preparations
-    Get-ChildItem -Path $migrationsDir -Directory -Filter "bulk-prep-*" | ForEach-Object {
-        $templateFile = Join-Path $_.FullName "bulk-migration-template.json"
-        if (Test-Path $templateFile) {
+    # Scan for bulk preparations (now self-contained with config file in root)
+    Get-ChildItem -Path $migrationsDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $configFile = Join-Path $_.FullName "bulk-migration-config.json"
+        if (Test-Path $configFile) {
             try {
-                $template = Get-Content $templateFile | ConvertFrom-Json
-                $successfulCount = @($template.projects | Where-Object { $_.preparation_status -eq "SUCCESS" }).Count
+                $config = Get-Content $configFile | ConvertFrom-Json
+                $successfulCount = @($config.projects | Where-Object { $_.preparation_status -eq "SUCCESS" }).Count
                 
                 # Check if project exists in Azure DevOps
-                $projectExists = Test-AdoProjectExists -ProjectName $template.destination_project
+                $projectExists = Test-AdoProjectExists -ProjectName $config.destination_project
                 $migratedCount = 0
                 if ($projectExists) {
-                    $repos = Get-AdoProjectRepositories -ProjectName $template.destination_project
-                    foreach ($proj in $template.projects) {
+                    $repos = Get-AdoProjectRepositories -ProjectName $config.destination_project
+                    foreach ($proj in $config.projects) {
                         if ($repos | Where-Object { $_.name -eq $proj.ado_repo_name }) {
                             $migratedCount++
                         }
@@ -117,19 +118,19 @@ function Get-PreparedProjects {
                 
                 $prepared += [pscustomobject]@{
                     Type = "Bulk"
-                    ProjectName = $template.destination_project
-                    ProjectCount = $template.preparation_summary.total_projects
+                    ProjectName = $config.destination_project
+                    ProjectCount = $config.preparation_summary.total_projects
                     SuccessfulCount = $successfulCount
-                    TotalSizeMB = $template.preparation_summary.total_size_MB
-                    PreparationTime = $template.preparation_summary.preparation_time
+                    TotalSizeMB = $config.preparation_summary.total_size_MB
+                    PreparationTime = $config.preparation_summary.preparation_time
                     Folder = $_.FullName
-                    TemplateFile = $templateFile
+                    ConfigFile = $configFile
                     ProjectExists = $projectExists
                     MigratedCount = $migratedCount
                 }
             }
             catch {
-                Write-Verbose "Failed to read template: $templateFile"
+                Write-Verbose "Failed to read config: $configFile"
             }
         }
     }
@@ -1496,13 +1497,14 @@ function Invoke-BulkPreparationWorkflow {
         return
     }
     
-    # Check if preparation already exists
-    $migrationsDir = Get-MigrationsDirectory
-    $bulkPrepDir = Join-Path $migrationsDir "bulk-prep-$DestProjectName"
-    if (Test-Path $bulkPrepDir) {
+    # Check if preparation already exists (new self-contained structure)
+    $bulkPaths = Get-BulkProjectPaths -AdoProject $DestProjectName
+    $configFile = $bulkPaths.configFile
+    
+    if (Test-Path $configFile) {
         Write-Host ""
         Write-Host "⚠️  Existing preparation found for '$DestProjectName'" -ForegroundColor Yellow
-        Write-Host "   Folder: $bulkPrepDir"
+        Write-Host "   Folder: $($bulkPaths.containerDir)"
         $continueChoice = Read-Host "Continue and update existing preparation? (y/N)"
         if ($continueChoice -notmatch '^[Yy]') {
             Write-Host "Bulk preparation cancelled."
@@ -1569,43 +1571,43 @@ function Invoke-TemplateManagerWorkflow {
     Write-Host "=== BULK MIGRATION TEMPLATE MANAGER ===" -ForegroundColor Cyan
     Write-Host ""
     
-    # Look for existing template files
+    # Look for existing bulk config files (new self-contained structure)
     $migrationsDir = Get-MigrationsDirectory
     $bulkPrepDirs = Get-ChildItem -Path $migrationsDir -Directory -ErrorAction SilentlyContinue | 
-        Where-Object { $_.Name -like "bulk-prep-*" }
+        Where-Object { Test-Path (Join-Path $_.FullName "bulk-migration-config.json") }
     
     if (-not $bulkPrepDirs) {
-        Write-Host "❌ No bulk preparation templates found." -ForegroundColor Red
-        Write-Host "   Run Option 4 (Bulk Preparation) first to create templates."
+        Write-Host "❌ No bulk preparation configurations found." -ForegroundColor Red
+        Write-Host "   Run Option 4 (Bulk Preparation) first to create configurations."
         return
     }
     
-    Write-Host "Available bulk preparation templates:"
+    Write-Host "Available bulk migration configurations:"
     Write-Host ""
     
     $templates = @()
     $index = 1
     foreach ($dir in $bulkPrepDirs) {
-        $templateFile = Join-Path $dir.FullName "bulk-migration-template.json"
-        if (Test-Path $templateFile) {
-            $projectName = $dir.Name -replace '^bulk-prep-', ''
+        $configFile = Join-Path $dir.FullName "bulk-migration-config.json"
+        if (Test-Path $configFile) {
+            $projectName = $dir.Name
             Write-Host "  [$index] $projectName"
             
             try {
-                $templateData = Get-Content $templateFile | ConvertFrom-Json
-                $totalProjects = $templateData.projects.Count
-                $successProjects = ($templateData.projects | Where-Object { $_.preparation_status -eq "SUCCESS" }).Count
+                $configData = Get-Content $configFile | ConvertFrom-Json
+                $totalProjects = $configData.projects.Count
+                $successProjects = ($configData.projects | Where-Object { $_.preparation_status -eq "SUCCESS" }).Count
                 Write-Host "      - $totalProjects project(s), $successProjects ready for migration"
-                Write-Host "      - Template: $templateFile"
+                Write-Host "      - Config: $configFile"
             }
             catch {
-                Write-Host "      - Error reading template"
+                Write-Host "      - Error reading configuration"
             }
             
             $templates += @{
                 Index        = $index
                 ProjectName  = $projectName
-                TemplateFile = $templateFile
+                ConfigFile   = $configFile
                 Directory    = $dir.FullName
             }
             $index++
@@ -1638,8 +1640,8 @@ function Invoke-TemplateManagerWorkflow {
     Write-Host "Selected: $($selectedTemplate.ProjectName)"
     Write-Host ""
     Write-Host "Actions:"
-    Write-Host "  [1] View template contents"
-    Write-Host "  [2] Open template in notepad"
+    Write-Host "  [1] View configuration contents"
+    Write-Host "  [2] Open configuration in notepad"
     Write-Host "  [3] View preparation log"
     Write-Host "  [0] Cancel"
     Write-Host ""
@@ -1649,25 +1651,32 @@ function Invoke-TemplateManagerWorkflow {
     switch ($action) {
         '1' {
             Write-Host ""
-            Write-Host "=== TEMPLATE CONTENTS ===" -ForegroundColor Cyan
-            Get-Content $selectedTemplate.TemplateFile | Write-Host
-            Write-Host "=========================" -ForegroundColor Cyan
+            Write-Host "=== CONFIGURATION CONTENTS ===" -ForegroundColor Cyan
+            Get-Content $selectedTemplate.ConfigFile | Write-Host
+            Write-Host "=============================" -ForegroundColor Cyan
         }
         '2' {
-            Write-Host "[INFO] Opening template in notepad..."
-            Start-Process notepad $selectedTemplate.TemplateFile -Wait
+            Write-Host "[INFO] Opening configuration in notepad..."
+            Start-Process notepad $selectedTemplate.ConfigFile -Wait
             Write-Host "[INFO] Editing complete."
         }
         '3' {
-            $logFile = Join-Path $selectedTemplate.Directory "bulk-preparation.log"
-            if (Test-Path $logFile) {
-                Write-Host ""
-                Write-Host "=== PREPARATION LOG ===" -ForegroundColor Cyan
-                Get-Content $logFile | Write-Host
-                Write-Host "========================" -ForegroundColor Cyan
+            $logsDir = Join-Path $selectedTemplate.Directory "logs"
+            if (Test-Path $logsDir) {
+                $logFiles = Get-ChildItem -Path $logsDir -Filter "bulk-preparation-*.log" | Sort-Object LastWriteTime -Descending
+                if ($logFiles) {
+                    $latestLog = $logFiles[0].FullName
+                    Write-Host ""
+                    Write-Host "=== PREPARATION LOG (Latest) ===" -ForegroundColor Cyan
+                    Get-Content $latestLog | Write-Host
+                    Write-Host "================================" -ForegroundColor Cyan
+                }
+                else {
+                    Write-Host "[WARN] No preparation log files found in: $logsDir" -ForegroundColor Yellow
+                }
             }
             else {
-                Write-Host "[WARN] Log file not found: $logFile" -ForegroundColor Yellow
+                Write-Host "[WARN] Logs directory not found: $logsDir" -ForegroundColor Yellow
             }
         }
         '0' {
@@ -1696,56 +1705,56 @@ function Invoke-BulkMigrationWorkflow {
     
     Write-Host ""
     Write-Host "=== BULK MIGRATION EXECUTION ===" -ForegroundColor Cyan
-    Write-Host "This will execute migrations from prepared template files."
+    Write-Host "This will execute migrations from prepared configuration files."
     Write-Host ""
     
-    # Look for available template files
+    # Look for available config files (new self-contained structure)
     $migrationsDir = Get-MigrationsDirectory
     $bulkPrepDirs = Get-ChildItem -Path $migrationsDir -Directory -ErrorAction SilentlyContinue | 
-        Where-Object { $_.Name -like "bulk-prep-*" }
+        Where-Object { Test-Path (Join-Path $_.FullName "bulk-migration-config.json") }
     
     if (-not $bulkPrepDirs) {
-        Write-Host "❌ No bulk preparation templates found." -ForegroundColor Red
+        Write-Host "❌ No bulk preparation configurations found." -ForegroundColor Red
         Write-Host "   Run Option 4 (Bulk Preparation) first."
         return
     }
     
     $templates = @()
     foreach ($dir in $bulkPrepDirs) {
-        $templateFile = Join-Path $dir.FullName "bulk-migration-template.json"
-        if (Test-Path $templateFile) {
-            $projectName = $dir.Name -replace '^bulk-prep-', ''
+        $configFile = Join-Path $dir.FullName "bulk-migration-config.json"
+        if (Test-Path $configFile) {
+            $projectName = $dir.Name
             $templates += @{
                 ProjectName  = $projectName
-                TemplateFile = $templateFile
+                ConfigFile   = $configFile
                 Directory    = $dir.FullName
             }
         }
     }
     
     if ($templates.Count -eq 0) {
-        Write-Host "❌ No valid template files found." -ForegroundColor Red
+        Write-Host "❌ No valid configuration files found." -ForegroundColor Red
         return
     }
     
-    Write-Host "Available templates:"
+    Write-Host "Available configurations:"
     for ($i = 0; $i -lt $templates.Count; $i++) {
         $template = $templates[$i]
         Write-Host "  [$($i + 1)] $($template.ProjectName)"
         
         try {
-            $templateData = Get-Content $template.TemplateFile | ConvertFrom-Json
-            $successProjects = ($templateData.projects | Where-Object { $_.preparation_status -eq "SUCCESS" }).Count
+            $configData = Get-Content $template.ConfigFile | ConvertFrom-Json
+            $successProjects = ($configData.projects | Where-Object { $_.preparation_status -eq "SUCCESS" }).Count
             Write-Host "      - $successProjects project(s) ready for migration"
         }
         catch {
-            Write-Host "      - Unable to read template"
+            Write-Host "      - Unable to read configuration"
         }
     }
     Write-Host ""
     
     do {
-        $selection = Read-Host "Select template (1-$($templates.Count))"
+        $selection = Read-Host "Select configuration (1-$($templates.Count))"
         $selectionNum = [int]0
         $validSelection = [int]::TryParse($selection, [ref]$selectionNum)
     } while (-not $validSelection -or $selectionNum -lt 1 -or $selectionNum -gt $templates.Count)
@@ -1763,15 +1772,15 @@ function Invoke-BulkMigrationWorkflow {
         $DestProjectName = $selectedDevOpsProject
     }
     
-    # Read template
+    # Read configuration
     try {
-        $templateData = Get-Content $selectedTemplate.TemplateFile | ConvertFrom-Json
-        $successfulProjects = @($templateData.projects | Where-Object { $_.preparation_status -eq "SUCCESS" })
-        $failedProjects = @($templateData.projects | Where-Object { $_.preparation_status -eq "FAILED" })
+        $configData = Get-Content $selectedTemplate.ConfigFile | ConvertFrom-Json
+        $successfulProjects = @($configData.projects | Where-Object { $_.preparation_status -eq "SUCCESS" })
+        $failedProjects = @($configData.projects | Where-Object { $_.preparation_status -eq "FAILED" })
         
         Write-Host "=== MIGRATION PREVIEW ===" -ForegroundColor Cyan
         Write-Host "Destination project: $DestProjectName"
-        Write-Host "Total projects in template: $(@($templateData.projects).Count)"
+        Write-Host "Total projects in configuration: $(@($configData.projects).Count)"
         Write-Host "✅ Ready for migration: $($successfulProjects.Count)" -ForegroundColor Green
         if ($failedProjects.Count -gt 0) {
             Write-Host "❌ Failed preparation (will be skipped): $($failedProjects.Count)" -ForegroundColor Red
@@ -1821,7 +1830,7 @@ function Invoke-BulkMigrationWorkflow {
         Write-Host ""
     }
     catch {
-        Write-Host "❌ Error reading template file: $_" -ForegroundColor Red
+        Write-Host "❌ Error reading configuration file: $_" -ForegroundColor Red
         return
     }
     

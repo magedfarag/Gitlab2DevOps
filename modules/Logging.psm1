@@ -92,6 +92,79 @@ function Get-ProjectPaths {
 
 <#
 .SYNOPSIS
+    Gets bulk migration project paths.
+
+.DESCRIPTION
+    Returns paths for bulk migration self-contained folder structure.
+    Creates directory structure if missing.
+
+.PARAMETER AdoProject
+    Azure DevOps project name (container/parent folder).
+
+.PARAMETER GitLabProject
+    GitLab project name (subfolder for cloned repository).
+    Optional - if not provided, returns only parent paths.
+
+.OUTPUTS
+    Hashtable with containerDir, reportsDir, logsDir, configFile paths.
+    If GitLabProject specified, also includes gitlabDir and repositoryDir.
+
+.EXAMPLE
+    Get-BulkProjectPaths -AdoProject "ConsolidatedProject"
+    Get-BulkProjectPaths -AdoProject "ConsolidatedProject" -GitLabProject "frontend-app"
+#>
+function Get-BulkProjectPaths {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)]
+        [string]$AdoProject,
+        
+        [Parameter()]
+        [string]$GitLabProject
+    )
+    
+    $migrationsDir = Get-MigrationsDirectory
+    $containerDir = Join-Path $migrationsDir $AdoProject
+    $reportsDir = Join-Path $containerDir "reports"
+    $logsDir = Join-Path $containerDir "logs"
+    $configFile = Join-Path $containerDir "bulk-migration-config.json"
+    
+    # Create parent directories
+    @($containerDir, $reportsDir, $logsDir) | ForEach-Object {
+        if (-not (Test-Path $_)) {
+            New-Item -ItemType Directory -Path $_ -Force | Out-Null
+            Write-Verbose "[Logging] Created directory: $_"
+        }
+    }
+    
+    $result = @{
+        containerDir = $containerDir
+        reportsDir   = $reportsDir
+        logsDir      = $logsDir
+        configFile   = $configFile
+    }
+    
+    # Add GitLab project specific paths if provided
+    if (-not [string]::IsNullOrWhiteSpace($GitLabProject)) {
+        $gitlabDir = Join-Path $containerDir $GitLabProject
+        $repositoryDir = Join-Path $gitlabDir "repository"
+        
+        # Create GitLab project directory (but not repository - that's created by git clone)
+        if (-not (Test-Path $gitlabDir)) {
+            New-Item -ItemType Directory -Path $gitlabDir -Force | Out-Null
+            Write-Verbose "[Logging] Created GitLab project directory: $gitlabDir"
+        }
+        
+        $result.gitlabDir = $gitlabDir
+        $result.repositoryDir = $repositoryDir
+    }
+    
+    return $result
+}
+
+<#
+.SYNOPSIS
     Writes timestamped log entry to file.
 
 .DESCRIPTION
@@ -680,6 +753,7 @@ function New-MigrationSummary {
 Export-ModuleMember -Function @(
     'Get-MigrationsDirectory',
     'Get-ProjectPaths',
+    'Get-BulkProjectPaths',
     'Write-MigrationLog',
     'Write-MigrationReport',
     'New-LogFilePath',

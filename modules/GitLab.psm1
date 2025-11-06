@@ -113,15 +113,22 @@ function Test-GitLabAuth {
 function Prepare-GitLab {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)]
-        [string]$SrcPath
+        [Parameter(Mandatory, Position=0)]
+        [Alias('SrcPath')]
+        [string]$ProjectPath,
+        
+        [Parameter()]
+        [string]$CustomBaseDir,
+        
+        [Parameter()]
+        [string]$CustomProjectName
     )
     
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         throw "git not found on PATH."
     }
     
-    $p = Get-GitLabProject $SrcPath
+    $p = Get-GitLabProject $ProjectPath
     
     # Create project metadata report
     $report = [pscustomobject]@{
@@ -137,10 +144,24 @@ function Prepare-GitLab {
         preparation_time   = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     }
     
-    # Create project-specific folder structure
-    $migrationsDir = Join-Path (Get-Location) "migrations"
-    $projectName = $p.path  # Use the project name (last part of path)
-    $projectDir = Join-Path $migrationsDir $projectName
+    # Determine folder structure (single vs bulk mode)
+    $projectName = if ($CustomProjectName) { $CustomProjectName } else { $p.path }
+    
+    if ($CustomBaseDir) {
+        # Bulk mode: repository inside CustomBaseDir/ProjectName/repository
+        $projectDir = Join-Path $CustomBaseDir $projectName
+        $reportsDir = Join-Path $projectDir "reports"
+        $logsDir = Join-Path $projectDir "logs"
+        $repoDir = Join-Path $projectDir "repository"
+    }
+    else {
+        # Single mode: standard migrations/{projectName} structure
+        $migrationsDir = Join-Path (Get-Location) "migrations"
+        $projectDir = Join-Path $migrationsDir $projectName
+        $reportsDir = Join-Path $projectDir "reports"
+        $logsDir = Join-Path $projectDir "logs"
+        $repoDir = Join-Path $projectDir "repository"
+    }
     
     if (-not (Test-Path $projectDir)) {
         New-Item -ItemType Directory -Path $projectDir -Force | Out-Null
@@ -148,9 +169,6 @@ function Prepare-GitLab {
     }
     
     # Create subdirectories for organization
-    $reportsDir = Join-Path $projectDir "reports"
-    $logsDir = Join-Path $projectDir "logs"
-    $repoDir = Join-Path $projectDir "repository"
     
     @($reportsDir, $logsDir) | ForEach-Object {
         if (-not (Test-Path $_)) {
@@ -353,12 +371,13 @@ function Invoke-BulkPrepareGitLab {
     Write-Host "Projects to prepare: $($ProjectPaths.Count)"
     Write-Host ""
     
-    # Create bulk preparation folder using DevOps project name
-    $migrationsDir = Join-Path (Get-Location) "migrations"
-    $bulkPrepDir = Join-Path $migrationsDir "bulk-prep-$DestProjectName"
+    # Create self-contained bulk preparation folder structure
+    $bulkPaths = Get-BulkProjectPaths -AdoProject $DestProjectName
+    $bulkPrepDir = $bulkPaths.containerDir
+    $configFile = $bulkPaths.configFile
     
     # Check if preparation already exists
-    if (Test-Path $bulkPrepDir) {
+    if (Test-Path $configFile) {
         Write-Host "⚠️  Existing preparation found for '$DestProjectName'" -ForegroundColor Yellow
         Write-Host "   Folder: $bulkPrepDir"
         $choice = Read-Host "Continue and update existing preparation? (y/N)"
@@ -369,12 +388,12 @@ function Invoke-BulkPrepareGitLab {
         Write-Host "Updating existing preparation..."
     }
     else {
-        Write-Host "Creating new preparation for '$DestProjectName'..."
-        New-Item -ItemType Directory -Path $bulkPrepDir -Force | Out-Null
+        Write-Host "Creating new self-contained preparation for '$DestProjectName'..."
     }
     
-    # Create bulk preparation log
-    $bulkLogFile = Join-Path $bulkPrepDir "bulk-preparation.log"
+    # Create bulk preparation log in logs folder
+    $timestamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+    $bulkLogFile = Join-Path $bulkPaths.logsDir "bulk-preparation-$timestamp.log"
     $startTime = Get-Date
     
     @(
@@ -408,21 +427,24 @@ function Invoke-BulkPrepareGitLab {
         "Start time: $(Get-Date)" | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
         
         try {
-            # Check if project already prepared
-            $projectDir = Join-Path $migrationsDir $projectName
-            if (Test-Path $projectDir) {
+            # Check if project already prepared in self-contained structure
+            $gitlabPaths = Get-BulkProjectPaths -AdoProject $DestProjectName -GitLabProject $projectName
+            $projectDir = $gitlabPaths.gitlabDir
+            $repoDir = $gitlabPaths.repositoryDir
+            
+            if (Test-Path $repoDir) {
                 Write-Host "    Project already prepared, updating..."
                 "Project already exists, updating: $projectDir" | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
             }
             else {
                 Write-Host "    Downloading and analyzing project..."
-                "Preparing new project..." | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
+                "Preparing new project in self-contained structure: $projectDir" | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
             }
             
-            # Run preparation for this project
-            Prepare-GitLab $projectPath
+            # Run preparation for this project using bulk-specific path
+            Prepare-GitLab -ProjectPath $projectPath -CustomBaseDir $bulkPrepDir -CustomProjectName $projectName
             
-            # Read the generated preflight report
+            # Read the generated preflight report from bulk structure
             $preflightFile = Join-Path $projectDir "reports" "preflight-report.json"
             if (Test-Path $preflightFile) {
                 $preflightData = Get-Content $preflightFile | ConvertFrom-Json
@@ -488,9 +510,7 @@ function Invoke-BulkPrepareGitLab {
         }
     }
     
-    # Create consolidated bulk migration template
-    $templateFile = Join-Path $bulkPrepDir "bulk-migration-template.json"
-    
+    # Create bulk migration config (renamed from template for clarity)
     # Calculate totals safely (only for successful preparations)
     $successfulProjects = $projects | Where-Object { $_.preparation_status -eq 'SUCCESS' -and $_.repo_size_MB }
     $totalSizeMB = if ($successfulProjects) {
@@ -502,9 +522,10 @@ function Invoke-BulkPrepareGitLab {
         ($successfulProjectsWithLfs | Measure-Object -Property lfs_size_MB -Sum).Sum
     } else { 0 }
     
-    $template = [pscustomobject]@{
-        description         = "Bulk migration template for '$DestProjectName' - Generated $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    $config = [pscustomobject]@{
+        description         = "Bulk migration configuration for '$DestProjectName' - Generated $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
         destination_project = $DestProjectName
+        migration_type      = "BULK"
         preparation_summary = [pscustomobject]@{
             total_projects          = $ProjectPaths.Count
             successful_preparations = $successCount
@@ -516,12 +537,12 @@ function Invoke-BulkPrepareGitLab {
         projects            = $projects
     }
     
-    $template | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 $templateFile
+    $config | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 $configFile
     
-    # Create summary report
+    # Create summary report in reports folder
     $endTime = Get-Date
     $duration = $endTime - $startTime
-    $summaryFile = Join-Path $bulkPrepDir "preparation-summary.json"
+    $summaryFile = Join-Path $bulkPaths.reportsDir "preparation-summary.json"
     
     $summary = [pscustomobject]@{
         preparation_start       = $startTime.ToString('yyyy-MM-dd HH:mm:ss')
@@ -546,7 +567,7 @@ function Invoke-BulkPrepareGitLab {
         "Successful: $successCount"
         "Failed: $failureCount"
         "Success rate: $([math]::Round(($successCount / $ProjectPaths.Count) * 100, 1))%"
-        "Template file: $templateFile"
+        "Config file: $configFile"
         "Summary report: $summaryFile"
         "=== BULK PREPARATION COMPLETED ==="
     ) | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
@@ -555,6 +576,7 @@ function Invoke-BulkPrepareGitLab {
     Write-Host ""
     Write-Host "=== BULK PREPARATION RESULTS ===" -ForegroundColor Cyan
     Write-Host "Destination Project: $DestProjectName"
+    Write-Host "Container folder: $bulkPrepDir" -ForegroundColor Cyan
     Write-Host "Total projects: $($ProjectPaths.Count)"
     Write-Host "✅ Successful: $successCount" -ForegroundColor Green
     Write-Host "❌ Failed: $failureCount" -ForegroundColor Red
@@ -564,18 +586,25 @@ function Invoke-BulkPrepareGitLab {
         Write-Host "Total repository size: $($summary.total_size_MB) MB"
     }
     Write-Host ""
-    Write-Host "Generated files:"
-    Write-Host "  📋 Migration template: $templateFile"
-    Write-Host "  📊 Preparation summary: $summaryFile"
-    Write-Host "  📝 Preparation log: $bulkLogFile"
+    Write-Host "Self-contained structure:" -ForegroundColor Yellow
+    Write-Host "  � Container: migrations/$DestProjectName/"
+    Write-Host "     ├── 📋 bulk-migration-config.json"
+    Write-Host "     ├── 📊 reports/preparation-summary.json"
+    Write-Host "     ├── 📝 logs/bulk-preparation-*.log"
+    foreach ($proj in $projects | Where-Object { $_.preparation_status -eq 'SUCCESS' } | Select-Object -First 3) {
+        Write-Host "     ├── 📂 $($proj.ado_repo_name)/repository/"
+    }
+    if ($successCount -gt 3) {
+        Write-Host "     └── ... ($($successCount - 3) more)"
+    }
     Write-Host ""
     
     if ($failureCount -gt 0) {
         Write-Host "⚠️  Some projects failed preparation. Review the log file for details." -ForegroundColor Yellow
-        Write-Host "   You can fix the issues and re-run preparation to update the template." -ForegroundColor Yellow
+        Write-Host "   You can fix the issues and re-run preparation to update the config." -ForegroundColor Yellow
     }
     
-    Write-Host "Next step: Use the migration template with bulk migration (Option 4)" -ForegroundColor Green
+    Write-Host "Next step: Use Option 6 (Bulk Migration Execution) to migrate all repositories" -ForegroundColor Green
     Write-Host "=================================" -ForegroundColor Cyan
 }
 
