@@ -61,38 +61,90 @@ function Get-PreparedProjects {
         }
     }
     
-    # Scan for single project preparations (exclude those in bulk preparations)
+    # Scan for single project preparations
+    # New structure (v2.1.0+): Look for migration-config.json with migration_type="SINGLE"
+    # Legacy structure: Look for reports/preflight-report.json (deprecated)
     Get-ChildItem -Path $migrationsDir -Directory -ErrorAction SilentlyContinue | Where-Object {
-        $configFile = Join-Path $_.FullName "bulk-migration-config.json"
-        -not (Test-Path $configFile) -and 
-        (Test-Path (Join-Path $_.FullName "reports\preflight-report.json")) -and
+        $bulkConfigFile = Join-Path $_.FullName "bulk-migration-config.json"
+        $singleConfigFile = Join-Path $_.FullName "migration-config.json"
+        $legacyReportFile = Join-Path $_.FullName "reports\preflight-report.json"
+        
+        # Not a bulk preparation AND (has single config OR has legacy report)
+        -not (Test-Path $bulkConfigFile) -and 
+        ((Test-Path $singleConfigFile) -or (Test-Path $legacyReportFile)) -and
         -not $bulkProjectNames.ContainsKey($_.Name)
     } | ForEach-Object {
-        $reportFile = Join-Path $_.FullName "reports\preflight-report.json"
         try {
-            $report = Get-Content $reportFile | ConvertFrom-Json
+            $singleConfigFile = Join-Path $_.FullName "migration-config.json"
             
-            # Check if project exists in Azure DevOps and if repo is migrated
-            $projectExists = Test-AdoProjectExists -ProjectName $_.Name
-            $repoMigrated = $false
-            if ($projectExists) {
-                $repos = Get-AdoProjectRepositories -ProjectName $_.Name
-                $repoMigrated = $repos | Where-Object { $_.name -eq $_.Name }
+            if (Test-Path $singleConfigFile) {
+                # New self-contained structure (v2.1.0+)
+                $config = Get-Content $singleConfigFile | ConvertFrom-Json
+                
+                # Find the GitLab project subfolder
+                $gitlabDirs = Get-ChildItem -Path $_.FullName -Directory -ErrorAction SilentlyContinue | 
+                    Where-Object { $_.Name -ne "reports" -and $_.Name -ne "logs" }
+                
+                if ($gitlabDirs) {
+                    $gitlabDir = $gitlabDirs[0]
+                    $reportFile = Join-Path $gitlabDir.FullName "reports\preflight-report.json"
+                    
+                    if (Test-Path $reportFile) {
+                        $report = Get-Content $reportFile | ConvertFrom-Json
+                        
+                        # Check if project exists in Azure DevOps
+                        $projectExists = Test-AdoProjectExists -ProjectName $config.ado_project
+                        $repoMigrated = $false
+                        if ($projectExists) {
+                            $repos = Get-AdoProjectRepositories -ProjectName $config.ado_project
+                            $repoMigrated = $repos | Where-Object { $_.name -eq $config.gitlab_repo_name }
+                        }
+                        
+                        $prepared += [pscustomobject]@{
+                            Type = "Single"
+                            ProjectName = $config.ado_project
+                            GitLabPath = $config.gitlab_project
+                            GitLabRepoName = $config.gitlab_repo_name
+                            RepoSizeMB = $report.repo_size_MB
+                            PreparationTime = $config.created_date
+                            Folder = $_.FullName
+                            ConfigFile = $singleConfigFile
+                            ProjectExists = $projectExists
+                            RepoMigrated = $null -ne $repoMigrated
+                            Structure = "v2.1.0"
+                        }
+                    }
+                }
             }
-            
-            $prepared += [pscustomobject]@{
-                Type = "Single"
-                ProjectName = $_.Name
-                GitLabPath = $report.project
-                RepoSizeMB = $report.repo_size_MB
-                PreparationTime = $report.preparation_time
-                Folder = $_.FullName
-                ProjectExists = $projectExists
-                RepoMigrated = $null -ne $repoMigrated
+            else {
+                # Legacy flat structure (deprecated - for backward compat display only)
+                $reportFile = Join-Path $_.FullName "reports\preflight-report.json"
+                if (Test-Path $reportFile) {
+                    $report = Get-Content $reportFile | ConvertFrom-Json
+                    
+                    $projectExists = Test-AdoProjectExists -ProjectName $_.Name
+                    $repoMigrated = $false
+                    if ($projectExists) {
+                        $repos = Get-AdoProjectRepositories -ProjectName $_.Name
+                        $repoMigrated = $repos | Where-Object { $_.name -eq $_.Name }
+                    }
+                    
+                    $prepared += [pscustomobject]@{
+                        Type = "Single"
+                        ProjectName = $_.Name
+                        GitLabPath = $report.project
+                        RepoSizeMB = $report.repo_size_MB
+                        PreparationTime = $report.preparation_time
+                        Folder = $_.FullName
+                        ProjectExists = $projectExists
+                        RepoMigrated = $null -ne $repoMigrated
+                        Structure = "legacy"
+                    }
+                }
             }
         }
         catch {
-            Write-Verbose "Failed to read report: $reportFile"
+            Write-Verbose "Failed to read preparation data from: $($_.FullName)"
         }
     }
     
@@ -221,13 +273,51 @@ function Show-MigrationMenu {
     
     switch ($choice) {
         '1' {
-            $SourceProjectPath = Read-Host "Enter Source GitLab project path (e.g., group/my-project)"
-            if (-not [string]::IsNullOrWhiteSpace($SourceProjectPath)) {
-                Prepare-GitLab $SourceProjectPath
+            Write-Host ""
+            Write-Host "=== SINGLE PROJECT PREPARATION ===" -ForegroundColor Cyan
+            Write-Host "This will create a self-contained preparation folder."
+            Write-Host ""
+            
+            $DestProjectName = Read-Host "Enter Azure DevOps project name (e.g., MyProject)"
+            if ([string]::IsNullOrWhiteSpace($DestProjectName)) {
+                Write-Host "[ERROR] DevOps project name cannot be empty." -ForegroundColor Red
+                return
             }
-            else {
-                Write-Host "[ERROR] Project path cannot be empty." -ForegroundColor Red
+            
+            $SourceProjectPath = Read-Host "Enter GitLab project path (e.g., group/my-project)"
+            if ([string]::IsNullOrWhiteSpace($SourceProjectPath)) {
+                Write-Host "[ERROR] GitLab project path cannot be empty." -ForegroundColor Red
+                return
             }
+            
+            # Extract GitLab project name from path
+            $gitlabProjectName = ($SourceProjectPath -split '/')[-1]
+            
+            # Use new self-contained structure
+            $paths = Get-ProjectPaths -AdoProject $DestProjectName -GitLabProject $gitlabProjectName
+            
+            Write-Host ""
+            Write-Host "[INFO] Preparing self-contained structure:"
+            Write-Host "  Container: migrations/$DestProjectName/"
+            Write-Host "  Project: $gitlabProjectName/"
+            Write-Host ""
+            
+            # Prepare using custom base directory
+            Prepare-GitLab -ProjectPath $SourceProjectPath -CustomBaseDir $paths.projectDir -CustomProjectName $gitlabProjectName
+            
+            # Create migration config
+            $config = [pscustomobject]@{
+                ado_project      = $DestProjectName
+                gitlab_project   = $SourceProjectPath
+                gitlab_repo_name = $gitlabProjectName
+                migration_type   = "SINGLE"
+                created_date     = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssZ')
+                last_updated     = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssZ')
+                status           = "PREPARED"
+            }
+            
+            $config | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 $paths.configFile
+            Write-Host "[INFO] Migration config created: $($paths.configFile)" -ForegroundColor Green
         }
         '2' {
             # Show prepared projects
@@ -1248,14 +1338,33 @@ function Invoke-SingleMigration {
         }
     }
     
-    # Get project paths
-    $paths = Get-ProjectPaths $repoName
-    $reportsDir = $paths.reportsDir
-    $logsDir = $paths.logsDir
-    $repoDir = $paths.repositoryDir
+    # Detect project structure (new v2.1.0+ vs legacy)
+    $migrationsDir = Get-MigrationsDirectory
+    $newConfigFile = Join-Path $migrationsDir "$DestProject\migration-config.json"
+    $legacyReportDir = Join-Path $migrationsDir "$repoName\reports"
+    
+    if (Test-Path $newConfigFile) {
+        # New self-contained structure (v2.1.0+)
+        Write-Host "[INFO] Using v2.1.0+ self-contained structure" -ForegroundColor Cyan
+        $paths = Get-ProjectPaths -AdoProject $DestProject -GitLabProject $repoName
+        $reportsDir = $paths.reportsDir
+        $logsDir = $paths.logsDir
+        $repoDir = $paths.repositoryDir
+        
+        # Look for preflight report in GitLab project subfolder
+        $preflightFile = Join-Path $paths.gitlabDir "reports\preflight-report.json"
+    }
+    else {
+        # Legacy flat structure (deprecated but supported)
+        Write-Host "[INFO] Using legacy flat structure (consider re-preparing with v2.1.0+)" -ForegroundColor Yellow
+        $paths = Get-ProjectPaths -ProjectName $repoName
+        $reportsDir = $paths.reportsDir
+        $logsDir = $paths.logsDir
+        $repoDir = $paths.repositoryDir
+        $preflightFile = Join-Path $reportsDir "preflight-report.json"
+    }
     
     # Check for existing preflight report
-    $preflightFile = Join-Path $reportsDir "preflight-report.json"
     $useLocalRepo = $false
     $gl = $null
     

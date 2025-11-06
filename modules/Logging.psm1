@@ -45,48 +45,98 @@ function Get-MigrationsDirectory {
 
 <#
 .SYNOPSIS
-    Gets the project-specific directory path.
+    Gets the project-specific directory paths for single project migrations.
 
 .DESCRIPTION
-    Returns path to project folder within migrations directory.
+    Returns paths for single project migration folder structure.
+    Supports both new (v2.1.0+) and legacy structures.
     Creates directory structure if missing.
 
 .PARAMETER ProjectName
-    Project name (used as folder name).
+    Legacy: Project name (used as folder name).
+    New: Azure DevOps project name (container/parent folder).
+
+.PARAMETER AdoProject
+    Azure DevOps project name (container folder) - NEW in v2.1.0.
+
+.PARAMETER GitLabProject
+    GitLab project name (subfolder) - NEW in v2.1.0.
 
 .OUTPUTS
-    Hashtable with projectDir, reportsDir, logsDir, repositoryDir paths.
+    Hashtable with projectDir, reportsDir, logsDir, repositoryDir, configFile paths.
+    New structure also includes gitlabDir.
 
 .EXAMPLE
-    Get-ProjectPaths "my-project"
+    # Legacy structure (deprecated)
+    Get-ProjectPaths -ProjectName "my-project"
+    
+.EXAMPLE
+    # New self-contained structure (v2.1.0+)
+    Get-ProjectPaths -AdoProject "MyDevOpsProject" -GitLabProject "my-project"
 #>
 function Get-ProjectPaths {
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory)]
-        [string]$ProjectName
+        [Parameter(Mandatory, ParameterSetName='Legacy')]
+        [string]$ProjectName,
+        
+        [Parameter(Mandatory, ParameterSetName='New')]
+        [string]$AdoProject,
+        
+        [Parameter(Mandatory, ParameterSetName='New')]
+        [string]$GitLabProject
     )
     
     $migrationsDir = Get-MigrationsDirectory
-    $projectDir = Join-Path $migrationsDir $ProjectName
-    $reportsDir = Join-Path $projectDir "reports"
-    $logsDir = Join-Path $projectDir "logs"
-    $repositoryDir = Join-Path $projectDir "repository"
     
-    # Create directories if missing
-    @($projectDir, $reportsDir, $logsDir) | ForEach-Object {
-        if (-not (Test-Path $_)) {
-            New-Item -ItemType Directory -Path $_ -Force | Out-Null
-            Write-Verbose "[Logging] Created directory: $_"
+    if ($PSCmdlet.ParameterSetName -eq 'New') {
+        # New self-contained structure (v2.1.0+)
+        $containerDir = Join-Path $migrationsDir $AdoProject
+        $gitlabDir = Join-Path $containerDir $GitLabProject
+        $reportsDir = Join-Path $containerDir "reports"
+        $logsDir = Join-Path $containerDir "logs"
+        $repositoryDir = Join-Path $gitlabDir "repository"
+        $configFile = Join-Path $containerDir "migration-config.json"
+        
+        # Create directories if missing
+        @($containerDir, $reportsDir, $logsDir, $gitlabDir) | ForEach-Object {
+            if (-not (Test-Path $_)) {
+                New-Item -ItemType Directory -Path $_ -Force | Out-Null
+                Write-Verbose "[Logging] Created directory: $_"
+            }
+        }
+        
+        return @{
+            projectDir    = $containerDir
+            gitlabDir     = $gitlabDir
+            reportsDir    = $reportsDir
+            logsDir       = $logsDir
+            repositoryDir = $repositoryDir
+            configFile    = $configFile
         }
     }
-    
-    return @{
-        projectDir    = $projectDir
-        reportsDir    = $reportsDir
-        logsDir       = $logsDir
-        repositoryDir = $repositoryDir
+    else {
+        # Legacy flat structure (deprecated)
+        $projectDir = Join-Path $migrationsDir $ProjectName
+        $reportsDir = Join-Path $projectDir "reports"
+        $logsDir = Join-Path $projectDir "logs"
+        $repositoryDir = Join-Path $projectDir "repository"
+        
+        # Create directories if missing
+        @($projectDir, $reportsDir, $logsDir) | ForEach-Object {
+            if (-not (Test-Path $_)) {
+                New-Item -ItemType Directory -Path $_ -Force | Out-Null
+                Write-Verbose "[Logging] Created directory: $_"
+            }
+        }
+        
+        return @{
+            projectDir    = $projectDir
+            reportsDir    = $reportsDir
+            logsDir       = $logsDir
+            repositoryDir = $repositoryDir
+        }
     }
 }
 

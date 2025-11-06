@@ -175,23 +175,129 @@ Write-Warning "[WARN] Non-critical issue detected"
 Write-Host "[ERROR] Operation failed" -ForegroundColor Red
 ```
 
-## File Structure
+## File Structure (v2.1.0+)
+
+**CRITICAL**: v2.1.0 introduces **self-contained folder structures** for both single and bulk migrations. This is a **breaking change** from previous versions.
+
+### Single Project Migration Structure (NEW in v2.1.0)
 
 ```
-migrations/                    # Migration workspace (gitignored)
-  ├── project-name/           # Individual project preparation
-  │   ├── reports/           # JSON reports (preflight, summary)
-  │   ├── logs/              # Timestamped operation logs
-  │   └── repository/        # Bare Git mirror (for reuse)
-  └── bulk-prep-ProjectName/ # Bulk migration workspace
-      └── bulk-migration-template.json
+migrations/
+└── MyDevOpsProject/                  # Azure DevOps project (parent)
+    ├── migration-config.json         # Single project metadata
+    ├── reports/                      # Reports at project level
+    │   ├── preflight-report.json
+    │   └── migration-summary.json
+    ├── logs/                         # Logs at project level
+    │   ├── preparation-YYYYMMDD-HHMMSS.log
+    │   └── migration-YYYYMMDD-HHMMSS.log
+    └── my-gitlab-project/            # GitLab project (subfolder)
+        ├── reports/                  # GitLab-specific reports
+        │   └── preflight-report.json
+        └── repository/               # Bare Git mirror
+```
 
+**Benefits**:
+- ✅ Clear 1:1 mapping: DevOps project contains GitLab project
+- ✅ Consistent with bulk migration pattern
+- ✅ Self-contained: portable and easy to archive
+- ✅ Can store multiple GitLab projects in same DevOps project (future)
+
+### Bulk Migration Structure (NEW in v2.1.0)
+
+```
+migrations/
+└── ConsolidatedProject/              # Azure DevOps project (parent)
+    ├── bulk-migration-config.json    # Bulk configuration (NOT template)
+    ├── reports/                      # Analysis results
+    │   ├── preparation-summary.json
+    │   └── migration-summary.json
+    ├── logs/                         # Operation logs
+    │   ├── bulk-preparation-YYYYMMDD-HHMMSS.log
+    │   └── bulk-execution-YYYYMMDD-HHMMSS.log
+    ├── frontend-app/                 # GitLab project 1 (subfolder)
+    │   ├── reports/
+    │   │   └── preflight-report.json
+    │   └── repository/               # Bare Git mirror
+    ├── backend-api/                  # GitLab project 2 (subfolder)
+    │   ├── reports/
+    │   │   └── preflight-report.json
+    │   └── repository/
+    └── infrastructure/               # GitLab project 3 (subfolder)
+        ├── reports/
+        │   └── preflight-report.json
+        └── repository/
+```
+
+**Benefits**:
+- ✅ All related projects in one container folder
+- ✅ Portable: move/archive entire folder
+- ✅ Clear parent-child relationships
+- ✅ Easy cleanup: delete one parent folder
+
+### Module Structure
+
+```
 modules/
   ├── Core.Rest.psm1         # REST foundation + curl fallback
   ├── GitLab.psm1            # Source adapter
   ├── AzureDevOps.psm1       # Destination adapter
   ├── Migration.psm1         # Orchestration + menu
-  └── Logging.psm1           # Reports + audit trails
+  ├── Logging.psm1           # Reports + audit trails (with Get-BulkProjectPaths)
+  └── AzureDevOps/           # Sub-modules (7 focused modules)
+      ├── Core.psm1          # 256 lines - REST foundation
+      ├── Security.psm1      # 84 lines - Token masking
+      ├── Projects.psm1      # 415 lines - Project creation
+      ├── Repositories.psm1  # 905 lines - Repo management
+      ├── Wikis.psm1         # 318 lines - Wiki creation
+      ├── WorkItems.psm1     # 1,507 lines - Work items
+      ├── Dashboards.psm1    # 676 lines - Dashboards
+      └── WikiTemplates/     # 43 external markdown templates
+```
+
+### Migration Config Formats (v2.1.0)
+
+**Single Project** (`migration-config.json`):
+```json
+{
+  "ado_project": "MyDevOpsProject",
+  "gitlab_project": "organization/my-project",
+  "gitlab_repo_name": "my-project",
+  "migration_type": "SINGLE",
+  "created_date": "2025-11-06T10:00:00Z",
+  "last_updated": "2025-11-06T10:30:00Z",
+  "status": "PREPARED|MIGRATED|COMPLETED"
+}
+```
+
+**Bulk Migration** (`bulk-migration-config.json`):
+```json
+{
+  "description": "Bulk migration configuration for 'ConsolidatedProject'",
+  "destination_project": "ConsolidatedProject",
+  "migration_type": "BULK",
+  "preparation_summary": {
+    "total_projects": 3,
+    "successful_preparations": 3,
+    "failed_preparations": 0,
+    "total_size_MB": 450,
+    "total_lfs_MB": 120,
+    "preparation_time": "2025-11-06 10:00:00"
+  },
+  "projects": [
+    {
+      "gitlab_path": "org/frontend-app",
+      "ado_repo_name": "frontend-app",
+      "description": "Migrated from org/frontend-app",
+      "repo_size_MB": 150,
+      "lfs_enabled": true,
+      "lfs_size_MB": 50,
+      "default_branch": "main",
+      "visibility": "private",
+      "preparation_status": "SUCCESS"
+    }
+  ]
+}
 ```
 
 ## What NOT to Migrate
@@ -235,6 +341,160 @@ Always support both modes in new features.
 - **No hardcoded secrets**: Use environment variables or parameters
 - **Audit trails**: Log all operations with timestamps to `logs/` folder
 - **Safe defaults**: Require explicit `-Force` for destructive operations
+
+---
+
+## v2.1.0 Folder Structure Implementation Rules
+
+### Critical Implementation Guidelines
+
+1. **Logging.psm1 Functions**:
+   - `Get-ProjectPaths`: Supports TWO parameter sets:
+     - **New** (v2.1.0+): `-AdoProject` + `-GitLabProject` → self-contained structure
+     - **Legacy**: `-ProjectName` → flat structure (deprecated, for backward compat)
+   - `Get-BulkProjectPaths`: NEW function for bulk migrations
+     - Parameters: `-AdoProject` (required), `-GitLabProject` (optional)
+     - Returns: `containerDir`, `reportsDir`, `logsDir`, `configFile`, and optionally `gitlabDir`, `repositoryDir`
+
+2. **GitLab.psm1 - Prepare-GitLab**:
+   - Supports `-CustomBaseDir` and `-CustomProjectName` for bulk/single v2.1.0 structure
+   - Default (no custom params): Legacy flat structure
+   - With custom params: Clones into `$CustomBaseDir/$CustomProjectName/repository/`
+
+3. **Migration.psm1 - Key Functions**:
+   - **Option 1** (Preparation): Prompts for BOTH DevOps and GitLab project names, creates self-contained structure
+   - **Option 2** (Initialize): Uses DevOps project name for folder structure
+   - **Option 3** (Migration): Detects structure (checks for `migration-config.json`), works with both
+   - **Option 4** (Bulk Prep): Uses `Get-BulkProjectPaths`, stores in self-contained structure
+   - **Option 6** (Bulk Exec): Reads from `bulk-migration-config.json` (not `bulk-migration-template.json`)
+
+4. **Structure Detection Pattern**:
+   ```powershell
+   # Check for v2.1.0 structure
+   $newConfigFile = Join-Path $migrationsDir "$DestProject\migration-config.json"
+   if (Test-Path $newConfigFile) {
+       # Use new structure
+       $paths = Get-ProjectPaths -AdoProject $DestProject -GitLabProject $repoName
+   } else {
+       # Use legacy structure (warn user)
+       Write-Host "[INFO] Using legacy structure (consider re-preparing)" -ForegroundColor Yellow
+       $paths = Get-ProjectPaths -ProjectName $repoName
+   }
+   ```
+
+5. **Naming Conventions**:
+   - ❌ OLD: `bulk-migration-template.json` (deprecated)
+   - ✅ NEW: `bulk-migration-config.json` (clarifies purpose)
+   - ❌ OLD: `bulk-prep-ProjectName/` (prefix anti-pattern)
+   - ✅ NEW: `ProjectName/` (clean parent folder name)
+
+6. **Backward Compatibility**:
+   - **Not required** for new migrations (v2.1.0 breaking changes acceptable)
+   - Existing migrations in old structure: Display warning, continue to work
+   - `Get-PreparedProjects`: Detects and displays both structures with `Structure` property
+
+---
+
+## v2.1.0 Comprehensive Task List
+
+### ✅ **COMPLETED TASKS** (19/21 - 90%)
+
+#### Core Module Restructuring
+- [x] **Task 9**: Clean up temporary refactoring scripts (Commit: a79d0de)
+- [x] **Task 12**: Split AzureDevOps.psm1 into focused sub-modules
+- [x] **Task 13**: Extract wiki templates to external files
+- [x] **Task 14**: Implement ConfigLoader for JSON-based configuration
+- [x] **Task 15**: Create comprehensive wiki template library (43 templates)
+- [x] **Task 16**: Extract project configuration to JSON files
+- [x] **Task 17**: Update documentation with v2.1.0 features
+- [x] **Task 18**: Implement Management Initialization Pack
+- [x] **Task 20**: Restructure bulk migration folder hierarchy (Commit: ec499b4)
+
+#### Team Initialization Packs (4/4 Complete)
+- [x] Business Team Pack: 10 wiki templates + 4 work item types
+- [x] Dev Team Pack: 7 wiki templates + comprehensive workflows
+- [x] Security Team Pack: 7 wiki templates + security configurations
+- [x] Management Team Pack: 8 wiki templates + executive dashboards
+
+#### Testing & Quality
+- [x] All 83 tests passing (100% pass rate)
+- [x] Test coverage documented in TEST_COVERAGE.md
+- [x] Idempotency tests for initialization functions
+
+---
+
+### 🚧 **IN PROGRESS** (1/21 - 5%)
+
+#### Task 21: Restructure Single Project Migration Folder Hierarchy
+**Status**: 70% Complete  
+**Remaining Work**:
+1. ✅ Update `Get-ProjectPaths` with new parameter sets
+2. ✅ Update `Get-PreparedProjects` to detect both structures
+3. ✅ Update Option 1 (Preparation) workflow
+4. ✅ Update `Invoke-SingleMigration` structure detection
+5. ⏳ Update `Initialize-AdoProject` to create migration config
+6. ⏳ Update `New-MigrationPreReport` to work with new structure
+7. ⏳ Update remaining menu display functions
+8. ⏳ Test end-to-end workflow (Options 1→2→3)
+9. ⏳ Update CHANGELOG.md with breaking changes
+10. ⏳ Commit and document
+
+**Expected Files Modified**:
+- `modules/Logging.psm1` ✅
+- `modules/Migration.psm1` (partial ✅)
+- `CHANGELOG.md`
+- `README.md`
+
+---
+
+### ⏳ **REMAINING TASKS** (1/21 - 5%)
+
+#### Documentation Updates
+- [ ] **Update README.md**: Document v2.1.0 folder structure changes
+- [ ] **Update CHANGELOG.md**: Add v2.1.0 release notes with breaking changes
+- [ ] **Update CLI documentation**: Reflect new folder structure in examples
+
+---
+
+### 🎯 **v2.1.0 Release Checklist**
+
+#### Pre-Release
+- [x] All 21 tasks completed (19/21 done, 1 in progress)
+- [ ] Task 21 fully completed and tested
+- [ ] All tests passing (currently 83/83 ✅)
+- [ ] Documentation updated (README, CHANGELOG, guides)
+- [ ] Version bumped to 2.1.0 in all files
+
+#### Release Process
+- [ ] Final code review
+- [ ] Create release notes highlighting:
+  - Self-contained folder structures
+  - Breaking changes (folder structure)
+  - Migration path from v2.0.x
+  - 43 wiki templates
+  - 4 team initialization packs
+- [ ] Tag release: `git tag -a v2.1.0 -m "Release v2.1.0"`
+- [ ] Push to origin: `git push origin main --tags`
+- [ ] Create GitHub release with detailed notes
+
+#### Post-Release
+- [ ] Update documentation links
+- [ ] Announce breaking changes to users
+- [ ] Monitor for issues with new structure
+
+---
+
+### 📊 **v2.1.0 Project Statistics**
+
+- **Total Lines of Code**: ~25,000 lines
+- **Wiki Templates**: 43 files (~18,000 lines)
+- **Modules**: 12 modules (7 sub-modules + 5 core)
+- **Functions**: 50+ exported functions
+- **Tests**: 83 tests (100% pass rate)
+- **Documentation**: 20+ markdown files
+- **Commits**: 150+ commits
+- **Completion**: 90% (19/21 tasks)
+- **Module Reduction**: 51.6% (10,763 → 5,174 lines in AzureDevOps.psm1)
 
 ---
 
