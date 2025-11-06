@@ -365,3 +365,12 @@ A **Security Champion** is a developer who:
 ---
 
 *Security is everyone's responsibility. Security Champions make it everyone's capability.*
+
+---
+
+## 📚 References
+
+- [OWASP Security Champions](https://owasp.org/www-project-security-champions-playbook/)
+- [Microsoft Security Champions Program](https://learn.microsoft.com/en-us/security/operations/security-operations-videos-and-decks)
+- [Building a Security Champions Program](https://safecode.org/wp-content/uploads/2019/02/Security-Champions-2019-.pdf)
+- [DevSecOps Best Practices](https://learn.microsoft.com/en-us/azure/architecture/solution-ideas/articles/devsecops-in-azure)

@@ -224,3 +224,13 @@ GET /api/users?sort=name:asc,createdAt:desc
 ---
 
 **Next Steps**: Update this page as APIs evolve. Link API changes to ADRs.
+
+---
+
+## 📚 References
+
+- [OpenAPI Specification](https://swagger.io/specification/)
+- [API Design Guidelines (Microsoft)](https://learn.microsoft.com/en-us/azure/architecture/best-practices/api-design)
+- [REST API Tutorial](https://restfulapi.net/)
+- [Swagger/OpenAPI Tools](https://swagger.io/tools/)
+- [API Documentation Best Practices](https://swagger.io/blog/api-documentation/best-practices-in-api-documentation/)

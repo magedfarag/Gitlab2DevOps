@@ -483,13 +483,24 @@ Every repository needs:
 ## 🎓 Learning Resources
 
 ### Azure DevOps Documentation
-- [Work Item Guidance](https://docs.microsoft.com/azure-devops/boards/)
-- [Git Branching Strategies](https://docs.microsoft.com/azure-devops/repos/git/git-branching-guidance)
-- [Pipeline Best Practices](https://docs.microsoft.com/azure-devops/pipelines/library/)
+- [Work Item Guidance](https://learn.microsoft.com/azure-devops/boards/)
+- [Git Branching Strategies](https://learn.microsoft.com/azure-devops/repos/git/git-branching-guidance)
+- [Pipeline Best Practices](https://learn.microsoft.com/azure-devops/pipelines/library/)
 
 ### Agile/Scrum Resources
 - Scrum Guide: [scrumguides.org](https://scrumguides.org)
 - Agile Manifesto: [agilemanifesto.org](https://agilemanifesto.org)
+
+---
+
+## 📚 References
+
+- [Azure DevOps Best Practices](https://learn.microsoft.com/en-us/azure/devops/best-practices/)
+- [Microsoft Engineering Playbook](https://microsoft.github.io/code-with-engineering-playbook/)
+- [The Twelve-Factor App](https://12factor.net/)
+- [SOLID Principles](https://en.wikipedia.org/wiki/SOLID)
+- [Clean Code by Robert C. Martin](https://www.oreilly.com/library/view/clean-code-a/9780136083238/)
+- [Continuous Delivery by Jez Humble](https://continuousdelivery.com/)
 
 ---
 

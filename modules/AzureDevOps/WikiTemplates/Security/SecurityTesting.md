@@ -335,3 +335,13 @@ Before production deployment, verify:
 - **Annually**: Penetration test, compliance audit
 
 **Questions?** #security or security@company.com
+
+---
+
+## 📚 References
+
+- [OWASP Testing Guide](https://owasp.org/www-project-web-security-testing-guide/)
+- [OWASP ZAP (Zed Attack Proxy)](https://www.zaproxy.org/)
+- [Burp Suite](https://portswigger.net/burp)
+- [Azure Security Testing](https://learn.microsoft.com/en-us/azure/security/develop/secure-dev-overview)
+- [NIST Penetration Testing](https://csrc.nist.gov/glossary/term/penetration_testing)

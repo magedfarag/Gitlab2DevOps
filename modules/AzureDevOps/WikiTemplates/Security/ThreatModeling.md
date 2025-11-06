@@ -317,3 +317,13 @@ For each data flow and component, apply STRIDE:
 5. Track in [Security Review Required query](/Security/Queries)
 
 **Questions?** #security or security@company.com
+
+---
+
+## 📚 References
+
+- [Microsoft Threat Modeling Tool](https://learn.microsoft.com/en-us/azure/security/develop/threat-modeling-tool)
+- [STRIDE Threat Model](https://learn.microsoft.com/en-us/azure/security/develop/threat-modeling-tool-threats)
+- [OWASP Threat Modeling](https://owasp.org/www-community/Threat_Modeling)
+- [Threat Modeling Manifesto](https://www.threatmodelingmanifesto.org/)
+- [ATT&CK Framework](https://attack.mitre.org/)

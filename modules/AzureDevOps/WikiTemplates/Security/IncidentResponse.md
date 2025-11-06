@@ -369,3 +369,12 @@ ETA to Resolution: [estimate]
 - **Update Plan**: After each incident or annually
 
 **Questions?** #security-incidents or security@company.com
+
+---
+
+## 📚 References
+
+- [NIST Incident Response Guide](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-61r2.pdf)
+- [Azure Security Incident Response](https://learn.microsoft.com/en-us/security/operations/incident-response-overview)
+- [SANS Incident Response Steps](https://www.sans.org/white-papers/33901/)
+- [CIS Incident Response Best Practices](https://www.cisecurity.org/)

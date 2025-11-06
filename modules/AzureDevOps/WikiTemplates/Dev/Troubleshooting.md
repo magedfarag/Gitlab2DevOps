@@ -474,3 +474,13 @@ Stack trace:
 ---
 
 **Remember**: Every issue is a learning opportunity! Document solutions you find for others.
+
+---
+
+## 📚 References
+
+- [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview)
+- [Debugging in Visual Studio](https://learn.microsoft.com/en-us/visualstudio/debugger/)
+- [Chrome DevTools](https://developer.chrome.com/docs/devtools/)
+- [Troubleshooting .NET Applications](https://learn.microsoft.com/en-us/dotnet/core/diagnostics/)
+- [SQL Server Troubleshooting](https://learn.microsoft.com/en-us/sql/relational-databases/performance/performance-monitoring-and-tuning-tools)

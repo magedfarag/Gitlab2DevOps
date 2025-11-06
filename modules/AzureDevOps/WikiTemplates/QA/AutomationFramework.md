@@ -442,3 +442,14 @@ steps:
 ---
 
 *Last updated: 2025-11-06*
+
+
+---
+
+## 📚 References
+
+- [Selenium Documentation](https://www.selenium.dev/documentation/)
+- [Playwright Testing](https://playwright.dev/)
+- [Cypress Best Practices](https://docs.cypress.io/guides/references/best-practices)
+- [Azure DevOps Test Automation](https://learn.microsoft.com/en-us/azure/devops/pipelines/test/)
+- [Test Automation Patterns](https://martinfowler.com/articles/practical-test-pyramid.html)

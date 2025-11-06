@@ -370,3 +370,13 @@ Action Items:
 ---
 
 *Last updated: 2025-11-06*
+
+
+---
+
+## 📚 References
+
+- [Azure Boards Bug Tracking](https://learn.microsoft.com/en-us/azure/devops/boards/backlogs/manage-bugs)
+- [Bug Life Cycle (ISTQB)](https://www.istqb.org/)
+- [Root Cause Analysis Techniques](https://asq.org/quality-resources/root-cause-analysis)
+- [IEEE Severity vs Priority](https://ieeexplore.ieee.org/)

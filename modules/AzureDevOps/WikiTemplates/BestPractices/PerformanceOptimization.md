@@ -345,3 +345,13 @@ artillery quick --count 10 --num 50 https://api.example.com/endpoint
 ---
 
 *Last updated: 2025-11-06*
+
+
+## 📚 References
+
+- [Web Vitals](https://web.dev/vitals/)
+- [Azure Application Insights Best Practices](https://learn.microsoft.com/en-us/azure/azure-monitor/app/best-practices)
+- [HTTP Caching](https://developer.mozilla.org/en-US/docs/Web/HTTP/Caching)
+- [Database Indexing Strategies](https://use-the-index-luke.com/)
+- [Performance Budget Calculator](https://www.performancebudget.io/)
+- [Lighthouse Performance Audits](https://developer.chrome.com/docs/lighthouse/performance/)

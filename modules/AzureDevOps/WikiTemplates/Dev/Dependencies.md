@@ -358,4 +358,15 @@ pip install --force-reinstall package-name
 
 ---
 
+## 📚 References
+
+- [NuGet Documentation](https://learn.microsoft.com/en-us/nuget/)
+- [npm Documentation](https://docs.npmjs.com/)
+- [Dependabot](https://github.com/dependabot)
+- [OWASP Dependency Check](https://owasp.org/www-project-dependency-check/)
+- [Snyk Open Source Security](https://snyk.io/product/open-source-security-management/)
+- [Software Composition Analysis Guide](https://www.synopsys.com/software-integrity/security-testing/software-composition-analysis.html)
+
+---
+
 **Next Steps**: Keep dependencies updated monthly and check security advisories weekly.

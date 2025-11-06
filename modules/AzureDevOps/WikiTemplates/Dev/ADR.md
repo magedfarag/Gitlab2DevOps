@@ -97,3 +97,13 @@ What is the problem we're trying to solve?]
 ---
 
 **Next Steps**: Create a new page under /Development/ADRs for each decision.
+
+---
+
+## 📚 References
+
+- [Architecture Decision Records (ADR) Overview](https://adr.github.io/)
+- [Lightweight ADR Template](https://github.com/joelparkerhenderson/architecture-decision-record)
+- [When to Use ADRs](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions)
+- [Y-Statements for ADRs](https://medium.com/olzzio/y-statements-10eb07b5a177)
+- [ADR Tools](https://github.com/npryce/adr-tools)

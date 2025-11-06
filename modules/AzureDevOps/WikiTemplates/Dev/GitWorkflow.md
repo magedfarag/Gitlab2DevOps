@@ -358,3 +358,13 @@ git config --global alias.unstage 'reset HEAD --'
 ---
 
 **Next Steps**: Practice these workflows and see [Code Review Checklist](/Development/Code-Review-Checklist).
+
+---
+
+## 📚 References
+
+- [Git Branching Strategies](https://learn.microsoft.com/en-us/azure/devops/repos/git/git-branching-guidance)
+- [GitHub Flow](https://githubflow.github.io/)
+- [Gitflow Workflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow)
+- [Conventional Commits](https://www.conventionalcommits.org/)
+- [Semantic Versioning](https://semver.org/)

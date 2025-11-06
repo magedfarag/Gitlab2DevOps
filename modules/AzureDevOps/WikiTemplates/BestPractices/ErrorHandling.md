@@ -490,3 +490,14 @@ public class CorrelationIdMiddleware
 ---
 
 *Last updated: 2025-11-06*
+
+
+---
+
+## 📚 References
+
+- [Error Handling Best Practices (Microsoft Learn)](https://learn.microsoft.com/en-us/dotnet/standard/exceptions/best-practices-for-exceptions)
+- [HTTP Status Codes](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status)
+- [Application Insights Exception Tracking](https://learn.microsoft.com/en-us/azure/azure-monitor/app/asp-net-exceptions)
+- [Polly - .NET Resilience Library](https://github.com/App-vNext/Polly)
+- [REST API Error Handling](https://www.rfc-editor.org/rfc/rfc7807)

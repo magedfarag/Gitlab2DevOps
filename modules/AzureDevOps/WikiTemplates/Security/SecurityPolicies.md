@@ -245,3 +245,13 @@ See [Compliance Requirements](/Security/Compliance-Requirements) for detailed re
 **Last Review**: [Date]  
 **Next Review**: [Date + 1 year]  
 **Questions**: #security or security@company.com
+
+---
+
+## 📚 References
+
+- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
+- [Microsoft Security Development Lifecycle](https://www.microsoft.com/en-us/securityengineering/sdl)
+- [NIST Cybersecurity Framework](https://www.nist.gov/cyberframework)
+- [CIS Controls](https://www.cisecurity.org/controls)
+- [Azure Security Best Practices](https://learn.microsoft.com/en-us/azure/security/fundamentals/best-practices-and-patterns)

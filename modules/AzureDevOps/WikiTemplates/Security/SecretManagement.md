@@ -511,3 +511,13 @@ git commit -m "Add API key from Key Vault"
 - [ ] Developers trained on secret management
 
 **Questions?** #security or security@company.com
+
+---
+
+## 📚 References
+
+- [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/)
+- [HashiCorp Vault](https://www.vaultproject.io/)
+- [OWASP Secrets Management](https://owasp.org/www-community/vulnerabilities/Use_of_hard-coded_password)
+- [GitHub Secrets Scanning](https://docs.github.com/en/code-security/secret-scanning)
+- [Azure DevOps Variable Groups](https://learn.microsoft.com/en-us/azure/devops/pipelines/library/variable-groups)

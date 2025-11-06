@@ -20,3 +20,12 @@ See [Cutover & Rollback](/Cutover-Timeline).
 ## Support
 - Teams/Slack: #ado-support
 - Office hours: Tue/Thu 14:00–15:00
+
+---
+
+## 📚 References
+
+- [Azure DevOps Business Value](https://learn.microsoft.com/en-us/azure/devops/)
+- [Agile Business Value](https://www.agilealliance.org/glossary/business-value)
+- [Project Management Institute (PMI)](https://www.pmi.org/)
+- [Business Analysis Body of Knowledge (BABOK)](https://www.iiba.org/standards-and-resources/babok/)

@@ -422,3 +422,13 @@ public class TestDataVersionManager
 ---
 
 *Last updated: 2025-11-06*
+
+
+---
+
+## 📚 References
+
+- [Test Data Management Best Practices](https://learn.microsoft.com/en-us/sql/relational-databases/security/encryption/test-data-management)
+- [GDPR and Test Data](https://gdpr.eu/test-data/)
+- [Anonymization vs Pseudonymization](https://www.nist.gov/privacy-framework)
+- [Synthetic Data Generation](https://en.wikipedia.org/wiki/Synthetic_data)

@@ -433,3 +433,12 @@ Navigate to **Dashboards → <Team> - QA Metrics**:
 
 *Last Updated: $(Get-Date -Format 'yyyy-MM-dd')*
 *Version: 1.0*
+
+---
+
+## 📚 References
+
+- [Azure DevOps Test Plans](https://learn.microsoft.com/en-us/azure/devops/test/)
+- [ISTQB Testing Glossary](https://glossary.istqb.org/)
+- [Test Automation Best Practices](https://learn.microsoft.com/en-us/azure/devops/test/best-practices-test-automation)
+- [Quality Assurance vs Quality Control](https://asq.org/quality-resources/quality-assurance-vs-control)

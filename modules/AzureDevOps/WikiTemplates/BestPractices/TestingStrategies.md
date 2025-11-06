@@ -532,3 +532,15 @@ reportgenerator -reports:coverage.cobertura.xml -targetdir:coverage-report
 ---
 
 *Last updated: 2025-11-06*
+
+
+---
+
+## 📚 References
+
+- [Testing Best Practices (Microsoft Learn)](https://learn.microsoft.com/en-us/dotnet/core/testing/)
+- [Test Pyramid](https://martinfowler.com/articles/practical-test-pyramid.html)
+- [xUnit Documentation](https://xunit.net/)
+- [Jest Testing Framework](https://jestjs.io/)
+- [Azure DevOps Test Plans](https://learn.microsoft.com/en-us/azure/devops/test/)
+- [Testing Library](https://testing-library.com/)

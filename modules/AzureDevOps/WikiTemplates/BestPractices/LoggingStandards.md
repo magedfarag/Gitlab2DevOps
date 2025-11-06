@@ -446,3 +446,14 @@ dependencies
 ---
 
 *Last updated: 2025-11-06*
+
+
+---
+
+## 📚 References
+
+- [Logging Best Practices (Microsoft Learn)](https://learn.microsoft.com/en-us/azure/azure-monitor/best-practices)
+- [Structured Logging with Serilog](https://serilog.net/)
+- [Application Insights Logging](https://learn.microsoft.com/en-us/azure/azure-monitor/app/ilogger)
+- [OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html)
+- [The 12-Factor App: Logs](https://12factor.net/logs)

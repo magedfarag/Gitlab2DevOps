@@ -422,3 +422,14 @@ jobs:
 ---
 
 *Last updated: 2025-11-06*
+
+
+---
+
+## 📚 References
+
+- [Microsoft Writing Style Guide](https://learn.microsoft.com/en-us/style-guide/welcome/)
+- [README Best Practices](https://github.com/matiassingers/awesome-readme)
+- [Markdown Guide](https://www.markdownguide.org/)
+- [API Documentation with OpenAPI](https://swagger.io/specification/)
+- [Write the Docs](https://www.writethedocs.org/)

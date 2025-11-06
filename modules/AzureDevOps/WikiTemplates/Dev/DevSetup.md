@@ -182,3 +182,13 @@ Configuration for debugging will be project-specific. See repository for example
 ---
 
 **Next Steps**: After setup, review [Git Workflow](/Development/Git-Workflow) and [Code Review Checklist](/Development/Code-Review-Checklist).
+
+---
+
+## 📚 References
+
+- [Visual Studio Code Documentation](https://code.visualstudio.com/docs)
+- [Git Installation Guide](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
+- [Docker Getting Started](https://docs.docker.com/get-started/)
+- [Node.js Best Practices](https://github.com/goldbergyoni/nodebestpractices)
+- [.NET Development Environment](https://learn.microsoft.com/en-us/dotnet/core/install/)

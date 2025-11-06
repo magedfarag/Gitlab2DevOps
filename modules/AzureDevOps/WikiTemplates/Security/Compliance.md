@@ -345,3 +345,14 @@ Regulatory and compliance obligations for our systems and data.
 **Compliance Contact**: compliance@company.com or #compliance
 
 **Questions?** Reach out to Legal or Security teams.
+
+---
+
+## 📚 References
+
+- [GDPR Official Site](https://gdpr.eu/)
+- [HIPAA Compliance Guide](https://www.hhs.gov/hipaa/index.html)
+- [PCI DSS Requirements](https://www.pcisecuritystandards.org/)
+- [SOC 2 Compliance](https://us.aicpa.org/interestareas/frc/assuranceadvisoryservices/aicpasoc2report)
+- [ISO 27001 Standard](https://www.iso.org/isoiec-27001-information-security.html)
+- [Azure Compliance Offerings](https://learn.microsoft.com/en-us/azure/compliance/)

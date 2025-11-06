@@ -264,3 +264,12 @@ Before human review, these should pass:
 ---
 
 **Next Steps**: Start reviewing PRs using this checklist. Give constructive feedback!
+
+---
+
+## 📚 References
+
+- [Code Review Best Practices (Microsoft)](https://learn.microsoft.com/en-us/azure/devops/repos/git/review-code-with-pull-requests)
+- [Google's Code Review Guidelines](https://google.github.io/eng-practices/review/)
+- [The Art of Code Review](https://www.oreilly.com/library/view/the-art-of/9781492072867/)
+- [Pull Request Best Practices](https://github.blog/2015-01-21-how-to-write-the-perfect-pull-request/)

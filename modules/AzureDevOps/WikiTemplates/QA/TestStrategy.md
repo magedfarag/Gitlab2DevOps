@@ -437,3 +437,13 @@ Week 2: Testing & Release
 ---
 
 *Last updated: 2025-11-06*
+
+
+---
+
+## 📚 References
+
+- [IEEE 829 Test Documentation](https://ieeexplore.ieee.org/document/741934)
+- [ISTQB Test Strategy Templates](https://www.istqb.org/)
+- [Azure DevOps Test Management](https://learn.microsoft.com/en-us/azure/devops/test/overview)
+- [Risk-Based Testing](https://www.softwaretestinghelp.com/risk-based-testing/)
