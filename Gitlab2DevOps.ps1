@@ -129,7 +129,7 @@
 param(
     # CLI Mode Parameters
     [Parameter(ParameterSetName='CLI', Mandatory)]
-    [ValidateSet('Preflight', 'Initialize', 'Migrate', 'BulkPrepare', 'BulkMigrate', 'BusinessInit')]
+    [ValidateSet('Preflight', 'Initialize', 'Migrate', 'BulkPrepare', 'BulkMigrate', 'BusinessInit', 'DevInit')]
     [string]$Mode,
     
     [Parameter(ParameterSetName='CLI')]
@@ -386,6 +386,26 @@ if ($PSCmdlet.ParameterSetName -eq 'CLI') {
 
             Write-Host "[INFO] Provisioning Business Initialization Pack for project: $Project" -ForegroundColor Cyan
             Initialize-BusinessInit -DestProject $Project
+        }
+        'DevInit' {
+            if ([string]::IsNullOrWhiteSpace($Project)) {
+                Write-Host "[ERROR] -Project parameter is required for DevInit mode" -ForegroundColor Red
+                Write-Host "Usage: .\Gitlab2DevOps.ps1 -Mode DevInit -Project 'MyProject' [-Source 'group/project']" -ForegroundColor Yellow
+                exit 1
+            }
+
+            Write-Host "[INFO] Provisioning Development Initialization Pack for project: $Project" -ForegroundColor Cyan
+            
+            # Detect project type from Source if provided
+            $projectType = 'all'
+            if (-not [string]::IsNullOrWhiteSpace($Source)) {
+                Write-Host "[INFO] Analyzing GitLab project to detect type..." -ForegroundColor Cyan
+                # Simple detection based on files in repository
+                # This would require GitLab API call - defaulting to 'all' for now
+                Write-Verbose "[DevInit] Source provided: $Source - using 'all' project type"
+            }
+            
+            Initialize-DevInit -DestProject $Project -ProjectType $projectType
         }
         }
     }

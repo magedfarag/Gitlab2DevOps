@@ -97,7 +97,7 @@ function Get-AdoProjectList {
     
     # Fetch fresh data from API
     Write-Verbose "[Get-AdoProjectList] Fetching project list from Azure DevOps API..."
-    $list = Invoke-AdoRest GET "/_apis/projects?`$top=5000"
+    $list = Invoke-AdoRest GET "/_apis/projects?``$top=5000"
     $projects = $list.value
     
     # Update cache
@@ -453,7 +453,7 @@ function Get-AdoBuiltInGroupDescriptor {
         [string]$GroupName
     )
     
-    $groups = Invoke-AdoRest GET "/_apis/graph/groups?scopeDescriptor=$ProjDesc&`$top=200"
+    $groups = Invoke-AdoRest GET "/_apis/graph/groups?scopeDescriptor=$ProjDesc&``$top=200"
     ($groups.value | Where-Object { $_.principalName -like "*\[$GroupName]" }).descriptor
 }
 
@@ -486,7 +486,7 @@ function Ensure-AdoGroup {
         [string]$DisplayName
     )
     
-    $groups = Invoke-AdoRest GET "/_apis/graph/groups?scopeDescriptor=$ProjDesc&`$top=200"
+    $groups = Invoke-AdoRest GET "/_apis/graph/groups?scopeDescriptor=$ProjDesc&``$top=200"
     $existing = $groups.value | Where-Object { $_.displayName -eq $DisplayName }
     
     if ($existing) {
@@ -1350,7 +1350,7 @@ function Ensure-AdoIterations {
     # Get existing iterations
     $existingIterations = @()
     try {
-        $response = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/work/teamsettings/iterations?`$timeframe=current"
+        $response = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/work/teamsettings/iterations?``$timeframe=current"
         if ($response -and $response.value) {
             $existingIterations = $response.value.name
         }
@@ -1484,7 +1484,7 @@ function Ensure-AdoSharedQueries {
     # Check existing queries
     $existingQueries = @{}
     try {
-        $response = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=1"
+        $response = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?``$depth=1"
         if ($response -and $response.children) {
             $response.children | ForEach-Object { $existingQueries[$_.name] = $_ }
         }
@@ -1586,7 +1586,7 @@ function Ensure-AdoTestPlan {
     if (-not $Iteration) {
         try {
             $teamName = "$Project Team"
-            $teamIterations = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($teamName))/_apis/work/teamsettings/iterations?`$timeframe=current"
+            $teamIterations = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($teamName))/_apis/work/teamsettings/iterations?``$timeframe=current"
             if ($teamIterations -and $teamIterations.value -and $teamIterations.value.Count -gt 0) {
                 $Iteration = $teamIterations.value[0].path
                 Write-Verbose "[Ensure-AdoTestPlan] Using current iteration: $Iteration"
@@ -1799,7 +1799,7 @@ function Ensure-AdoQAQueries {
     
     try {
         # Check if QA folder already exists
-        $sharedQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=2"
+        $sharedQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?``$depth=2"
         
         if ($sharedQueries -and $sharedQueries.children) {
             $qaFolder = $sharedQueries.children | Where-Object { $_.name -eq "QA" -and $_.isFolder -eq $true }
@@ -1831,7 +1831,7 @@ function Ensure-AdoQAQueries {
     $existingQueries = @{}
     try {
         if ($qaFolderId) {
-            $folderQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$qaFolderId?`$depth=1"
+            $folderQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$qaFolderId?``$depth=1"
             if ($folderQueries -and $folderQueries.children) {
                 $folderQueries.children | ForEach-Object { $existingQueries[$_.name] = $_ }
             }
@@ -2101,9 +2101,9 @@ function Ensure-AdoTestConfigurations {
         [string]$Project
     )
     
-    Write-Host "`n========================================" -ForegroundColor Cyan
+    Write-Host "``n========================================" -ForegroundColor Cyan
     Write-Host "CREATING TEST CONFIGURATIONS" -ForegroundColor Cyan
-    Write-Host "========================================`n" -ForegroundColor Cyan
+    Write-Host "========================================``n" -ForegroundColor Cyan
     
     try {
         # Define test variables and their values
@@ -2180,7 +2180,7 @@ function Ensure-AdoTestConfigurations {
             Write-Host "    ✓ Created with $($varDef.Values.Count) value(s)" -ForegroundColor Green
         }
         
-        Write-Host "`n[SUCCESS] Test variables: $($createdVariables.Count) variable(s) configured" -ForegroundColor Green
+        Write-Host "``n[SUCCESS] Test variables: $($createdVariables.Count) variable(s) configured" -ForegroundColor Green
         
         # Define test configurations (combinations of variables)
         $configurationDefs = @(
@@ -2200,7 +2200,7 @@ function Ensure-AdoTestConfigurations {
         )
         
         # Get existing test configurations
-        Write-Host "`n[INFO] Checking existing test configurations..." -ForegroundColor Cyan
+        Write-Host "``n[INFO] Checking existing test configurations..." -ForegroundColor Cyan
         $existingConfigurations = @{}
         try {
             $configurations = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/testplan/configurations?api-version=7.1"
@@ -2262,20 +2262,20 @@ function Ensure-AdoTestConfigurations {
             Write-Host "    ✓ Created successfully" -ForegroundColor Green
         }
         
-        Write-Host "`n[SUCCESS] Test configurations: $($createdConfigurations.Count) configuration(s) configured" -ForegroundColor Green
+        Write-Host "``n[SUCCESS] Test configurations: $($createdConfigurations.Count) configuration(s) configured" -ForegroundColor Green
         
         # Summary
-        Write-Host "`n========================================" -ForegroundColor Green
+        Write-Host "``n========================================" -ForegroundColor Green
         Write-Host "TEST CONFIGURATIONS SUMMARY" -ForegroundColor Green
         Write-Host "========================================" -ForegroundColor Green
         Write-Host "✓ Test Variables: $($createdVariables.Count)" -ForegroundColor Green
         Write-Host "  • Browser: Chrome, Firefox, Safari, Edge" -ForegroundColor White
         Write-Host "  • Operating System: Windows, macOS, Linux, iOS, Android" -ForegroundColor White
         Write-Host "  • Environment: Dev, Test, Staging, Production" -ForegroundColor White
-        Write-Host "`n✓ Test Configurations: $($createdConfigurations.Count)" -ForegroundColor Green
+        Write-Host "``n✓ Test Configurations: $($createdConfigurations.Count)" -ForegroundColor Green
         Write-Host "  • Browser/OS combinations: 10 configurations" -ForegroundColor White
         Write-Host "  • Environment-specific: 3 configurations" -ForegroundColor White
-        Write-Host "========================================`n" -ForegroundColor Green
+        Write-Host "========================================``n" -ForegroundColor Green
         
         return @{
             variables = $createdVariables
@@ -2441,7 +2441,7 @@ Our project uses **13 predefined test configurations** for comprehensive coverag
 
 ## 📚 Test Plan Structure
 
-### Test Plan: \`$Project - Test Plan\`
+### Test Plan: \``$Project - Test Plan\``
 
 Our test plan is organized into **4 test suites**:
 
@@ -2474,17 +2474,17 @@ Our test plan is organized into **4 test suites**:
 ### Organizing Test Cases
 
 **Naming Convention**:
-\`\`\`
+````````````
 [Module] - [Action] - [Expected Result]
 Example: [Login] - Valid credentials - User logged in successfully
-\`\`\`
+````````````
 
 **Tags for Test Cases**:
-- \`regression\` - Include in regression suite
-- \`smoke\` - Critical path test
-- \`automated\` - Automated test exists
-- \`manual-only\` - Cannot be automated
-- \`blocked\` - Test is currently blocked
+- \``regression\`` - Include in regression suite
+- \``smoke\`` - Critical path test
+- \``automated\`` - Automated test exists
+- \``manual-only\`` - Cannot be automated
+- \``blocked\`` - Test is currently blocked
 
 ---
 
@@ -2494,7 +2494,7 @@ Example: [Login] - Valid credentials - User logged in successfully
 
 Use the **Test Case - Quality Validation** template:
 
-**Title Format**: \`[TEST] <scenario name>\`
+**Title Format**: \``[TEST] <scenario name>\``
 - ✅ Good: "[TEST] Login with valid credentials"
 - ❌ Bad: "test login"
 
@@ -2511,13 +2511,13 @@ Use the **Test Case - Quality Validation** template:
 
 #### 3. Test Steps
 Write clear, numbered steps:
-\`\`\`
+````````````
 1. Navigate to login page
 2. Enter username: 'testuser@example.com'
 3. Enter password: 'Test123!'
 4. Click 'Sign In' button
 5. Verify user dashboard displays
-\`\`\`
+````````````
 
 #### 4. Expected Results
 - Define success criteria for each step
@@ -2554,27 +2554,27 @@ Write clear, numbered steps:
 
 Use the **Bug - Triaging &amp; Resolution** template:
 
-**Title Format**: \`[BUG] <brief description>\`
+**Title Format**: \``[BUG] <brief description>\``
 - ✅ Good: "[BUG] Login fails with special characters in password"
 - ❌ Bad: "login broken"
 
 ### Required Bug Information
 
 #### 1. Environment
-\`\`\`
+````````````
 Browser/OS: Chrome 118 on Windows 11
 Application Version: 2.5.3
 User Role: Standard User
-\`\`\`
+````````````
 
 #### 2. Steps to Reproduce
-\`\`\`
+````````````
 1. Navigate to https://app.example.com/login
 2. Enter username: 'test@example.com'
 3. Enter password containing special chars: 'P@ssw0rd!'
 4. Click 'Sign In'
 5. Observe error message
-\`\`\`
+````````````
 
 #### 3. Expected vs Actual Behavior
 - **Expected**: User successfully logs in
@@ -2621,10 +2621,10 @@ User Role: Standard User
 5. **Reopened** → Issue persists (back to Active)
 
 **Triaging Tags**:
-- \`triage-needed\` - Needs severity/priority assignment
-- \`needs-repro\` - Cannot reproduce, needs more info
-- \`regression\` - Previously working feature broke
-- \`known-issue\` - Documented limitation
+- \``triage-needed\`` - Needs severity/priority assignment
+- \``needs-repro\`` - Cannot reproduce, needs more info
+- \``regression\`` - Previously working feature broke
+- \``known-issue\`` - Documented limitation
 
 ---
 
@@ -2756,7 +2756,7 @@ Navigate to **Dashboards → <Team> - QA Metrics**:
 ### Support
 
 - **Questions**: Use team chat or email QA Lead
-- **Tool Issues**: Create Bug work item with tag \`qa-tooling\`
+- **Tool Issues**: Create Bug work item with tag \``qa-tooling\``
 - **Process Improvements**: Discuss in retrospectives
 
 ---
@@ -2839,7 +2839,7 @@ function Ensure-AdoRepositoryTemplates {
     # Check if repository has any commits (needed to add files)
     $hasCommits = $false
     try {
-        $commits = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/commits?`$top=1"
+        $commits = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/commits?``$top=1"
         $hasCommits = $commits.count -gt 0
     }
     catch {
@@ -2877,48 +2877,48 @@ Brief description of the project and its purpose.
 - Dependencies needed
 
 ### Installation
-\`\`\`bash
+````````````bash
 # Clone the repository
 git clone <repository-url>
 
 # Install dependencies
 # Add installation commands here
-\`\`\`
+````````````
 
 ### Running Locally
-\`\`\`bash
+````````````bash
 # Add commands to run the application locally
-\`\`\`
+````````````
 
 ## Development Workflow
 
-1. Create a feature branch from \`main\`
-   \`\`\`bash
+1. Create a feature branch from \``main\``
+   ````````````bash
    git checkout -b feature/your-feature-name
-   \`\`\`
+   ````````````
 
 2. Make your changes and commit
-   \`\`\`bash
+   ````````````bash
    git add .
    git commit -m "Description of changes"
-   \`\`\`
+   ````````````
 
 3. Push and create a pull request
-   \`\`\`bash
+   ````````````bash
    git push origin feature/your-feature-name
-   \`\`\`
+   ````````````
 
 4. Link your work items in the PR description
 5. Request code review
 6. Merge after approval
 
 ## Project Structure
-\`\`\`
+````````````
 /src        - Source code
 /docs       - Documentation
 /tests      - Test files
 /scripts    - Build and deployment scripts
-\`\`\`
+````````````
 
 ## Contributing
 - Follow the team's coding standards
@@ -3434,7 +3434,7 @@ This page documents the standard tags used across the project for consistent wor
 ### How to Use Tags
 
 1. **Apply Multiple Tags**: Work items can have multiple tags
-   - Example: \`frontend, needs-review, breaking-change\`
+   - Example: \``frontend, needs-review, breaking-change\``
 
 2. **Use in Queries**: Filter work items by tags
    - Queries → "Contains" operator for tag searches
@@ -3468,10 +3468,10 @@ Before creating a new tag:
 ## Tag Queries
 
 Use these queries to find tagged work items:
-- **Blocked Work**: \`Tags Contains 'blocked'\`
-- **Technical Debt**: \`Tags Contains 'technical-debt'\`
-- **Needs Review**: \`Tags Contains 'needs-review'\`
-- **Breaking Changes**: \`Tags Contains 'breaking-change'\`
+- **Blocked Work**: \``Tags Contains 'blocked'\``
+- **Technical Debt**: \``Tags Contains 'technical-debt'\``
+- **Needs Review**: \``Tags Contains 'needs-review'\``
+- **Breaking Changes**: \``Tags Contains 'breaking-change'\``
 
 ---
 
@@ -3561,7 +3561,7 @@ This guide provides comprehensive best practices for using Azure DevOps effectiv
   
 - **Add relevant tags**: 3-5 tags maximum
   - Use predefined tags (see [Tag Guidelines](/Tag-Guidelines))
-  - Example: \`backend, api, needs-review\`
+  - Example: \``backend, api, needs-review\``
   
 - **Link related items**: 
   - Parent-child for hierarchy (Epic → Feature → User Story → Task)
@@ -3621,9 +3621,9 @@ This guide provides comprehensive best practices for using Azure DevOps effectiv
 
 ### Sprint Commitment Formula
 
-\`\`\`
+````````````
 Commitment = (Average Velocity × 0.8) + Buffer for bugs/tech debt
-\`\`\`
+````````````
 
 **Example**:
 - Last 3 sprints: 25, 28, 24 points = 25.67 avg
@@ -3672,22 +3672,22 @@ Commitment = (Average Velocity × 0.8) + Buffer for bugs/tech debt
 
 ### Recommended: GitHub Flow (Simplified)
 
-\`\`\`
+````````````
 main (protected)
   ↓
 feature/add-login ──→ PR ──→ merge to main
 feature/fix-bug-123 ──→ PR ──→ merge to main
-\`\`\`
+````````````
 
 ### Branch Naming Conventions
 
-**Pattern**: ``<type>/<ticket-number>-<brief-description>``
+**Pattern**: ````<type>/<ticket-number>-<brief-description>````
 
 **Examples**:
-- ``feature/123-add-user-authentication``
-- ``bugfix/456-fix-login-crash``
-- ``hotfix/789-security-patch``
-- ``refactor/321-cleanup-api-layer``
+- ````feature/123-add-user-authentication````
+- ````bugfix/456-fix-login-crash````
+- ````hotfix/789-security-patch````
+- ````refactor/321-cleanup-api-layer````
 
 ### Branch Protection Rules (Applied Automatically)
 
@@ -3700,7 +3700,7 @@ feature/fix-bug-123 ──→ PR ──→ merge to main
 
 - **Branch early**: Create branch as soon as you start work
 - **Commit often**: Small, atomic commits with clear messages
-- **Pull frequently**: ``git pull origin main`` daily to avoid conflicts
+- **Pull frequently**: ````git pull origin main```` daily to avoid conflicts
 - **Delete after merge**: Keep repository clean
 
 ---
@@ -3752,16 +3752,16 @@ feature/fix-bug-123 ──→ PR ──→ merge to main
 ### Essential Tags (Use These)
 
 **Status Tags** (update as work progresses):
-- ``blocked`` - External dependency blocking progress
-- ``needs-review`` - Code ready for review
-- ``needs-testing`` - Requires QA validation
-- ``urgent`` - High priority, immediate attention
+- ````blocked```` - External dependency blocking progress
+- ````needs-review```` - Code ready for review
+- ````needs-testing```` - Requires QA validation
+- ````urgent```` - High priority, immediate attention
 
 **Technical Tags** (classify work type):
-- ``frontend``, ``backend``, ``database``, ``api``
-- ``technical-debt`` - Refactoring needed
-- ``breaking-change`` - API/contract changes
-- ``performance`` - Optimization work
+- ````frontend````, ````backend````, ````database````, ````api````
+- ````technical-debt```` - Refactoring needed
+- ````breaking-change```` - API/contract changes
+- ````performance```` - Optimization work
 
 **See full list**: [Tag Guidelines](/Tag-Guidelines)
 
@@ -3775,7 +3775,7 @@ feature/fix-bug-123 ──→ PR ──→ merge to main
 
 ❌ **DON'T**:
 - Create custom tags without team agreement
-- Use spaces (use hyphens: \`needs-review\`)
+- Use spaces (use hyphens: \``needs-review\``)
 - Over-tag (>7 tags = noise)
 
 ---
@@ -3815,12 +3815,12 @@ Navigate to: **Boards → Queries → Shared Queries**
 - Add to dashboard as query tiles
 
 **Example Query**: High Priority Bugs
-\`\`\`
+````````````
 Work Item Type = Bug
 AND State <> Closed
 AND Priority <= 2
 ORDER BY Priority ASC
-\`\`\`
+````````````
 
 ---
 
@@ -3871,7 +3871,7 @@ ORDER BY Priority ASC
 
 ### Wiki Organization
 
-\`\`\`
+````````````
 /Home
 /Getting-Started
   /Development-Setup
@@ -3883,7 +3883,7 @@ ORDER BY Priority ASC
   /Best-Practices (this page)
   /Tag-Guidelines
   /Release-Process
-\`\`\`
+````````````
 
 ### When to Document
 
@@ -3927,7 +3927,7 @@ Every repository needs:
 
 ### Test Pyramid
 
-\`\`\`
+````````````
        /\\
       /  \\  E2E Tests (5%)
      /----\\
@@ -3937,7 +3937,7 @@ Every repository needs:
  /----------------\\
 /__________________\\
    Unit Tests (50%)
-\`\`\`
+````````````
 
 **Golden Rule**: More unit tests, fewer E2E tests
 
@@ -4057,7 +4057,7 @@ Every repository needs:
 - Remove outdated guidance
 
 **Suggest Changes**:
-- Create work item tagged \`documentation\`
+- Create work item tagged \``documentation\``
 - Propose changes in retrospectives
 - Edit this wiki page directly (with team agreement)
 
@@ -4270,7 +4270,7 @@ function Ensure-AdoBusinessQueries {
     # Read existing queries under Shared Queries
     $existing = @{}
     try {
-        $resp = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=1"
+        $resp = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?``$depth=1"
         if ($resp -and $resp.children) { $resp.children | ForEach-Object { $existing[$_.name] = $_ } }
     }
     catch {
@@ -4350,7 +4350,7 @@ function Ensure-AdoRepository {
         
         # Check if repository has commits
         try {
-            $commits = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$($existing.id)/commits?`$top=1"
+            $commits = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$($existing.id)/commits?``$top=1"
             $hasCommits = $commits.count -gt 0
         }
         catch {
@@ -4680,6 +4680,3901 @@ function Ensure-AdoRepoDeny {
     Write-Host "[INFO] Deny permissions successfully applied" -ForegroundColor Green
 }
 
+<#
+.SYNOPSIS
+    Creates development-focused wiki pages for technical team enablement.
+
+.DESCRIPTION
+    Provisions comprehensive wiki structure for development teams including:
+    - Architecture Decision Records (ADR) template
+    - Development environment setup guide
+    - API documentation structure
+    - Git workflow and branching strategy
+    - Code review checklist
+    - Troubleshooting guide
+    - Dependencies and third-party libraries documentation
+
+.PARAMETER Project
+    Azure DevOps project name.
+
+.PARAMETER WikiId
+    Wiki identifier.
+
+.EXAMPLE
+    Ensure-AdoDevWiki -Project "MyProject" -WikiId "wiki-id-123"
+#>
+function Ensure-AdoDevWiki {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$WikiId
+    )
+    
+    Write-Host "[INFO] Creating development wiki pages..." -ForegroundColor Cyan
+    
+    # Architecture Decision Records
+    $adrContent = @"
+# Architecture Decision Records (ADRs)
+
+Architecture Decision Records document significant architectural decisions made during the project lifecycle.
+
+## What is an ADR?
+
+An ADR is a document that captures an important architectural decision made along with its context and consequences.
+
+## When to Create an ADR
+
+Create an ADR when you make a decision that:
+- Affects the structure, non-functional characteristics, dependencies, interfaces, or construction techniques
+- Is difficult or expensive to reverse
+- Has significant impact on team productivity or system quality
+- Introduces new technologies, frameworks, or patterns
+
+## ADR Template
+
+Use this template for new ADRs:
+
+````````````markdown
+# ADR-001: [Short Title of Decision]
+
+**Status**: Proposed | Accepted | Superseded | Deprecated  
+**Date**: YYYY-MM-DD  
+**Deciders**: [List of people involved]  
+**Technical Story**: [Link to work item or ticket]
+
+## Context
+
+[Describe the forces at play: technical, business, political, social. 
+What is the problem we're trying to solve?]
+
+## Decision
+
+[Describe the decision we made. Use active voice: "We will..."]
+
+## Consequences
+
+### Positive
+- [Benefit 1]
+- [Benefit 2]
+
+### Negative
+- [Drawback 1]
+- [Drawback 2]
+
+### Neutral
+- [Impact 1]
+
+## Alternatives Considered
+
+### Option A: [Name]
+- **Pros**: ...
+- **Cons**: ...
+- **Why Not Chosen**: ...
+
+### Option B: [Name]
+- **Pros**: ...
+- **Cons**: ...
+- **Why Not Chosen**: ...
+
+## Implementation Notes
+
+[Any specific guidance for implementation]
+
+## References
+
+- [Link to design doc]
+- [Link to spike/POC]
+- [External resources]
+````````````
+
+## Example ADRs
+
+### ADR-001: Use REST API instead of GraphQL
+
+**Status**: Accepted  
+**Date**: 2024-01-15  
+**Deciders**: Tech Lead, Backend Team  
+
+**Context**: Need to choose API architecture for new service.
+
+**Decision**: We will use REST API with OpenAPI specification.
+
+**Consequences**:
+- ✅ Team already familiar with REST
+- ✅ Better tooling support
+- ❌ More endpoints to maintain
+
+## ADR Index
+
+| Number | Title | Status | Date |
+|--------|-------|--------|------|
+| ADR-001 | Example decision | Accepted | 2024-01-15 |
+
+---
+
+**Next Steps**: Create a new page under /Development/ADRs for each decision.
+"@
+
+    # Development Setup
+    $devSetupContent = @"
+# Development Environment Setup
+
+Complete guide for setting up your local development environment.
+
+## Prerequisites
+
+### Required Software
+
+- **Git**: Version 2.30+
+  - Download: https://git-scm.com/
+  - Verify: \``git --version\``
+
+- **IDE/Editor**:
+  - Visual Studio Code (recommended)
+  - Visual Studio 2022
+  - JetBrains Rider/IntelliJ
+
+- **Runtime/SDK**:
+  - .NET 8.0 SDK (for .NET projects)
+  - Node.js 18+ LTS (for Node projects)
+  - Python 3.11+ (for Python projects)
+  - Docker Desktop (for containerized development)
+
+### Optional Tools
+
+- **Postman** or **Insomnia** (API testing)
+- **Azure Data Studio** or **SQL Server Management Studio** (database)
+- **Redis Desktop Manager** (cache debugging)
+
+## Repository Setup
+
+### 1. Clone the Repository
+
+````````````bash
+# Clone with HTTPS
+git clone https://dev.azure.com/your-org/$Project/_git/$Project
+
+# Or with SSH
+git clone git@ssh.dev.azure.com:v3/your-org/$Project/$Project
+
+cd $Project
+````````````
+
+### 2. Install Dependencies
+
+#### For .NET Projects
+````````````bash
+dotnet restore
+dotnet build
+````````````
+
+#### For Node.js Projects
+````````````bash
+npm install
+# or
+yarn install
+````````````
+
+#### For Python Projects
+````````````bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+````````````
+
+### 3. Configure Local Settings
+
+````````````bash
+# Copy configuration template
+cp appsettings.Development.json.template appsettings.Development.json
+# or
+cp .env.example .env
+
+# Edit with your local settings
+code appsettings.Development.json
+````````````
+
+### 4. Database Setup
+
+````````````bash
+# Run migrations
+dotnet ef database update
+# or
+npm run migrate
+````````````
+
+### 5. Run the Application
+
+````````````bash
+# .NET
+dotnet run --project src/MyApp.Api
+
+# Node.js
+npm run dev
+
+# Python
+python manage.py runserver
+````````````
+
+## Verification
+
+### Health Check
+
+After starting the application, verify it's running:
+
+````````````bash
+curl http://localhost:5000/health
+# Should return: {"status": "healthy"}
+````````````
+
+### Run Tests
+
+````````````bash
+# .NET
+dotnet test
+
+# Node.js
+npm test
+
+# Python
+pytest
+````````````
+
+## Common Issues
+
+### Issue: Port Already in Use
+
+**Solution**: Change port in configuration or kill existing process
+````````````bash
+# Windows
+netstat -ano | findstr :5000
+taskkill /PID <PID> /F
+
+# Linux/Mac
+lsof -i :5000
+kill -9 <PID>
+````````````
+
+### Issue: Database Connection Failed
+
+**Solution**: Verify connection string and ensure database server is running
+
+### Issue: SSL Certificate Errors
+
+**Solution**: Trust development certificate
+````````````bash
+dotnet dev-certs https --trust
+````````````
+
+## IDE Configuration
+
+### Visual Studio Code
+
+**Recommended Extensions**:
+- C# (for .NET)
+- ESLint (for JavaScript)
+- Python
+- Docker
+- GitLens
+- Azure Repos
+
+**Settings** (\``.vscode/settings.json\``):
+````````````json
+{
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": true
+  }
+}
+````````````
+
+### Launch Configuration (\``.vscode/launch.json\``)
+
+Configuration for debugging will be project-specific. See repository for examples.
+
+## Getting Help
+
+- **Wiki**: Check [Troubleshooting](/Development/Troubleshooting)
+- **Team**: Ask in team chat or daily standup
+- **Documentation**: See [API Documentation](/Development/API-Documentation)
+
+---
+
+**Next Steps**: After setup, review [Git Workflow](/Development/Git-Workflow) and [Code Review Checklist](/Development/Code-Review-Checklist).
+"@
+
+    # API Documentation
+    $apiDocsContent = @"
+# API Documentation
+
+Comprehensive guide to the project's APIs and integration contracts.
+
+## API Overview
+
+### Base URLs
+
+| Environment | URL |
+|-------------|-----|
+| **Development** | http://localhost:5000 |
+| **Staging** | https://staging-api.example.com |
+| **Production** | https://api.example.com |
+
+### Authentication
+
+**Type**: Bearer Token (JWT)
+
+````````````http
+Authorization: Bearer <your-jwt-token>
+````````````
+
+### Common Headers
+
+````````````http
+Content-Type: application/json
+Accept: application/json
+X-API-Version: 1.0
+````````````
+
+## API Endpoints
+
+### User Management
+
+#### GET /api/users
+
+Get list of users.
+
+**Request**:
+````````````http
+GET /api/users?page=1&size=20
+Authorization: Bearer <token>
+````````````
+
+**Response** (200 OK):
+````````````json
+{
+  "data": [
+    {
+      "id": "123",
+      "name": "John Doe",
+      "email": "john@example.com",
+      "role": "developer"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "size": 20,
+    "total": 100
+  }
+}
+````````````
+
+#### POST /api/users
+
+Create new user.
+
+**Request**:
+````````````json
+{
+  "name": "Jane Smith",
+  "email": "jane@example.com",
+  "role": "developer"
+}
+````````````
+
+**Response** (201 Created):
+````````````json
+{
+  "id": "124",
+  "name": "Jane Smith",
+  "email": "jane@example.com",
+  "role": "developer",
+  "createdAt": "2024-01-15T10:30:00Z"
+}
+````````````
+
+## Error Handling
+
+### Standard Error Response
+
+````````````json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid input data",
+    "details": [
+      {
+        "field": "email",
+        "message": "Email format is invalid"
+      }
+    ]
+  }
+}
+````````````
+
+### HTTP Status Codes
+
+| Code | Meaning | Usage |
+|------|---------|-------|
+| 200 | OK | Successful GET request |
+| 201 | Created | Successful POST (resource created) |
+| 204 | No Content | Successful DELETE |
+| 400 | Bad Request | Invalid input data |
+| 401 | Unauthorized | Missing or invalid token |
+| 403 | Forbidden | Insufficient permissions |
+| 404 | Not Found | Resource doesn't exist |
+| 409 | Conflict | Resource already exists |
+| 500 | Internal Server Error | Server error |
+
+## Rate Limiting
+
+- **Rate**: 1000 requests per hour per user
+- **Header**: \``X-RateLimit-Remaining\``
+- **Reset**: \``X-RateLimit-Reset\`` (Unix timestamp)
+
+## Webhooks
+
+### Subscribing to Events
+
+````````````http
+POST /api/webhooks
+Content-Type: application/json
+
+{
+  "url": "https://your-app.com/webhook",
+  "events": ["user.created", "user.updated"],
+  "secret": "your-webhook-secret"
+}
+````````````
+
+### Webhook Payload
+
+````````````json
+{
+  "event": "user.created",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "data": {
+    "id": "124",
+    "name": "Jane Smith"
+  }
+}
+````````````
+
+## OpenAPI Specification
+
+Full OpenAPI (Swagger) specification available at:
+- **Development**: http://localhost:5000/swagger
+- **Staging**: https://staging-api.example.com/swagger
+
+## Testing APIs
+
+### Using cURL
+
+````````````bash
+curl -X GET "http://localhost:5000/api/users" \
+  -H "Authorization: Bearer <token>" \
+  -H "Accept: application/json"
+````````````
+
+### Using Postman
+
+1. Import collection: \``docs/postman/collection.json\``
+2. Set environment variables
+3. Run requests
+
+### Using REST Client (VS Code)
+
+Create \``.http\`` files:
+
+````````````http
+### Get Users
+GET http://localhost:5000/api/users
+Authorization: Bearer {{token}}
+
+### Create User
+POST http://localhost:5000/api/users
+Content-Type: application/json
+
+{
+  "name": "Test User",
+  "email": "test@example.com"
+}
+````````````
+
+## Integration Patterns
+
+### Pagination
+
+All list endpoints support pagination:
+- \``page\``: Page number (1-based)
+- \``size\``: Items per page (max 100)
+
+### Filtering
+
+Use query parameters:
+````````````
+GET /api/users?role=developer&status=active
+````````````
+
+### Sorting
+
+Use \``sort\`` parameter:
+````````````
+GET /api/users?sort=name:asc,createdAt:desc
+````````````
+
+## Versioning Strategy
+
+- **URL Versioning**: \``/api/v1/users\``
+- **Header Versioning**: \``X-API-Version: 1.0\``
+- **Deprecation Notice**: 6 months before removal
+
+---
+
+**Next Steps**: Update this page as APIs evolve. Link API changes to ADRs.
+"@
+
+    # Git Workflow
+    $gitWorkflowContent = @"
+# Git Workflow & Branching Strategy
+
+Comprehensive guide to Git workflow, branching conventions, and commit best practices.
+
+## Branching Strategy
+
+We use **GitHub Flow** (simplified Git Flow) with protected main branch.
+
+````````````
+main (protected) ──────────────────────────────────────→
+       ↓                          ↓
+    feature/123-add-auth    bugfix/456-fix-crash
+       ↓                          ↓
+      [commits]                [commits]
+       ↓                          ↓
+      [PR + Review]           [PR + Review]
+       ↓                          ↓
+      merge →                 merge →
+````````````
+
+## Branch Naming Conventions
+
+**Pattern**: \``<type>/<ticket-number>-<brief-description>\``
+
+### Branch Types
+
+| Type | Usage | Example |
+|------|-------|---------|
+| \``feature/\`` | New features | \``feature/123-add-user-authentication\`` |
+| \``bugfix/\`` | Bug fixes | \``bugfix/456-fix-login-crash\`` |
+| \``hotfix/\`` | Urgent production fixes | \``hotfix/789-security-patch\`` |
+| \``refactor/\`` | Code refactoring | \``refactor/321-cleanup-api-layer\`` |
+| \``docs/\`` | Documentation only | \``docs/234-update-api-guide\`` |
+| \``test/\`` | Test improvements | \``test/567-add-integration-tests\`` |
+
+### Rules
+
+✅ **DO**:
+- Always include ticket number: \``feature/123-...\``
+- Use kebab-case: \``add-user-auth\`` not \``addUserAuth\``
+- Be descriptive but concise (max 50 chars)
+- Delete branch after merge
+
+❌ **DON'T**:
+- Use generic names: \``fix\``, \``update\``, \``temp\``
+- Skip ticket number: \``feature/new-feature\``
+- Use spaces or special characters
+
+## Commit Message Conventions
+
+### Format
+
+````````````
+<type>(<scope>): <subject>
+
+[optional body]
+
+[optional footer]
+````````````
+
+### Types
+
+- \``feat\``: New feature
+- \``fix\``: Bug fix
+- \``docs\``: Documentation changes
+- \``style\``: Code style changes (formatting, no logic change)
+- \``refactor\``: Code refactoring
+- \``test\``: Adding or updating tests
+- \``chore\``: Build process, tooling, dependencies
+
+### Examples
+
+**Good**:
+````````````
+feat(auth): add JWT token validation
+
+Implement JWT token validation middleware with expiry check.
+Includes unit tests and error handling.
+
+Closes #123
+````````````
+
+**Bad**:
+````````````
+updated code
+````````````
+
+### Rules
+
+✅ **DO**:
+- Use imperative mood: "add" not "added"
+- Capitalize first letter
+- No period at end of subject
+- Link to work item: "Closes #123" or "Refs #456"
+- Keep subject under 72 characters
+- Explain "why" in body, not "what" (code shows "what")
+
+❌ **DON'T**:
+- Write vague messages: "fix bug", "update"
+- Commit unrelated changes together
+- Skip linking work items
+
+## Daily Workflow
+
+### 1. Start New Work
+
+````````````bash
+# Update main branch
+git checkout main
+git pull origin main
+
+# Create feature branch
+git checkout -b feature/123-add-user-auth
+
+# Verify branch
+git branch --show-current
+````````````
+
+### 2. Make Changes
+
+````````````bash
+# Make changes to files
+code src/Auth/AuthService.cs
+
+# Check status
+git status
+
+# Review changes
+git diff
+
+# Stage changes
+git add src/Auth/AuthService.cs
+# or stage all
+git add .
+````````````
+
+### 3. Commit Changes
+
+````````````bash
+# Commit with message
+git commit -m "feat(auth): add JWT validation middleware"
+
+# Or open editor for detailed message
+git commit
+````````````
+
+### 4. Push to Remote
+
+````````````bash
+# First push (set upstream)
+git push -u origin feature/123-add-user-auth
+
+# Subsequent pushes
+git push
+````````````
+
+### 5. Keep Branch Updated
+
+````````````bash
+# Fetch latest main
+git checkout main
+git pull origin main
+
+# Rebase your branch
+git checkout feature/123-add-user-auth
+git rebase main
+
+# Or merge (if rebase causes issues)
+git merge main
+
+# Push updated branch (may need force-push after rebase)
+git push --force-with-lease
+````````````
+
+### 6. Create Pull Request
+
+1. Push your branch
+2. Go to Azure Repos → Pull Requests
+3. Click "New Pull Request"
+4. Select: \``feature/123-add-user-auth\`` → \``main\``
+5. Fill PR template
+6. Link work item (required)
+7. Add reviewers
+8. Submit
+
+### 7. Address Review Feedback
+
+````````````bash
+# Make requested changes
+code src/Auth/AuthService.cs
+
+# Commit changes
+git add .
+git commit -m "refactor(auth): address PR feedback - improve error handling"
+
+# Push to update PR
+git push
+````````````
+
+### 8. Merge and Cleanup
+
+After PR approval:
+
+````````````bash
+# Merge via Azure DevOps UI (recommended)
+# Or locally:
+git checkout main
+git pull origin main
+git merge --no-ff feature/123-add-user-auth
+git push origin main
+
+# Delete branch
+git branch -d feature/123-add-user-auth
+git push origin --delete feature/123-add-user-auth
+````````````
+
+## Advanced Git Commands
+
+### Fixing Mistakes
+
+#### Undo Last Commit (keep changes)
+````````````bash
+git reset --soft HEAD~1
+````````````
+
+#### Undo Last Commit (discard changes)
+````````````bash
+git reset --hard HEAD~1
+````````````
+
+#### Amend Last Commit Message
+````````````bash
+git commit --amend -m "new message"
+````````````
+
+#### Undo Changes to File
+````````````bash
+git checkout -- filename.cs
+````````````
+
+### Interactive Rebase (Clean History)
+
+````````````bash
+# Rebase last 3 commits
+git rebase -i HEAD~3
+
+# Options:
+# pick - keep commit
+# squash - combine with previous
+# edit - modify commit
+# drop - remove commit
+````````````
+
+### Stash Changes (Temporary Save)
+
+````````````bash
+# Save current changes
+git stash
+
+# List stashes
+git stash list
+
+# Apply latest stash
+git stash apply
+
+# Apply and remove stash
+git stash pop
+````````````
+
+### Cherry-Pick (Copy Commit)
+
+````````````bash
+# Copy commit to current branch
+git cherry-pick <commit-hash>
+````````````
+
+## Conflict Resolution
+
+### When Conflicts Occur
+
+````````````bash
+# Attempt merge/rebase
+git merge main
+# CONFLICT: Fix conflicts then continue
+
+# View conflicted files
+git status
+
+# Open conflicted file - look for:
+<<<<<<< HEAD
+your changes
+=======
+incoming changes
+>>>>>>> main
+
+# Edit to resolve, remove markers
+
+# Mark as resolved
+git add filename.cs
+
+# Complete merge
+git commit
+````````````
+
+### Prevention
+
+- Pull \``main\`` frequently
+- Keep branches short-lived (< 3 days)
+- Communicate with team about shared files
+
+## Git Configuration
+
+### Recommended Settings
+
+````````````bash
+# User identity
+git config --global user.name "Your Name"
+git config --global user.email "your.email@company.com"
+
+# Default editor
+git config --global core.editor "code --wait"
+
+# Default branch name
+git config --global init.defaultBranch main
+
+# Auto-fix whitespace
+git config --global apply.whitespace fix
+
+# Better diff algorithm
+git config --global diff.algorithm histogram
+
+# Reuse recorded resolutions
+git config --global rerere.enabled true
+````````````
+
+### Useful Aliases
+
+````````````bash
+git config --global alias.co checkout
+git config --global alias.br branch
+git config --global alias.ci commit
+git config --global alias.st status
+git config --global alias.last 'log -1 HEAD'
+git config --global alias.unstage 'reset HEAD --'
+````````````
+
+## Best Practices Summary
+
+1. ✅ **Commit early, commit often** - Small, logical commits
+2. ✅ **Write meaningful messages** - Explain "why", not "what"
+3. ✅ **One feature per branch** - Keep branches focused
+4. ✅ **Keep branches up to date** - Pull main daily
+5. ✅ **Review before pushing** - Use \``git diff\`` before commit
+6. ✅ **Link work items** - Every commit references ticket
+7. ✅ **Delete merged branches** - Keep repository clean
+8. ✅ **Never commit secrets** - Use .gitignore and .env
+
+---
+
+**Next Steps**: Practice these workflows and see [Code Review Checklist](/Development/Code-Review-Checklist).
+"@
+
+    # Code Review Checklist
+    $codeReviewContent = @"
+# Code Review Checklist
+
+Comprehensive checklist for both code authors and reviewers to ensure high-quality code reviews.
+
+## For Authors: Before Creating PR
+
+### Code Quality
+
+- [ ] **Self-review completed** - Read your own diff line by line
+- [ ] **All tests passing** - Run full test suite locally
+- [ ] **No console warnings** - Clean build output
+- [ ] **Code follows style guide** - Consistent formatting
+- [ ] **No commented-out code** - Remove or explain why kept
+- [ ] **No debug statements** - Remove console.log, print, etc.
+- [ ] **Variable names are clear** - Self-documenting code
+
+### Testing
+
+- [ ] **Unit tests added** - For new functionality
+- [ ] **Unit tests updated** - For modified functionality
+- [ ] **Edge cases covered** - Null, empty, boundary values
+- [ ] **Integration tests** - If touching multiple components
+- [ ] **Manual testing done** - Actually used the feature
+
+### Documentation
+
+- [ ] **XML/JSDoc comments** - For public APIs
+- [ ] **README updated** - If setup process changed
+- [ ] **API docs updated** - If endpoints changed
+- [ ] **Wiki updated** - For architectural changes
+- [ ] **CHANGELOG entry** - For user-facing changes
+
+### Security
+
+- [ ] **No secrets in code** - Use configuration/environment variables
+- [ ] **Input validation** - All user input validated
+- [ ] **SQL injection prevented** - Use parameterized queries
+- [ ] **XSS prevented** - Escape output, sanitize input
+- [ ] **Authentication checked** - Endpoints require auth
+- [ ] **Authorization checked** - Users can only access their data
+
+### Performance
+
+- [ ] **No N+1 queries** - Optimize database calls
+- [ ] **Appropriate caching** - Cache expensive operations
+- [ ] **Large collections paginated** - Don't load all data
+- [ ] **No blocking calls** - Use async where appropriate
+- [ ] **Resource cleanup** - Dispose connections, streams
+
+### Work Item
+
+- [ ] **Work item linked** - PR references ticket (required)
+- [ ] **Description clear** - What/why/testing explained
+- [ ] **Screenshots attached** - For UI changes
+- [ ] **Reviewers assigned** - 2-3 appropriate reviewers
+- [ ] **Labels added** - Mark as feature/bugfix/etc.
+
+## For Reviewers: Review Checklist
+
+### Code Correctness
+
+- [ ] **Logic is sound** - Code does what it claims
+- [ ] **Edge cases handled** - Null checks, empty collections
+- [ ] **Error handling present** - Try-catch where appropriate
+- [ ] **No obvious bugs** - Race conditions, off-by-one errors
+- [ ] **Thread-safe** - Concurrent access handled correctly
+
+### Code Quality
+
+- [ ] **Readable code** - Can understand without asking
+- [ ] **Appropriate abstractions** - Not over/under-engineered
+- [ ] **DRY principle** - No unnecessary duplication
+- [ ] **SOLID principles** - Well-structured OOP
+- [ ] **Consistent with codebase** - Matches existing patterns
+- [ ] **Appropriate complexity** - Not unnecessarily complex
+
+### Testing
+
+- [ ] **Tests are valuable** - Test behavior, not implementation
+- [ ] **Tests are maintainable** - Clear arrange-act-assert
+- [ ] **Tests are fast** - No unnecessary delays
+- [ ] **Test coverage adequate** - Critical paths covered
+- [ ] **Tests will catch regressions** - Actually validate functionality
+
+### Performance
+
+- [ ] **No obvious performance issues** - Check algorithms
+- [ ] **Database queries optimized** - Indexes, joins appropriate
+- [ ] **Memory usage reasonable** - No memory leaks
+- [ ] **Network calls minimized** - Batch where possible
+
+### Security
+
+- [ ] **Authentication enforced** - Login required where needed
+- [ ] **Authorization enforced** - Permissions checked
+- [ ] **Input validated** - Both client and server side
+- [ ] **Output escaped** - Prevent XSS
+- [ ] **No hardcoded secrets** - Config files not committed
+- [ ] **Dependencies secure** - No known vulnerabilities
+
+### Documentation
+
+- [ ] **Code is self-documenting** - Clear naming
+- [ ] **Comments explain "why"** - Not "what"
+- [ ] **Public APIs documented** - XML/JSDoc present
+- [ ] **Complex logic explained** - Non-obvious code has comments
+
+### Architecture
+
+- [ ] **Follows project architecture** - Layers respected
+- [ ] **Dependencies appropriate** - Not introducing circular deps
+- [ ] **API design consistent** - Follows REST/naming conventions
+- [ ] **Database changes safe** - Migrations backward compatible
+
+## Review Feedback Guidelines
+
+### Effective Feedback Format
+
+**Use Clear Categories**:
+- **[CRITICAL]**: Must be fixed (blocks merge)
+- **[MAJOR]**: Should be fixed (discuss if not)
+- **[MINOR]**: Nice to have (optional)
+- **[QUESTION]**: Seeking clarification
+- **[PRAISE]**: Positive feedback
+
+**Examples**:
+
+✅ **Good Feedback**:
+````````````
+[CRITICAL] Security: User input not validated
+Line 45: userId comes directly from request without validation.
+This could allow SQL injection.
+Suggestion: Use parameterized query or validate as integer.
+````````````
+
+````````````
+[MAJOR] Performance: N+1 query detected
+Line 120: Loading users in loop will cause N queries.
+Consider using Include() or single query with join.
+````````````
+
+````````````
+[MINOR] Naming: Variable name could be clearer
+Line 78: 'temp' doesn't convey purpose.
+Consider 'validatedUsers' or 'activeUsers'.
+````````````
+
+````````````
+[PRAISE] Nice abstraction!
+Love how you extracted this into a reusable service.
+Makes testing much easier.
+````````````
+
+❌ **Poor Feedback**:
+````````````
+This is wrong.
+```````````` 
+(Not specific, not actionable)
+
+````````````
+Why did you do it this way?
+````````````
+(Sounds confrontational, no context)
+
+### Feedback Tone
+
+✅ **DO**:
+- Be respectful and constructive
+- Assume good intent
+- Ask questions, don't accuse
+- Praise good patterns
+- Explain reasoning
+- Suggest alternatives
+- Offer to pair program for complex issues
+
+❌ **DON'T**:
+- Use absolute statements ("This is bad")
+- Be condescending ("Obviously this is wrong")
+- Nitpick style if auto-formatter exists
+- Request changes without explanation
+- Block on personal preferences
+
+### Responding to Feedback
+
+**For Authors**:
+
+✅ **DO**:
+- Thank reviewer for feedback
+- Ask for clarification if unclear
+- Explain decisions if needed
+- Push back respectfully if you disagree
+- Mark resolved after addressing
+
+❌ **DON'T**:
+- Take feedback personally
+- Get defensive
+- Ignore feedback without discussion
+- Mark resolved without addressing
+
+## Review Turnaround Time
+
+| PR Type | Target Review Time |
+|---------|-------------------|
+| **Hotfix** | 2-4 hours |
+| **Small PR** (< 200 lines) | 4-8 hours |
+| **Medium PR** (200-500 lines) | 1 business day |
+| **Large PR** (> 500 lines) | 2 business days |
+
+**If PR is urgent**: Mark with \``urgent\`` label and notify in chat.
+
+## When to Approve
+
+**Approve when**:
+- All CRITICAL and MAJOR issues resolved
+- Tests passing
+- No security concerns
+- Code meets quality bar
+- Minor issues documented for follow-up
+
+**Request Changes when**:
+- Critical security/performance issues
+- Tests failing or missing
+- Doesn't meet requirements
+- Significant refactoring needed
+
+**Comment (no approval) when**:
+- Minor suggestions
+- Questions for clarification
+- Positive feedback only
+
+## Large PR Guidelines
+
+**For PRs > 500 lines**:
+
+1. **Provide Context**: Extra detailed description
+2. **Highlight Changes**: Point to key files/changes
+3. **Offer Walkthrough**: Schedule 15-min review session
+4. **Break Down**: Consider splitting into multiple PRs
+
+**For Reviewers**:
+- Schedule dedicated review time
+- Review in multiple sessions if needed
+- Focus on architecture first, then details
+- Use "Start Review" to batch comments
+
+## Automated Checks
+
+Before human review, these should pass:
+- ✅ All tests passing
+- ✅ Build successful
+- ✅ Code coverage > 80%
+- ✅ No linting errors
+- ✅ Security scan passed
+- ✅ Work item linked
+
+## Review Metrics
+
+**Healthy Team Metrics**:
+- PR turnaround time: < 24 hours
+- Comments per PR: 5-15 (not too few, not too many)
+- Review participation: Everyone reviews, not just seniors
+- Approval rate: 80%+ on first submission (indicates clear expectations)
+
+---
+
+**Next Steps**: Start reviewing PRs using this checklist. Give constructive feedback!
+"@
+
+    # Troubleshooting Guide
+    $troubleshootingContent = @"
+# Troubleshooting Guide
+
+Common issues and solutions for development, deployment, and runtime problems.
+
+## Table of Contents
+
+1. [Development Environment](#development-environment)
+2. [Build Issues](#build-issues)
+3. [Runtime Errors](#runtime-errors)
+4. [Database Problems](#database-problems)
+5. [Authentication Issues](#authentication-issues)
+6. [Performance Problems](#performance-problems)
+7. [Git Issues](#git-issues)
+
+---
+
+## Development Environment
+
+### Issue: IDE Not Recognizing Project
+
+**Symptoms**: IntelliSense not working, red squiggles everywhere
+
+**Solutions**:
+
+1. **Reload Project**
+   ````````````bash
+   # VS Code
+   Ctrl+Shift+P → "Developer: Reload Window"
+   
+   # Visual Studio
+   File → Close Solution, then reopen
+   ````````````
+
+2. **Clear Cache**
+   ````````````bash
+   # .NET
+   dotnet clean
+   dotnet restore
+   
+   # Node.js
+   rm -rf node_modules package-lock.json
+   npm install
+   ````````````
+
+3. **Check SDK Version**
+   ````````````bash
+   dotnet --version
+   node --version
+   ````````````
+
+### Issue: Port Already in Use
+
+**Symptoms**: Cannot start application, "Address already in use"
+
+**Solutions**:
+
+**Windows**:
+````````````powershell
+# Find process using port 5000
+netstat -ano | findstr :5000
+
+# Kill process
+taskkill /PID <PID> /F
+````````````
+
+**Linux/Mac**:
+````````````bash
+# Find process
+lsof -i :5000
+
+# Kill process
+kill -9 <PID>
+````````````
+
+**Or Change Port**:
+- Edit \``appsettings.Development.json\`` or \``.env\``
+- Set different port number
+
+---
+
+## Build Issues
+
+### Issue: Build Failed with Compilation Errors
+
+**Symptoms**: "CS0246: Type or namespace not found"
+
+**Solutions**:
+
+1. **Restore Dependencies**
+   ````````````bash
+   dotnet restore
+   ````````````
+
+2. **Clean and Rebuild**
+   ````````````bash
+   dotnet clean
+   dotnet build
+   ````````````
+
+3. **Check NuGet Cache**
+   ````````````bash
+   dotnet nuget locals all --clear
+   ````````````
+
+### Issue: Missing Dependencies
+
+**Symptoms**: Module not found, package missing
+
+**Solutions**:
+
+**For .NET**:
+````````````bash
+dotnet restore
+````````````
+
+**For Node.js**:
+````````````bash
+npm install
+# If issues persist
+rm -rf node_modules package-lock.json
+npm install
+````````````
+
+**For Python**:
+````````````bash
+pip install -r requirements.txt
+````````````
+
+### Issue: Build Succeeds Locally but Fails in CI
+
+**Symptoms**: CI build fails with errors not seen locally
+
+**Common Causes**:
+- Different SDK versions
+- Missing environment variables
+- Case-sensitive file paths (Windows vs Linux)
+- Uncommitted files
+
+**Solutions**:
+
+1. **Check CI Logs**: Read full build output
+2. **Match SDK Version**: Use same version as CI
+3. **Test in Container**: 
+   ````````````bash
+   docker build -t test .
+   ````````````
+
+---
+
+## Runtime Errors
+
+### Issue: Null Reference Exception
+
+**Symptoms**: \``NullReferenceException\`` or \``Cannot read property of undefined\``
+
+**Solutions**:
+
+1. **Add Null Checks**:
+   ````````````csharp
+   if (user == null)
+       throw new ArgumentNullException(nameof(user));
+   
+   // Or use null-conditional
+   var email = user?.Email ?? "unknown";
+   ````````````
+
+2. **Check Configuration**: Ensure all required settings exist
+
+3. **Debug**: Add breakpoint before exception, inspect values
+
+### Issue: Timeout Exception
+
+**Symptoms**: Request times out, "Operation timed out"
+
+**Solutions**:
+
+1. **Check Network**: Verify service is reachable
+   ````````````bash
+   ping <hostname>
+   telnet <hostname> <port>
+   ````````````
+
+2. **Increase Timeout**:
+   ````````````csharp
+   httpClient.Timeout = TimeSpan.FromSeconds(60);
+   ````````````
+
+3. **Optimize Query**: If database timeout, check query performance
+
+### Issue: Out of Memory
+
+**Symptoms**: \``OutOfMemoryException\``, application crashes
+
+**Solutions**:
+
+1. **Identify Memory Leak**:
+   - Use memory profiler (dotMemory, Chrome DevTools)
+   - Check for event handlers not unsubscribed
+   - Look for large collections kept in memory
+
+2. **Implement Pagination**: Don't load all data at once
+
+3. **Dispose Resources**:
+   ````````````csharp
+   using (var connection = new SqlConnection(...))
+   {
+       // Use connection
+   } // Automatically disposed
+   ````````````
+
+---
+
+## Database Problems
+
+### Issue: Connection String Invalid
+
+**Symptoms**: "Cannot connect to database", authentication failed
+
+**Solutions**:
+
+1. **Verify Connection String**:
+   ````````````json
+   "ConnectionStrings": {
+     "Default": "Server=localhost;Database=MyDb;User Id=sa;Password=YourPassword;TrustServerCertificate=true"
+   }
+   ````````````
+
+2. **Test Connection**:
+   - Use SQL Server Management Studio
+   - Or Azure Data Studio
+   - Verify server, database, credentials
+
+3. **Check Firewall**: Ensure port 1433 (SQL) is open
+
+### Issue: Migration Failed
+
+**Symptoms**: "Migration ... failed to apply"
+
+**Solutions**:
+
+1. **Check Migration History**:
+   ````````````bash
+   dotnet ef migrations list
+   ````````````
+
+2. **Remove Failed Migration**:
+   ````````````bash
+   dotnet ef database update <last-good-migration>
+   dotnet ef migrations remove
+   ````````````
+
+3. **Recreate Migration**:
+   ````````````bash
+   dotnet ef migrations add <MigrationName>
+   dotnet ef database update
+   ````````````
+
+### Issue: Slow Query Performance
+
+**Symptoms**: Query takes > 5 seconds, application slow
+
+**Solutions**:
+
+1. **Enable Query Logging**:
+   ````````````csharp
+   options.UseSqlServer(connectionString)
+       .LogTo(Console.WriteLine, LogLevel.Information);
+   ````````````
+
+2. **Analyze Query Plan**: Look for table scans
+
+3. **Add Indexes**:
+   ````````````sql
+   CREATE INDEX IX_Users_Email ON Users(Email);
+   ````````````
+
+4. **Use Eager Loading**:
+   ````````````csharp
+   var users = context.Users
+       .Include(u => u.Orders)  // Avoid N+1
+       .ToList();
+   ````````````
+
+---
+
+## Authentication Issues
+
+### Issue: Token Expired
+
+**Symptoms**: "401 Unauthorized" on API calls
+
+**Solutions**:
+
+1. **Refresh Token**: Implement token refresh flow
+
+2. **Check Token Expiry**:
+   ````````````javascript
+   const token = jwt_decode(accessToken);
+   if (token.exp < Date.now() / 1000) {
+       // Token expired, refresh
+   }
+   ````````````
+
+3. **Verify Token Config**: Ensure expiry time is reasonable
+
+### Issue: CORS Error
+
+**Symptoms**: "Access blocked by CORS policy"
+
+**Solutions**:
+
+1. **Configure CORS** (server-side):
+   ````````````csharp
+   services.AddCors(options =>
+   {
+       options.AddPolicy("AllowDevClient",
+           builder => builder
+               .WithOrigins("http://localhost:3000")
+               .AllowAnyHeader()
+               .AllowAnyMethod());
+   });
+   ````````````
+
+2. **Use Proxy** (development):
+   ````````````json
+   // package.json
+   "proxy": "http://localhost:5000"
+   ````````````
+
+---
+
+## Performance Problems
+
+### Issue: Application Slow
+
+**Symptoms**: High response times, poor user experience
+
+**Debugging Steps**:
+
+1. **Profile Application**:
+   - Use Application Insights
+   - Check logs for slow operations
+   - Use performance profiler
+
+2. **Check Common Causes**:
+   - Database N+1 queries
+   - Synchronous I/O on hot path
+   - Large JSON serialization
+   - Missing caching
+
+3. **Add Logging**:
+   ````````````csharp
+   var stopwatch = Stopwatch.StartNew();
+   // Operation
+   stopwatch.Stop();
+   _logger.LogInformation("Operation took {Ms}ms", stopwatch.ElapsedMilliseconds);
+   ````````````
+
+### Issue: High CPU Usage
+
+**Solutions**:
+
+1. **Profile CPU**: Use profiler to find hot paths
+
+2. **Check for Infinite Loops**
+
+3. **Optimize Algorithms**: O(n²) → O(n log n)
+
+4. **Add Caching**: Cache expensive computations
+
+---
+
+## Git Issues
+
+### Issue: Merge Conflict
+
+**Symptoms**: "CONFLICT: Merge conflict in..."
+
+**Solutions**:
+
+1. **Abort and Start Over**:
+   ````````````bash
+   git merge --abort
+   # or
+   git rebase --abort
+   ````````````
+
+2. **Resolve Manually**:
+   - Open conflicted file
+   - Look for \``<<<<<<\``, \``======\``, \``>>>>>>\``
+   - Edit to keep desired changes
+   - Remove markers
+   - \``git add <file>\``
+   - \``git commit\`` or \``git rebase --continue\``
+
+3. **Use Merge Tool**:
+   ````````````bash
+   git mergetool
+   ````````````
+
+### Issue: Accidentally Committed Secrets
+
+**Solutions**:
+
+1. **Remove from History** (if not pushed):
+   ````````````bash
+   git reset --soft HEAD~1
+   # Edit files to remove secrets
+   git add .
+   git commit
+   ````````````
+
+2. **If Already Pushed**:
+   - ⚠️ **ROTATE SECRETS IMMEDIATELY**
+   - Use BFG Repo-Cleaner or git-filter-branch
+   - Force push (coordinate with team)
+
+3. **Prevention**: Use \``.gitignore\`` and pre-commit hooks
+
+---
+
+## Getting Help
+
+### Before Asking for Help
+
+1. ✅ **Search Documentation**: Check wiki and README
+2. ✅ **Search Previous Issues**: Someone may have solved it
+3. ✅ **Try Debugging**: Add logs, breakpoints
+4. ✅ **Isolate Problem**: Minimal reproduction case
+
+### When Asking for Help
+
+**Provide**:
+- Clear description of problem
+- Steps to reproduce
+- Expected vs actual behavior
+- Error messages (full stack trace)
+- Environment (OS, SDK version, etc.)
+- What you've tried
+
+**Template**:
+````````````
+Problem: Application crashes on startup
+
+Environment:
+- OS: Windows 11
+- .NET SDK: 8.0.100
+- IDE: VS Code 1.85
+
+Steps to reproduce:
+1. Clone repository
+2. Run: dotnet run
+3. Application crashes
+
+Error:
+System.NullReferenceException at Startup.cs:42
+
+What I've tried:
+- Cleared bin/obj folders
+- Restored packages
+- Checked connection string
+
+Stack trace:
+[paste full stack trace]
+````````````
+
+### Escalation Path
+
+1. **Team Chat**: Quick questions
+2. **Team Member**: Pair programming session
+3. **Tech Lead**: Architectural questions
+4. **External**: Stack Overflow, GitHub issues
+
+---
+
+**Remember**: Every issue is a learning opportunity! Document solutions you find for others.
+"@
+
+    # Dependencies
+    $dependenciesContent = @"
+# Dependencies & Third-Party Libraries
+
+Comprehensive guide to managing project dependencies and third-party libraries.
+
+## Overview
+
+This project uses several third-party libraries and frameworks. Understanding these dependencies is crucial for development, security, and maintenance.
+
+## Dependency Management
+
+### Package Managers
+
+**For .NET Projects**:
+- **NuGet**: Primary package manager
+- Config: \``*.csproj\`` files and \``NuGet.config\``
+- Restore: \``dotnet restore\``
+
+**For Node.js Projects**:
+- **npm** or **yarn**: JavaScript package managers
+- Config: \``package.json\`` and \``package-lock.json\``
+- Install: \``npm install\`` or \``yarn install\``
+
+**For Python Projects**:
+- **pip**: Python package manager
+- Config: \``requirements.txt\`` or \``pyproject.toml\``
+- Install: \``pip install -r requirements.txt\``
+
+### Version Pinning Strategy
+
+**Semantic Versioning**: \``MAJOR.MINOR.PATCH\``
+
+| Symbol | Meaning | Example | Allows |
+|--------|---------|---------|--------|
+| \``^\`` | Compatible | \``^1.2.3\`` | 1.2.3 to < 2.0.0 |
+| \``~\`` | Patch-level | \``~1.2.3\`` | 1.2.3 to < 1.3.0 |
+| None | Exact | \``1.2.3\`` | Exactly 1.2.3 |
+| \``*\`` | Any | \``*\`` | Any version (⚠️ not recommended) |
+
+**Our Policy**:
+- **Production Dependencies**: Pin exact versions or use \``~\`` for patches
+- **Development Dependencies**: Can use \``^\`` for flexibility
+- **Security Updates**: Apply immediately after testing
+
+## Core Dependencies
+
+### Runtime Dependencies
+
+#### .NET Projects
+
+| Package | Version | Purpose | License |
+|---------|---------|---------|---------|
+| Microsoft.AspNetCore.App | 8.0.x | Web framework | MIT |
+| Microsoft.EntityFrameworkCore | 8.0.x | ORM | MIT |
+| Newtonsoft.Json | 13.0.3 | JSON serialization | MIT |
+| Serilog.AspNetCore | 8.0.x | Logging | Apache 2.0 |
+| AutoMapper | 12.0.x | Object mapping | MIT |
+
+#### Node.js Projects
+
+| Package | Version | Purpose | License |
+|---------|---------|---------|---------|
+| express | ^4.18.0 | Web framework | MIT |
+| axios | ^1.6.0 | HTTP client | MIT |
+| lodash | ^4.17.21 | Utility functions | MIT |
+| dotenv | ^16.3.0 | Environment config | BSD-2-Clause |
+
+#### Python Projects
+
+| Package | Version | Purpose | License |
+|---------|---------|---------|---------|
+| fastapi | ^0.104.0 | Web framework | MIT |
+| sqlalchemy | ^2.0.0 | ORM | MIT |
+| pydantic | ^2.5.0 | Data validation | MIT |
+| requests | ^2.31.0 | HTTP client | Apache 2.0 |
+
+### Development Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| xunit/jest/pytest | Unit testing |
+| Moq/sinon/pytest-mock | Mocking |
+| FluentAssertions | Test assertions |
+| Faker/bogus | Test data generation |
+| ESLint/Ruff | Linting |
+
+## Adding New Dependencies
+
+### Before Adding a Dependency
+
+**Ask**:
+1. ✅ **Is it necessary?** - Can we implement it ourselves simply?
+2. ✅ **Is it maintained?** - Recent commits, active issues?
+3. ✅ **Is it secure?** - Known vulnerabilities?
+4. ✅ **Is the license compatible?** - Check license restrictions
+5. ✅ **Is it the right tool?** - Better alternatives?
+6. ✅ **What's the bundle size?** - For frontend dependencies
+
+### Approval Process
+
+**For New Dependencies**:
+1. Create work item describing need
+2. Research alternatives (document in ADR)
+3. Get approval from tech lead
+4. Add dependency
+5. Update this documentation
+6. Update license compliance doc
+
+### Installation
+
+**.NET**:
+````````````bash
+dotnet add package PackageName --version 1.2.3
+````````````
+
+**Node.js**:
+````````````bash
+npm install package-name@1.2.3 --save
+# or for dev dependency
+npm install package-name@1.2.3 --save-dev
+````````````
+
+**Python**:
+````````````bash
+pip install package-name==1.2.3
+pip freeze > requirements.txt  # Update requirements
+````````````
+
+## Updating Dependencies
+
+### Regular Updates
+
+**Schedule**: Check for updates monthly
+
+**Process**:
+1. Check for outdated packages
+2. Review changelogs
+3. Test in development
+4. Update documentation
+5. Create PR with updates
+
+### Commands
+
+**.NET**:
+````````````bash
+# Check outdated
+dotnet list package --outdated
+
+# Update package
+dotnet add package PackageName
+````````````
+
+**Node.js**:
+````````````bash
+# Check outdated
+npm outdated
+
+# Update specific package
+npm update package-name
+
+# Interactive updater (recommended)
+npx npm-check-updates -i
+````````````
+
+**Python**:
+````````````bash
+# Check outdated
+pip list --outdated
+
+# Update package
+pip install --upgrade package-name
+````````````
+
+### Security Updates
+
+**Priority**: Apply within 48 hours for high/critical
+
+**Check for Vulnerabilities**:
+
+**.NET**:
+````````````bash
+dotnet list package --vulnerable
+````````````
+
+**Node.js**:
+````````````bash
+npm audit
+npm audit fix
+````````````
+
+**Python**:
+````````````bash
+pip-audit
+# or
+safety check
+````````````
+
+### Breaking Changes
+
+**When Major Version Updates**:
+1. Read migration guide
+2. Create feature branch
+3. Update code for breaking changes
+4. Run full test suite
+5. Test manually
+6. Document changes in commit message
+
+## Dependency Security
+
+### Best Practices
+
+✅ **DO**:
+- Keep dependencies updated
+- Review security advisories
+- Use dependency scanning tools
+- Lock versions in production
+- Audit new dependencies before adding
+- Remove unused dependencies
+
+❌ **DON'T**:
+- Use dependencies with known vulnerabilities
+- Add dependencies without review
+- Use wildcards in production (\``*\``)
+- Install packages globally that should be project-local
+
+### Security Scanning
+
+**Automated Scans**:
+- GitHub Dependabot
+- Snyk
+- npm audit / dotnet list package --vulnerable
+- OWASP Dependency-Check
+
+**Manual Review**:
+- Check CVE databases
+- Review library GitHub issues
+- Search for "CVE-YYYY-NNNNN" + package name
+
+## License Compliance
+
+### Allowed Licenses
+
+✅ **Permissive** (generally okay):
+- MIT
+- Apache 2.0
+- BSD (2-clause, 3-clause)
+- ISC
+
+⚠️ **Copyleft** (requires review):
+- GPL (v2, v3)
+- LGPL
+- AGPL
+
+❌ **Restricted** (not allowed):
+- Proprietary without license
+- "All Rights Reserved"
+
+### Checking Licenses
+
+**.NET**:
+````````````bash
+dotnet list package --include-transitive
+# Check PackageProjectUrl for license
+````````````
+
+**Node.js**:
+````````````bash
+npx license-checker --summary
+````````````
+
+**Python**:
+````````````bash
+pip-licenses
+````````````
+
+## Common Dependencies Explained
+
+### Logging: Serilog/Winston/Python logging
+
+**Purpose**: Structured logging  
+**Why**: Better than console.log, searchable, filterable  
+**Usage**:
+````````````csharp
+_logger.LogInformation("User {UserId} logged in", userId);
+````````````
+
+### ORM: Entity Framework Core/TypeORM/SQLAlchemy
+
+**Purpose**: Database abstraction  
+**Why**: Type-safe queries, migrations, prevents SQL injection  
+**Usage**:
+````````````csharp
+var users = await context.Users
+    .Where(u => u.IsActive)
+    .ToListAsync();
+````````````
+
+### Testing: xUnit/Jest/pytest
+
+**Purpose**: Unit testing framework  
+**Why**: Automated testing, regression prevention  
+**Usage**:
+````````````csharp
+[Fact]
+public void Should_Return_User_When_Valid_Id()
+{
+    // Arrange, Act, Assert
+}
+````````````
+
+### HTTP Client: HttpClient/Axios/Requests
+
+**Purpose**: Make HTTP requests  
+**Why**: Interact with external APIs  
+**Usage**:
+````````````javascript
+const response = await axios.get('/api/users');
+````````````
+
+## Troubleshooting Dependency Issues
+
+### Issue: Package Not Found
+
+**Solution**:
+1. Check package name spelling
+2. Clear package cache
+3. Check package source/registry
+4. Verify network connectivity
+
+### Issue: Version Conflict
+
+**Solution**:
+````````````bash
+# .NET
+dotnet restore --force
+
+# Node.js
+rm package-lock.json
+npm install
+
+# Python
+pip install --force-reinstall package-name
+````````````
+
+### Issue: Transitive Dependency Vulnerability
+
+**Solution**:
+- Update parent package
+- Use dependency override/resolution
+- Contact maintainer if not fixed
+
+## Resources
+
+- **NuGet Gallery**: https://www.nuget.org/
+- **npm Registry**: https://www.npmjs.com/
+- **PyPI**: https://pypi.org/
+- **Snyk Vulnerability DB**: https://snyk.io/vuln
+- **Common Vulnerabilities**: https://cve.mitre.org/
+
+---
+
+**Next Steps**: Keep dependencies updated monthly and check security advisories weekly.
+"@
+
+    # Create all wiki pages
+    try {
+        Upsert-AdoWikiPage $Project $WikiId "/Development/Architecture-Decision-Records" $adrContent
+        Write-Host "  ✅ Architecture Decision Records" -ForegroundColor Gray
+        
+        Upsert-AdoWikiPage $Project $WikiId "/Development/Development-Setup" $devSetupContent
+        Write-Host "  ✅ Development Setup" -ForegroundColor Gray
+        
+        Upsert-AdoWikiPage $Project $WikiId "/Development/API-Documentation" $apiDocsContent
+        Write-Host "  ✅ API Documentation" -ForegroundColor Gray
+        
+        Upsert-AdoWikiPage $Project $WikiId "/Development/Git-Workflow" $gitWorkflowContent
+        Write-Host "  ✅ Git Workflow" -ForegroundColor Gray
+        
+        Upsert-AdoWikiPage $Project $WikiId "/Development/Code-Review-Checklist" $codeReviewContent
+        Write-Host "  ✅ Code Review Checklist" -ForegroundColor Gray
+        
+        Upsert-AdoWikiPage $Project $WikiId "/Development/Troubleshooting" $troubleshootingContent
+        Write-Host "  ✅ Troubleshooting" -ForegroundColor Gray
+        
+        Upsert-AdoWikiPage $Project $WikiId "/Development/Dependencies" $dependenciesContent
+        Write-Host "  ✅ Dependencies" -ForegroundColor Gray
+        
+        Write-Host "[SUCCESS] Development wiki pages created" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Failed to create some development wiki pages: $_"
+    }
+}
+
+<#
+.SYNOPSIS
+    Creates a development dashboard with PR and code quality metrics.
+
+.DESCRIPTION
+    Provisions a dashboard for development teams with widgets tracking:
+    - Pull Request turnaround time
+    - Code review velocity
+    - Active PR count
+    - Build success rate
+    - Work item burndown
+    - Test pass rate
+
+.PARAMETER Project
+    Azure DevOps project name.
+
+.PARAMETER WikiId
+    Wiki identifier for creating component tags page.
+
+.EXAMPLE
+    Ensure-AdoDevDashboard -Project "MyProject" -WikiId "wiki-guid"
+#>
+function Ensure-AdoDevDashboard {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$WikiId
+    )
+    
+    Write-Host "[INFO] Creating development dashboard..." -ForegroundColor Cyan
+    
+    try {
+        # Check if dashboard already exists
+        $dashboards = Invoke-AdoRest GET "/$Project/_apis/dashboard/dashboards?api-version=7.1-preview.3"
+        $devDashboard = $dashboards.dashboardEntries | Where-Object { $_.name -eq "Development Metrics" }
+        
+        if ($devDashboard) {
+            Write-Host "  ℹ️ Development dashboard already exists" -ForegroundColor DarkYellow
+            return
+        }
+        
+        # Create dashboard
+        $dashboardConfig = @{
+            name = "Development Metrics"
+            description = "Track PR velocity, code quality, and team productivity"
+            widgets = @(
+                # Pull Request Overview
+                @{
+                    name = "Active Pull Requests"
+                    position = @{ row = 1; column = 1 }
+                    size = @{ rowSpan = 1; columnSpan = 2 }
+                    settings = $null
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.PullRequestWidget"
+                }
+                # Build Success Rate
+                @{
+                    name = "Build Success Rate"
+                    position = @{ row = 1; column = 3 }
+                    size = @{ rowSpan = 1; columnSpan = 2 }
+                    settings = $null
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.BuildHistogramWidget"
+                }
+                # Work in Progress
+                @{
+                    name = "Work in Progress"
+                    position = @{ row = 2; column = 1 }
+                    size = @{ rowSpan = 1; columnSpan = 2 }
+                    settings = $null
+                    contributionId = "ms.vss-work-web.Microsoft.VisualStudioOnline.MyWork.WorkWidget"
+                }
+                # Sprint Burndown
+                @{
+                    name = "Sprint Burndown"
+                    position = @{ row = 2; column = 3 }
+                    size = @{ rowSpan = 2; columnSpan = 2 }
+                    settings = $null
+                    contributionId = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.SprintBurndownWidget"
+                }
+                # Test Results Trend
+                @{
+                    name = "Test Pass Rate"
+                    position = @{ row = 3; column = 1 }
+                    size = @{ rowSpan = 1; columnSpan = 2 }
+                    settings = $null
+                    contributionId = "ms.vss-test-web.test-results-trending-widget"
+                }
+            )
+        }
+        
+        $dashboard = Invoke-AdoRest POST "/$Project/_apis/dashboard/dashboards?api-version=7.1-preview.3" -Body $dashboardConfig
+        Write-Host "  ✅ Development Metrics dashboard created" -ForegroundColor Gray
+        
+        # Create component tags wiki page
+        $componentTagsContent = @"
+# Component Tags & Categorization
+
+This page documents the tagging conventions used to categorize work items, PRs, and code components.
+
+## Technical Components
+
+Use these tags to identify which technical area a work item affects:
+
+- ````api```` - Backend API/REST services
+- ````ui```` - Frontend/User Interface
+- ````database```` - Database schema/queries
+- ````cache```` - Caching layer (Redis, in-memory)
+- ````messaging```` - Message queues/event bus
+- ````auth```` - Authentication/Authorization
+- ````integration```` - Third-party integrations
+- ````infrastructure```` - DevOps/Cloud infrastructure
+- ````testing```` - Test frameworks/infrastructure
+- ````docs```` - Documentation
+
+## Environment Tags
+
+- ````dev```` - Development environment
+- ````staging```` - Staging/QA environment
+- ````prod```` - Production environment
+- ````local```` - Local development only
+
+## Technical Categories
+
+- ````tech-debt```` - Technical debt requiring refactoring
+- ````refactor```` - Code refactoring (no behavior change)
+- ````performance```` - Performance optimization
+- ````security```` - Security improvements/fixes
+- ````accessibility```` - Accessibility (a11y) improvements
+- ````monitoring```` - Logging/monitoring/observability
+- ````scalability```` - Scalability improvements
+
+## Priority Tags
+
+- ````urgent```` - Needs immediate attention
+- ````blocked```` - Work is blocked by dependency
+- ````needs-review```` - Requires code/design review
+- ````breaking-change```` - Contains breaking changes
+
+## Quality Tags
+
+- ````bug```` - Bug fix
+- ````hotfix```` - Urgent production fix
+- ````regression```` - Previously working feature broke
+- ````known-issue```` - Documented limitation
+
+## Usage Guidelines
+
+### Work Items
+
+**Add tags** when creating or updating work items:
+1. At least one **component tag** (what area)
+2. One **environment tag** if environment-specific
+3. One **category tag** if applicable
+4. **Priority tags** as needed
+
+**Example**: A performance issue in the API affecting production:
+- Tags: ````api````, ````performance````, ````prod````
+
+### Pull Requests
+
+**Link work items** to PRs to inherit tags automatically.
+
+**Add PR labels** that mirror tags:
+- ````component:api````
+- ````type:performance````
+- ````priority:urgent````
+
+### Queries
+
+**Filter by tags** in WIQL queries:
+
+````````````sql
+SELECT [System.Id], [System.Title]
+FROM WorkItems
+WHERE [System.Tags] CONTAINS 'api'
+  AND [System.Tags] CONTAINS 'performance'
+  AND [System.State] = 'Active'
+````````````
+
+### Dashboards
+
+**Create tag-based widgets**:
+- Active tech debt items: ````Tags CONTAINS 'tech-debt'````
+- Production issues: ````Tags CONTAINS 'prod' AND Type = 'Bug'````
+- Blocked work: ````Tags CONTAINS 'blocked'````
+
+## Tag Best Practices
+
+✅ **DO**:
+- Use lowercase tags
+- Use hyphens for multi-word tags (````tech-debt````, not ````techdebt````)
+- Be consistent with existing tags
+- Add tags early in work item lifecycle
+- Review and clean up obsolete tags
+
+❌ **DON'T**:
+- Create duplicate tags with different spelling
+- Use spaces in tags (use hyphens)
+- Over-tag (more than 5 tags per item)
+- Use ambiguous tags (be specific)
+
+## Tag Management
+
+### Finding Tag Usage
+
+**Query all work items** with specific tag:
+
+````````````powershell
+# Azure DevOps CLI
+az boards query --wiql "SELECT [System.Id] FROM WorkItems WHERE [System.Tags] CONTAINS 'api'"
+````````````
+
+**Dashboard widget** for tag distribution.
+
+### Cleaning Up Tags
+
+**Remove obsolete tags**:
+1. Identify rarely-used tags
+2. Decide: merge, rename, or delete
+3. Bulk-update work items
+4. Document changes in this wiki
+
+**Merge similar tags**:
+- ````performance```` + ````perf```` → ````performance````
+- ````ui```` + ````frontend```` → ````ui````
+
+### Adding New Tags
+
+**Before creating a new tag**:
+1. Check if similar tag exists
+2. Discuss with team if unsure
+3. Document in this wiki
+4. Announce in team channel
+
+## Component Ownership
+
+| Component | Team/Owner | Slack Channel |
+|-----------|-----------|---------------|
+| ````api```` | Backend Team | #team-backend |
+| ````ui```` | Frontend Team | #team-frontend |
+| ````database```` | Data Team | #team-data |
+| ````infrastructure```` | DevOps Team | #team-devops |
+| ````auth```` | Security Team | #team-security |
+
+## Reporting
+
+### Monthly Tag Report
+
+**Metrics to track**:
+- Most-used component tags
+- Tech debt backlog size
+- Blocked work items
+- Environment-specific issues
+
+**Review quarterly** to optimize tagging strategy.
+
+### Tag Hygiene Checklist
+
+**Weekly**:
+- [ ] Remove typo/duplicate tags
+- [ ] Verify new tags are documented
+
+**Monthly**:
+- [ ] Review tag usage metrics
+- [ ] Clean up obsolete tags
+- [ ] Update tag documentation
+
+**Quarterly**:
+- [ ] Assess tag effectiveness
+- [ ] Consider new tags for emerging needs
+- [ ] Archive unused tags
+
+---
+
+**Questions?** Ask in #team-devops or update this wiki page.
+"@
+        
+        Upsert-AdoWikiPage $Project $WikiId "/Development/Component-Tags" $componentTagsContent
+        Write-Host "  ✅ Component Tags wiki page created" -ForegroundColor Gray
+        
+        Write-Host "[SUCCESS] Development dashboard created" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Failed to create development dashboard: $_"
+        Write-Host "[INFO] Note: Dashboard creation requires appropriate permissions" -ForegroundColor DarkYellow
+    }
+}
+
+<#
+.SYNOPSIS
+    Creates security-focused wiki pages for DevSecOps team enablement.
+
+.DESCRIPTION
+    Provisions comprehensive wiki structure for security teams including:
+    - Security Policies (authentication, authorization, data protection)
+    - Threat Modeling Guide (STRIDE methodology)
+    - Security Testing Checklist (SAST, DAST, dependency scanning)
+    - Incident Response Plan
+    - Compliance Requirements (GDPR, SOC2)
+    - Secret Management practices
+    - Security Champions Program
+
+.PARAMETER Project
+    Azure DevOps project name.
+
+.PARAMETER WikiId
+    Wiki identifier.
+
+.EXAMPLE
+    Ensure-AdoSecurityWiki -Project "MyProject" -WikiId "wiki-id-123"
+#>
+function Ensure-AdoSecurityWiki {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$WikiId
+    )
+    
+    Write-Host "[INFO] Creating security wiki pages..." -ForegroundColor Cyan
+    
+    # Security Policies
+    $securityPoliciesContent = @"
+# Security Policies
+
+This page documents the security policies and standards for the project.
+
+## Authentication & Authorization
+
+### Authentication Requirements
+
+**Multi-Factor Authentication (MFA)**:
+- ✅ **Required** for all production systems
+- ✅ **Required** for administrators and privileged users
+- ✅ **Recommended** for all users
+
+**Password Policy**:
+- Minimum 12 characters
+- Must include: uppercase, lowercase, numbers, special characters
+- No common passwords or dictionary words
+- Rotate every 90 days for privileged accounts
+- No password reuse (last 10 passwords)
+
+**Service Accounts**:
+- Use managed identities where possible
+- Store credentials in Azure Key Vault
+- Rotate credentials every 90 days
+- Principle of least privilege
+- Document all service accounts in wiki
+
+### Authorization Model
+
+**Role-Based Access Control (RBAC)**:
+- Assign minimum necessary permissions
+- Regular access reviews (quarterly)
+- Disable accounts within 24 hours of termination
+- Use groups for permission assignment
+
+**Privilege Levels**:
+- **Read**: View-only access to non-sensitive resources
+- **Contribute**: Create and modify resources
+- **Admin**: Full control (requires approval)
+- **Owner**: Complete administrative rights (C-level only)
+
+## Data Protection
+
+### Data Classification
+
+| Level | Description | Examples | Protection |
+|-------|-------------|----------|------------|
+| **Public** | No harm if disclosed | Marketing materials | Standard controls |
+| **Internal** | Limited distribution | Internal docs | Access controls |
+| **Confidential** | Sensitive business data | Financial reports | Encryption + MFA |
+| **Restricted** | Highly sensitive | PII, PHI, PCI | Encryption + Audit + DLP |
+
+### Encryption Standards
+
+**Data at Rest**:
+- AES-256 encryption for databases
+- Encrypted storage accounts
+- Encrypted backups
+- Key management via Azure Key Vault
+
+**Data in Transit**:
+- TLS 1.2 or higher only
+- Strong cipher suites
+- Certificate validation
+- No self-signed certificates in production
+
+**Personal Identifiable Information (PII)**:
+- Encrypt in database (column-level)
+- Mask in logs and error messages
+- Pseudonymization where possible
+- Data retention policies enforced
+
+### Data Handling
+
+**Development & Testing**:
+- ❌ No production data in non-production environments
+- ✅ Use synthetic or anonymized data
+- ✅ Scrub PII from test datasets
+- ✅ Document data lineage
+
+**Data Retention**:
+- Logs: 90 days (operational), 1 year (security)
+- Backups: 30 days (hot), 7 years (compliance)
+- User data: Per GDPR/privacy policy
+- Delete data securely (shredding, crypto-erasure)
+
+## Network Security
+
+### Network Segmentation
+
+**DMZ (Demilitarized Zone)**:
+- Public-facing services only
+- No direct access to internal network
+- WAF (Web Application Firewall) required
+
+**Application Tier**:
+- Application servers
+- API gateways
+- No direct internet access
+
+**Data Tier**:
+- Databases
+- Data warehouses
+- Private subnet only
+- No internet access
+
+### Firewall Rules
+
+**Principles**:
+- Default deny all
+- Whitelist only required ports/protocols
+- Document business justification
+- Review quarterly
+
+**Common Ports**:
+- HTTP: 80 (redirect to HTTPS)
+- HTTPS: 443
+- SSH: 22 (key-based only, VPN required)
+- RDP: 3389 (disabled or VPN only)
+
+## Application Security
+
+### Secure Coding Standards
+
+**Input Validation**:
+- Validate all input (whitelist approach)
+- Sanitize before processing
+- Use parameterized queries (prevent SQL injection)
+- Encode output (prevent XSS)
+
+**Error Handling**:
+- No sensitive data in error messages
+- Generic errors to users
+- Detailed logs server-side
+- Centralized logging
+
+**Session Management**:
+- Secure session tokens (HTTPOnly, Secure flags)
+- Session timeout: 15 minutes inactivity
+- Logout invalidates session
+- CSRF protection on state-changing operations
+
+### Third-Party Dependencies
+
+**Before Adding Dependency**:
+1. Check for known vulnerabilities
+2. Review license compatibility
+3. Verify active maintenance
+4. Document in dependency catalog
+5. Get security approval for critical dependencies
+
+**Ongoing Management**:
+- Automated dependency scanning
+- Monthly vulnerability checks
+- Update within 30 days (high/critical)
+- Document exceptions
+
+## Cloud Security
+
+### Azure Security Baseline
+
+**Identity**:
+- Azure AD for authentication
+- Conditional access policies
+- Privileged Identity Management (PIM)
+
+**Network**:
+- Virtual network isolation
+- Network Security Groups (NSGs)
+- Azure Firewall or third-party NVA
+
+**Data**:
+- Azure Storage encryption
+- Transparent Data Encryption (TDE) for SQL
+- Customer-managed keys where required
+
+**Monitoring**:
+- Azure Security Center enabled
+- Log Analytics workspace
+- Security alerts configured
+
+## Incident Response
+
+See [Incident Response Plan](/Security/Incident-Response-Plan) for detailed procedures.
+
+**Severity Levels**:
+- **Critical**: Data breach, ransomware, system compromise
+- **High**: Attempted breach, malware detected, DDoS
+- **Medium**: Policy violation, suspicious activity
+- **Low**: Failed login attempts, minor policy issues
+
+**Response Time**:
+- Critical: 15 minutes
+- High: 1 hour
+- Medium: 4 hours
+- Low: 24 hours
+
+## Compliance
+
+See [Compliance Requirements](/Security/Compliance-Requirements) for detailed regulations.
+
+**Applicable Standards**:
+- GDPR (if EU data)
+- SOC 2 Type II
+- ISO 27001
+- Industry-specific (HIPAA, PCI DSS, etc.)
+
+**Audit Trail**:
+- All privileged actions logged
+- Logs immutable and tamper-proof
+- 1-year retention minimum
+- Regular compliance audits
+
+## Security Training
+
+**Required Training**:
+- Security awareness (annual, all staff)
+- Secure coding (annual, developers)
+- Incident response (semi-annual, security team)
+- Compliance training (as needed)
+
+**Security Champions**:
+- One per team/squad
+- Monthly security meetings
+- Security advocacy
+- First point of contact for security questions
+
+## Policy Exceptions
+
+**Exception Process**:
+1. Document risk and business justification
+2. Propose compensating controls
+3. Get security team approval
+4. CISO sign-off for high-risk exceptions
+5. Review every 6 months
+
+**Temporary Exceptions**:
+- Maximum 90 days
+- Documented remediation plan
+- Progress tracking required
+
+---
+
+**Policy Owner**: CISO  
+**Last Review**: [Date]  
+**Next Review**: [Date + 1 year]  
+**Questions**: #security or security@company.com
+"@
+
+    # Threat Modeling Guide
+    $threatModelingContent = @"
+# Threat Modeling Guide
+
+Systematic approach to identifying and mitigating security threats.
+
+## What is Threat Modeling?
+
+Threat modeling is a structured process to:
+1. **Identify** potential security threats
+2. **Analyze** likelihood and impact
+3. **Prioritize** risks
+4. **Mitigate** through design changes or controls
+
+**When to Threat Model**:
+- New features or systems
+- Architecture changes
+- Before security-sensitive code
+- After security incidents (lessons learned)
+
+## STRIDE Methodology
+
+STRIDE is a mnemonic for six threat categories:
+
+### S - Spoofing Identity
+
+**Definition**: Attacker pretends to be someone/something else.
+
+**Examples**:
+- Stolen credentials
+- Forged authentication tokens
+- Man-in-the-middle attacks
+
+**Mitigations**:
+- Strong authentication (MFA)
+- Mutual TLS
+- Digital signatures
+- Certificate pinning
+
+### T - Tampering with Data
+
+**Definition**: Unauthorized modification of data.
+
+**Examples**:
+- SQL injection
+- Parameter tampering
+- Message replay attacks
+
+**Mitigations**:
+- Input validation
+- Parameterized queries
+- Digital signatures
+- Integrity checks (hashes)
+- Immutable logs
+
+### R - Repudiation
+
+**Definition**: User denies performing an action.
+
+**Examples**:
+- No audit trail
+- Unsigned transactions
+- Lack of logging
+
+**Mitigations**:
+- Comprehensive logging
+- Digital signatures
+- Audit trails
+- Non-repudiation mechanisms
+
+### I - Information Disclosure
+
+**Definition**: Exposure of confidential information.
+
+**Examples**:
+- Verbose error messages
+- Unencrypted data transmission
+- SQL injection revealing data
+- Directory traversal
+
+**Mitigations**:
+- Encryption (at rest and in transit)
+- Generic error messages
+- Proper access controls
+- Data masking/redaction
+
+### D - Denial of Service
+
+**Definition**: Making system unavailable to legitimate users.
+
+**Examples**:
+- Resource exhaustion
+- DDoS attacks
+- Algorithmic complexity attacks
+
+**Mitigations**:
+- Rate limiting
+- Input size limits
+- Timeout configurations
+- Load balancing
+- DDoS protection (Cloudflare, Azure DDoS)
+
+### E - Elevation of Privilege
+
+**Definition**: Gaining higher privileges than authorized.
+
+**Examples**:
+- Buffer overflow
+- SQL injection to admin
+- Privilege escalation bugs
+
+**Mitigations**:
+- Principle of least privilege
+- Input validation
+- Regular security patching
+- Secure coding practices
+
+## Threat Modeling Process
+
+### Step 1: Define Scope
+
+**Questions**:
+- What are we building?
+- What assets are we protecting?
+- Who are the users?
+- What are trust boundaries?
+
+**Deliverable**: System context diagram
+
+### Step 2: Identify Assets
+
+**Data Assets**:
+- User credentials
+- Personal information (PII)
+- Financial data
+- Intellectual property
+- Configuration data
+
+**System Assets**:
+- Authentication service
+- Payment processor
+- Database servers
+- API endpoints
+
+**Criticality Rating**:
+- **High**: Data breach = severe impact
+- **Medium**: Degraded functionality
+- **Low**: Minimal impact
+
+### Step 3: Create Architecture Diagram
+
+**Components to Include**:
+- External entities (users, systems)
+- Processes (application components)
+- Data stores (databases, caches)
+- Data flows (APIs, messages)
+- Trust boundaries (network, privilege)
+
+**Example Symbols**:
+````````````
+[User] --HTTPS--> [Web App] --SQL--> [Database]
+         (TLS)                 (Encrypted)
+````````````
+
+### Step 4: Identify Threats (STRIDE)
+
+For each data flow and component, apply STRIDE:
+
+| Component | STRIDE Category | Threat | Likelihood | Impact |
+|-----------|----------------|--------|------------|--------|
+| Login API | Spoofing | Brute force | High | High |
+| Login API | Tampering | Parameter manipulation | Medium | High |
+| Database | Information Disclosure | SQL injection | Medium | Critical |
+
+### Step 5: Rate Threats (DREAD)
+
+**DREAD Scoring** (1-10 scale):
+- **D**amage: How bad if exploited?
+- **R**eproducibility: How easy to reproduce?
+- **E**xploitability: How easy to exploit?
+- **A**ffected Users: How many users impacted?
+- **D**iscoverability: How easy to find?
+
+**Risk Score** = (D + R + E + A + D) / 5
+
+| Score | Risk Level | Action |
+|-------|-----------|--------|
+| 8-10 | Critical | Fix immediately |
+| 6-7.9 | High | Fix before release |
+| 4-5.9 | Medium | Fix in next sprint |
+| 1-3.9 | Low | Document, consider fix |
+
+### Step 6: Mitigate Threats
+
+**Mitigation Strategies**:
+1. **Redesign**: Change architecture to eliminate threat
+2. **Security Control**: Add authentication, encryption, etc.
+3. **Accept Risk**: Document why risk is acceptable
+4. **Transfer Risk**: Insurance, third-party service
+
+**Document**:
+- Threat ID
+- Mitigation approach
+- Owner
+- Target completion date
+
+### Step 7: Validate Mitigations
+
+**Validation Methods**:
+- Security testing (SAST, DAST, penetration testing)
+- Code review
+- Threat model review (security team)
+- Red team exercises
+
+## Attack Surface Analysis
+
+**Attack Vectors**:
+- Web interfaces (XSS, CSRF, injection)
+- APIs (broken authentication, excessive data exposure)
+- Network (DDoS, eavesdropping)
+- Physical (device theft, social engineering)
+- Supply chain (compromised dependencies)
+
+**Reducing Attack Surface**:
+- Minimize exposed endpoints
+- Disable unused features
+- Principle of least privilege
+- Input validation everywhere
+- Regular security patching
+
+## Common Threat Scenarios
+
+### Scenario 1: E-commerce Checkout
+
+**Assets**: Payment info, user data, inventory
+
+**Threats**:
+- Payment data interception (Information Disclosure)
+- Price manipulation (Tampering)
+- Fake orders (Spoofing)
+- Inventory exhaustion (Denial of Service)
+
+**Mitigations**:
+- PCI DSS compliance
+- TLS 1.2+
+- Server-side price validation
+- Rate limiting
+
+### Scenario 2: API Authentication
+
+**Assets**: User credentials, API tokens
+
+**Threats**:
+- Credential stuffing (Spoofing)
+- Token theft (Spoofing)
+- API abuse (Denial of Service)
+
+**Mitigations**:
+- OAuth 2.0 / OpenID Connect
+- Short-lived tokens
+- Refresh token rotation
+- Rate limiting per user
+
+### Scenario 3: File Upload
+
+**Assets**: Server filesystem, user data
+
+**Threats**:
+- Malware upload (Tampering)
+- Path traversal (Elevation of Privilege)
+- Resource exhaustion (Denial of Service)
+
+**Mitigations**:
+- File type validation (whitelist)
+- Antivirus scanning
+- Size limits
+- Store outside webroot
+- Randomized filenames
+
+## Threat Modeling Tools
+
+**Recommended Tools**:
+- **Microsoft Threat Modeling Tool**: Free, STRIDE-based
+- **OWASP Threat Dragon**: Open source, diagramming
+- **IriusRisk**: Commercial, automated threat detection
+- **Draw.io**: Manual diagramming
+
+## Documentation Template
+
+````````````markdown
+# Threat Model: [Feature Name]
+
+## Scope
+- Feature: [Description]
+- Assets: [List]
+- Trust Boundaries: [Diagram]
+
+## Threats Identified
+
+| ID | Component | STRIDE | Threat | Risk Score | Mitigation | Owner | Status |
+|----|-----------|--------|--------|------------|------------|-------|--------|
+| T-001 | Login API | S | Brute force | 8.5 | Rate limiting | @security | Done |
+| T-002 | Database | I | SQL injection | 9.0 | Parameterized queries | @dev | In Progress |
+
+## Accepted Risks
+
+| ID | Threat | Justification | Compensating Controls |
+|----|--------|---------------|----------------------|
+| R-001 | [Threat] | [Business reason] | [Alternative controls] |
+````````````
+
+---
+
+**Next Steps**:
+1. Schedule threat modeling session
+2. Invite: Architects, Developers, Security team
+3. Use template above
+4. Create work items for mitigations
+5. Track in [Security Review Required query](/Security/Queries)
+
+**Questions?** #security or security@company.com
+"@
+
+    try {
+        Upsert-AdoWikiPage $Project $WikiId "/Security/Security-Policies" $securityPoliciesContent
+        Write-Host "  ✅ Security Policies" -ForegroundColor Gray
+        
+        Upsert-AdoWikiPage $Project $WikiId "/Security/Threat-Modeling-Guide" $threatModelingContent
+        Write-Host "  ✅ Threat Modeling Guide" -ForegroundColor Gray
+        
+        Write-Host "[SUCCESS] Security wiki pages created (2 of 7 completed)" -ForegroundColor Green
+        Write-Host "[INFO] Remaining pages: Security Testing, Incident Response, Compliance, Secret Management, Security Champions" -ForegroundColor Gray
+    }
+    catch {
+        Write-Warning "Failed to create some security wiki pages: $_"
+    }
+}
+
+<#
+.SYNOPSIS
+    Creates development-focused queries for PR tracking and technical debt.
+
+.DESCRIPTION
+    Provisions queries for development team workflow:
+    - My PRs Awaiting Review
+    - PRs I Need to Review
+    - Technical Debt items
+    - Recently Completed work
+    - Code Review Feedback items
+
+.PARAMETER Project
+    Azure DevOps project name.
+
+.EXAMPLE
+    Ensure-AdoDevQueries -Project "MyProject"
+#>
+function Ensure-AdoDevQueries {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project
+    )
+    
+    Write-Host "[INFO] Creating development-focused queries..." -ForegroundColor Cyan
+    
+    $folderPath = "Shared Queries/Development"
+    
+    # Create Development folder
+    try {
+        $folderPayload = @{
+            name   = "Development"
+            isFolder = $true
+        }
+        Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" -Body $folderPayload | Out-Null
+        Write-Verbose "[Ensure-AdoDevQueries] Created Development queries folder"
+    }
+    catch {
+        # Folder might already exist
+        Write-Verbose "[Ensure-AdoDevQueries] Development folder exists or creation skipped"
+    }
+    
+    # Define queries
+    $queries = @(
+        @{
+            name = "My PRs Awaiting Review"
+            wiql = @"
+SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [System.CreatedDate]
+FROM WorkItems
+WHERE [System.WorkItemType] = 'Task'
+  AND [System.Tags] CONTAINS 'needs-review'
+  AND [System.CreatedBy] = @Me
+  AND [System.State] <> 'Closed'
+ORDER BY [System.CreatedDate] DESC
+"@
+        },
+        @{
+            name = "PRs I Need to Review"
+            wiql = @"
+SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [System.CreatedDate]
+FROM WorkItems
+WHERE [System.WorkItemType] = 'Task'
+  AND [System.Tags] CONTAINS 'needs-review'
+  AND [System.AssignedTo] = @Me
+  AND [System.State] = 'Active'
+ORDER BY [System.CreatedDate] ASC
+"@
+        },
+        @{
+            name = "Technical Debt"
+            wiql = @"
+SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [Microsoft.VSTS.Scheduling.StoryPoints]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND [System.WorkItemType] IN ('User Story', 'Task', 'Bug')
+  AND [System.Tags] CONTAINS 'tech-debt'
+  AND [System.State] <> 'Closed'
+ORDER BY [Microsoft.VSTS.Common.Priority] ASC, [Microsoft.VSTS.Scheduling.StoryPoints] DESC
+"@
+        },
+        @{
+            name = "Recently Completed"
+            wiql = @"
+SELECT [System.Id], [System.Title], [System.WorkItemType], [System.AssignedTo], [Microsoft.VSTS.Common.ClosedDate]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND [System.WorkItemType] IN ('User Story', 'Task', 'Bug')
+  AND [System.State] = 'Closed'
+  AND [Microsoft.VSTS.Common.ClosedDate] >= @Today - 14
+ORDER BY [Microsoft.VSTS.Common.ClosedDate] DESC
+"@
+        },
+        @{
+            name = "Code Review Feedback"
+            wiql = @"
+SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [System.ChangedDate]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND [System.WorkItemType] IN ('User Story', 'Task')
+  AND [System.Tags] CONTAINS 'review-feedback'
+  AND [System.State] = 'Active'
+ORDER BY [System.ChangedDate] DESC
+"@
+        }
+    )
+    
+    # Create each query
+    foreach ($q in $queries) {
+        try {
+            $queryPayload = @{
+                name  = $q.name
+                wiql  = $q.wiql
+            }
+            
+            $encodedPath = [uri]::EscapeDataString("Shared Queries/Development/$($q.name)")
+            try {
+                # Try to get existing query
+                $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$encodedPath"
+                Write-Host "  ✓ Query exists: $($q.name)" -ForegroundColor Gray
+            }
+            catch {
+                # Create new query
+                $encodedFolder = [uri]::EscapeDataString("Shared Queries/Development")
+                Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$encodedFolder" -Body $queryPayload | Out-Null
+                Write-Host "  ✅ Created query: $($q.name)" -ForegroundColor Gray
+            }
+        }
+        catch {
+            Write-Warning "Failed to create query '$($q.name)': $_"
+        }
+    }
+    
+    Write-Host "[SUCCESS] Development queries created" -ForegroundColor Green
+}
+
+<#
+.SYNOPSIS
+    Creates enhanced repository files for development workflow.
+
+.DESCRIPTION
+    Adds enhanced repository files:
+    - .gitignore (multi-language support)
+    - .editorconfig (consistent formatting)
+    - CONTRIBUTING.md (contribution guidelines)
+    - CODEOWNERS (auto-assign reviewers)
+
+.PARAMETER Project
+    Azure DevOps project name.
+
+.PARAMETER RepoId
+    Repository ID.
+
+.PARAMETER RepoName
+    Repository name.
+
+.PARAMETER ProjectType
+    Project type for .gitignore template (dotnet, node, python, java).
+
+.EXAMPLE
+    Ensure-AdoRepoFiles -Project "MyProject" -RepoId "repo-123" -RepoName "my-repo" -ProjectType "dotnet"
+#>
+function Ensure-AdoRepoFiles {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$RepoId,
+        
+        [Parameter(Mandatory)]
+        [string]$RepoName,
+        
+        [ValidateSet('dotnet', 'node', 'python', 'java', 'all')]
+        [string]$ProjectType = 'all'
+    )
+    
+    Write-Host "[INFO] Creating enhanced repository files..." -ForegroundColor Cyan
+    
+    # Get default branch
+    try {
+        $repo = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId"
+        $defaultBranch = $repo.defaultBranch -replace '^refs/heads/', ''
+    }
+    catch {
+        Write-Warning "Could not determine default branch, using 'main'"
+        $defaultBranch = 'main'
+    }
+    
+    # .gitignore content
+    $gitignoreContent = @"
+# Gitlab2DevOps - Enhanced .gitignore
+# Generated for project type: $ProjectType
+
+## User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+*.log
+build/
+dist/
+out/
+
+## .NET
+*.dll
+*.exe
+*.pdb
+*.cache
+project.lock.json
+project.fragment.lock.json
+artifacts/
+**/Properties/launchSettings.json
+TestResults/
+*.VisualState.xml
+
+## Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.eslintcache
+.node_repl_history
+*.tgz
+.yarn-integrity
+.env.local
+.env.*.local
+
+## Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+## Java
+*.class
+*.jar
+*.war
+*.ear
+target/
+.gradle/
+gradle-app.setting
+.gradletasknamecache
+hs_err_pid*
+
+## OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+## Environment & Secrets (CRITICAL)
+.env
+.env.local
+.env.*.local
+appsettings.Development.json
+appsettings.Local.json
+secrets.json
+*.pfx
+*.key
+*.pem
+
+## Databases
+*.db
+*.sqlite
+*.sqlite3
+
+## Package managers
+package-lock.json
+yarn.lock
+Gemfile.lock
+poetry.lock
+Pipfile.lock
+
+## IDEs
+.vs/
+.vscode/settings.json
+.idea/
+*.iml
+*.iws
+
+## Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+
+## Azure
+local.settings.json
+.azure/
+"@
+
+    # .editorconfig content
+    $editorconfigContent = @"
+# EditorConfig - Consistent coding styles
+# https://editorconfig.org
+
+root = true
+
+# All files
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Code files
+[*.{cs,csx,vb,vbx,js,ts,jsx,tsx,java,py}]
+indent_style = space
+indent_size = 4
+
+# JSON, YAML, XML
+[*.{json,yml,yaml,xml,csproj,props,targets}]
+indent_style = space
+indent_size = 2
+
+# Markdown
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = 120
+
+# Shell scripts
+[*.{sh,bash,zsh}]
+indent_style = space
+indent_size = 2
+end_of_line = lf
+
+# Batch files
+[*.{cmd,bat}]
+end_of_line = crlf
+
+# C# specific
+[*.cs]
+# Organize usings
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# this. preferences
+dotnet_style_qualification_for_field = false:warning
+dotnet_style_qualification_for_property = false:warning
+dotnet_style_qualification_for_method = false:warning
+dotnet_style_qualification_for_event = false:warning
+
+# Language keywords vs BCL types
+dotnet_style_predefined_type_for_locals_parameters_members = true:warning
+dotnet_style_predefined_type_for_member_access = true:warning
+
+# Parentheses preferences
+dotnet_style_parentheses_in_arithmetic_binary_operators = always_for_clarity:warning
+dotnet_style_parentheses_in_other_binary_operators = always_for_clarity:warning
+
+# Expression preferences
+dotnet_style_prefer_auto_properties = true:suggestion
+dotnet_style_prefer_inferred_tuple_names = true:suggestion
+dotnet_style_prefer_inferred_anonymous_type_member_names = true:suggestion
+
+# Null checking
+csharp_style_throw_expression = true:suggestion
+csharp_style_conditional_delegate_call = true:suggestion
+
+# var preferences
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = true:suggestion
+
+# Expression-bodied members
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_constructors = false:suggestion
+csharp_style_expression_bodied_operators = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = when_on_single_line:suggestion
+
+# Pattern matching
+csharp_style_pattern_matching_over_is_with_cast_check = true:suggestion
+csharp_style_pattern_matching_over_as_with_null_check = true:suggestion
+
+# Null checking preferences
+csharp_style_inlined_variable_declaration = true:suggestion
+
+# Code block preferences
+csharp_prefer_braces = true:warning
+
+# JavaScript/TypeScript
+[*.{js,ts,jsx,tsx}]
+quote_type = single
+indent_style = space
+indent_size = 2
+
+# Python
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 88
+"@
+
+    # CONTRIBUTING.md content
+    $contributingContent = @"
+# Contributing to $RepoName
+
+Thank you for your interest in contributing! This document provides guidelines and instructions for contributing to this project.
+
+## Table of Contents
+
+1. [Code of Conduct](#code-of-conduct)
+2. [Getting Started](#getting-started)
+3. [Development Workflow](#development-workflow)
+4. [Pull Request Process](#pull-request-process)
+5. [Coding Standards](#coding-standards)
+6. [Testing Requirements](#testing-requirements)
+7. [Documentation](#documentation)
+
+## Code of Conduct
+
+### Our Pledge
+
+- Be respectful and inclusive
+- Accept constructive criticism gracefully
+- Focus on what's best for the project
+- Show empathy towards other contributors
+
+### Unacceptable Behavior
+
+- Harassment or discriminatory language
+- Trolling or insulting comments
+- Personal attacks
+- Publishing others' private information
+
+## Getting Started
+
+### Prerequisites
+
+Review the [Development Setup Guide](/Development/Development-Setup) in the project wiki for:
+- Required software and tools
+- Environment configuration
+- Local development setup
+
+### First Contribution
+
+**Good First Issues**: Look for issues tagged with \``good-first-issue\`` label.
+
+**Steps**:
+1. Fork the repository (if external) or create a branch
+2. Set up local development environment
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+## Development Workflow
+
+### Branching Strategy
+
+Follow the [Git Workflow](/Development/Git-Workflow) guide:
+
+````````````bash
+# Create feature branch
+git checkout -b feature/123-your-feature-name
+
+# Make changes and commit
+git add .
+git commit -m "feat(module): add new feature"
+
+# Push to remote
+git push -u origin feature/123-your-feature-name
+````````````
+
+### Branch Naming
+
+**Pattern**: \``<type>/<ticket-number>-<description>\``
+
+**Types**:
+- \``feature/\`` - New features
+- \``bugfix/\`` - Bug fixes
+- \``hotfix/\`` - Urgent production fixes
+- \``refactor/\`` - Code refactoring
+- \``docs/\`` - Documentation only
+
+**Examples**:
+- \``feature/123-add-authentication\``
+- \``bugfix/456-fix-null-reference\``
+- \``docs/789-update-api-guide\``
+
+### Commit Messages
+
+Follow conventional commits:
+
+````````````
+<type>(<scope>): <subject>
+
+[optional body]
+
+[optional footer]
+````````````
+
+**Types**: \``feat\``, \``fix\``, \``docs\``, \``style\``, \``refactor\``, \``test\``, \``chore\``
+
+**Examples**:
+````````````
+feat(auth): add JWT token validation
+
+fix(api): handle null response from external service
+
+docs(readme): update installation instructions
+````````````
+
+## Pull Request Process
+
+### Before Creating PR
+
+✅ **Checklist**:
+- [ ] Code builds successfully
+- [ ] All tests pass
+- [ ] New tests added for new functionality
+- [ ] Code follows style guidelines
+- [ ] Documentation updated
+- [ ] No merge conflicts with main branch
+- [ ] Self-reviewed the changes
+- [ ] Work item linked
+
+### PR Title
+
+Follow same format as commit messages:
+````````````
+feat(auth): add OAuth2 support
+````````````
+
+### PR Description
+
+Use the PR template (created automatically):
+
+````````````markdown
+## What
+Brief description of changes
+
+## Why
+Reason for changes (link to work item)
+
+## How
+Technical approach and implementation details
+
+## Testing
+- [ ] Unit tests added
+- [ ] Integration tests added
+- [ ] Manual testing performed
+
+## Screenshots (if UI changes)
+[Attach screenshots]
+
+## Checklist
+- [ ] Code follows style guidelines
+- [ ] Tests pass locally
+- [ ] Documentation updated
+````````````
+
+### Review Process
+
+1. **Automated Checks**: CI build must pass
+2. **Code Review**: Minimum 2 approvals required
+3. **Address Feedback**: Respond to all comments
+4. **Final Approval**: Once approved, PR can be merged
+
+**Response Time**:
+- Reviewers: 24 hours
+- Authors (feedback): 48 hours
+
+## Coding Standards
+
+### General Principles
+
+- **DRY**: Don't Repeat Yourself
+- **KISS**: Keep It Simple, Stupid
+- **YAGNI**: You Aren't Gonna Need It
+- **SOLID**: Object-oriented design principles
+
+### Code Style
+
+#### .NET / C#
+````````````csharp
+// Use PascalCase for classes and methods
+public class UserService
+{
+    // Use camelCase for parameters and local variables
+    public User GetUser(int userId)
+    {
+        var user = _repository.FindById(userId);
+        return user;
+    }
+}
+````````````
+
+#### JavaScript / TypeScript
+````````````javascript
+// Use camelCase for variables and functions
+function getUserById(userId) {
+    const user = repository.findById(userId);
+    return user;
+}
+
+// Use PascalCase for classes
+class UserService {
+    getUser(userId) {
+        return this.repository.findById(userId);
+    }
+}
+````````````
+
+#### Python
+````````````python
+# Use snake_case for functions and variables
+def get_user_by_id(user_id):
+    user = repository.find_by_id(user_id)
+    return user
+
+# Use PascalCase for classes
+class UserService:
+    def get_user(self, user_id):
+        return self.repository.find_by_id(user_id)
+````````````
+
+### Documentation Comments
+
+#### C#
+````````````csharp
+/// <summary>
+/// Gets user by ID.
+/// </summary>
+/// <param name="userId">The user identifier.</param>
+/// <returns>User object or null if not found.</returns>
+public User GetUser(int userId)
+````````````
+
+#### JavaScript
+````````````javascript
+/**
+ * Gets user by ID.
+ * @param {number} userId - The user identifier
+ * @returns {Promise<User>} User object or null
+ */
+async function getUser(userId)
+````````````
+
+## Testing Requirements
+
+### Test Coverage
+
+- **Minimum**: 80% code coverage
+- **Target**: 90%+ for critical paths
+- **Required**: Tests for all public APIs
+
+### Test Types
+
+1. **Unit Tests**: Test individual components
+2. **Integration Tests**: Test component interactions
+3. **E2E Tests**: Test full user flows (where applicable)
+
+### Test Structure
+
+````````````csharp
+[Fact]
+public void GetUser_ValidId_ReturnsUser()
+{
+    // Arrange
+    var userId = 123;
+    var expected = new User { Id = userId };
+    
+    // Act
+    var result = _service.GetUser(userId);
+    
+    // Assert
+    Assert.Equal(expected.Id, result.Id);
+}
+````````````
+
+### Running Tests
+
+````````````bash
+# .NET
+dotnet test
+
+# Node.js
+npm test
+
+# Python
+pytest
+````````````
+
+## Documentation
+
+### When to Document
+
+**Always Document**:
+- Public APIs
+- Complex algorithms
+- Non-obvious decisions
+- Architecture changes
+
+**Wiki Updates**:
+- Update [API Documentation](/Development/API-Documentation) for API changes
+- Create [ADR](/Development/Architecture-Decision-Records) for architectural decisions
+- Update [Dependencies](/Development/Dependencies) when adding/removing packages
+
+### Documentation Standards
+
+- Use clear, concise language
+- Include code examples
+- Keep documentation up to date with code
+- Link to related documentation
+
+## Questions?
+
+- **Technical Questions**: Ask in team chat or daily standup
+- **Process Questions**: Contact tech lead
+- **Issues**: Create an issue in Azure Boards
+
+---
+
+**Thank you for contributing!** Every contribution, no matter how small, helps improve the project.
+"@
+
+    # CODEOWNERS content
+    $codeownersContent = @"
+# CODEOWNERS - Auto-assign reviewers for PRs
+# https://docs.microsoft.com/en-us/azure/devops/repos/git/require-branch-folders
+
+# Default owners for everything
+* @$Project-Team
+
+# API / Backend
+/src/API/ @backend-team
+/src/Services/ @backend-team
+/src/Domain/ @backend-team
+
+# Frontend / UI
+/src/Web/ @frontend-team
+/src/UI/ @frontend-team
+/client/ @frontend-team
+
+# Infrastructure / DevOps
+/azure-pipelines.yml @devops-team
+/Dockerfile @devops-team
+/docker-compose.yml @devops-team
+/.github/ @devops-team
+/terraform/ @devops-team
+/k8s/ @devops-team
+
+# Database
+/src/Migrations/ @database-team
+/database/ @database-team
+*.sql @database-team
+
+# Documentation
+/docs/ @tech-writers
+README.md @tech-writers
+CONTRIBUTING.md @tech-writers
+
+# Configuration
+appsettings.json @devops-team @backend-team
+*.config @devops-team
+
+# Dependencies
+package.json @tech-lead
+package-lock.json @tech-lead
+*.csproj @tech-lead
+requirements.txt @tech-lead
+
+# Security-sensitive files
+/src/Auth/ @security-team @tech-lead
+/src/Security/ @security-team @tech-lead
+
+# Tests
+/tests/ @qa-team
+*.Tests.cs @qa-team
+*.test.js @qa-team
+*_test.py @qa-team
+
+# Root configuration files
+/.editorconfig @tech-lead
+/.gitignore @tech-lead
+/CODEOWNERS @tech-lead
+"@
+
+    # Create files via Git push API
+    $filesCreated = @()
+    
+    try {
+        # Get latest commit
+        $refs = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/refs?filter=heads/$defaultBranch"
+        if ($refs.value.Count -eq 0) {
+            Write-Warning "Repository has no commits yet. Files will be added after first push."
+            return
+        }
+        
+        $latestCommit = $refs.value[0].objectId
+        
+        # Prepare push with all files
+        $changes = @()
+        
+        # Add .gitignore if not exists
+        try {
+            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.gitignore"
+            Write-Host "  ✓ .gitignore already exists" -ForegroundColor Gray
+        }
+        catch {
+            $changes += @{
+                changeType = "add"
+                item = @{ path = "/.gitignore" }
+                newContent = @{
+                    content = $gitignoreContent
+                    contentType = "rawtext"
+                }
+            }
+        }
+        
+        # Add .editorconfig if not exists
+        try {
+            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.editorconfig"
+            Write-Host "  ✓ .editorconfig already exists" -ForegroundColor Gray
+        }
+        catch {
+            $changes += @{
+                changeType = "add"
+                item = @{ path = "/.editorconfig" }
+                newContent = @{
+                    content = $editorconfigContent
+                    contentType = "rawtext"
+                }
+            }
+        }
+        
+        # Add CONTRIBUTING.md if not exists
+        try {
+            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/CONTRIBUTING.md"
+            Write-Host "  ✓ CONTRIBUTING.md already exists" -ForegroundColor Gray
+        }
+        catch {
+            $changes += @{
+                changeType = "add"
+                item = @{ path = "/CONTRIBUTING.md" }
+                newContent = @{
+                    content = $contributingContent
+                    contentType = "rawtext"
+                }
+            }
+        }
+        
+        # Add CODEOWNERS if not exists
+        try {
+            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/CODEOWNERS"
+            Write-Host "  ✓ CODEOWNERS already exists" -ForegroundColor Gray
+        }
+        catch {
+            $changes += @{
+                changeType = "add"
+                item = @{ path = "/CODEOWNERS" }
+                newContent = @{
+                    content = $codeownersContent
+                    contentType = "rawtext"
+                }
+            }
+        }
+        
+        # Push all changes if any
+        if ($changes.Count -gt 0) {
+            $pushPayload = @{
+                refUpdates = @(
+                    @{
+                        name = "refs/heads/$defaultBranch"
+                        oldObjectId = $latestCommit
+                    }
+                )
+                commits = @(
+                    @{
+                        comment = "Add enhanced repository files (gitignore, editorconfig, CONTRIBUTING, CODEOWNERS)"
+                        changes = $changes
+                    }
+                )
+            }
+            
+            Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/pushes" -Body $pushPayload | Out-Null
+            Write-Host "[SUCCESS] Created repository files: $($changes.Count) file(s)" -ForegroundColor Green
+        }
+        else {
+            Write-Host "[INFO] All repository files already exist" -ForegroundColor Gray
+        }
+    }
+    catch {
+        Write-Warning "Failed to create repository files: $_"
+    }
+}
+
 # Export public functions
 Export-ModuleMember -Function @(
     'Wait-AdoOperation',
@@ -4705,6 +8600,10 @@ Export-ModuleMember -Function @(
     'Ensure-AdoCommonTags',
     'Ensure-AdoBestPracticesWiki',
     'Ensure-AdoBusinessWiki',
+    'Ensure-AdoDevWiki',
+    'Ensure-AdoDevDashboard',
+    'Ensure-AdoDevQueries',
+    'Ensure-AdoRepoFiles',
     'Ensure-AdoTestPlan',
     'Ensure-AdoQAQueries',
     'Ensure-AdoQADashboard',

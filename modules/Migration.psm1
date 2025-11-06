@@ -211,9 +211,10 @@ function Show-MigrationMenu {
     Write-Host "  5) Review & update bulk migration template"
     Write-Host "  6) Execute bulk migration from prepared template"
     Write-Host "  7) Provision Business Initialization Pack (wiki, queries, sprints, dashboard)"
+    Write-Host "  8) Provision Development Initialization Pack (dev wiki, queries, repo files)"
     Write-Host ""
     
-    $choice = Read-Host "Enter 1, 2, 3, 4, 5, 6, or 7"
+    $choice = Read-Host "Enter 1, 2, 3, 4, 5, 6, 7, or 8"
     
     switch ($choice) {
         '1' {
@@ -448,6 +449,39 @@ function Show-MigrationMenu {
             }
             catch {
                 Write-Host "[ERROR] Business Initialization failed: $_" -ForegroundColor Red
+            }
+        }
+        '8' {
+            $DestProjectName = Read-Host "Enter Azure DevOps project name (e.g., MyProject)"
+            if ([string]::IsNullOrWhiteSpace($DestProjectName)) {
+                Write-Host "[ERROR] Project name cannot be empty." -ForegroundColor Red
+                return
+            }
+            
+            Write-Host ""
+            Write-Host "Select project type for .gitignore template:"
+            Write-Host "  1) .NET"
+            Write-Host "  2) Node.js"
+            Write-Host "  3) Python"
+            Write-Host "  4) Java"
+            Write-Host "  5) All (multi-language)"
+            $typeChoice = Read-Host "Enter 1-5 (default: 5)"
+            
+            $projectType = switch ($typeChoice) {
+                '1' { 'dotnet' }
+                '2' { 'node' }
+                '3' { 'python' }
+                '4' { 'java' }
+                default { 'all' }
+            }
+            
+            try {
+                Write-Host "[INFO] Provisioning Development Initialization Pack for '$DestProjectName'..." -ForegroundColor Cyan
+                Initialize-DevInit -DestProject $DestProjectName -ProjectType $projectType
+                Write-Host "[SUCCESS] Development Initialization Pack completed" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "[ERROR] Development Initialization failed: $_" -ForegroundColor Red
             }
         }
         default {
@@ -782,6 +816,90 @@ function Initialize-BusinessInit {
     $reportFile = Join-Path $paths.reportsDir "business-init-summary.json"
     Write-MigrationReport -ReportFile $reportFile -Data $summary
     Write-Host "[SUCCESS] Business Initialization Pack complete" -ForegroundColor Green
+    Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
+}
+
+<#
+.SYNOPSIS
+    Provisions development-focused initialization assets for an existing ADO project.
+
+.DESCRIPTION
+    Adds wiki pages, queries, repository files, and documentation targeted at the
+    development team for improved productivity and consistent workflows.
+
+.PARAMETER DestProject
+    Azure DevOps project name.
+
+.PARAMETER ProjectType
+    Project type for .gitignore template (dotnet, node, python, java, all).
+
+.EXAMPLE
+    Initialize-DevInit -DestProject "MyProject" -ProjectType "dotnet"
+#>
+function Initialize-DevInit {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$DestProject,
+        
+        [ValidateSet('dotnet', 'node', 'python', 'java', 'all')]
+        [string]$ProjectType = 'all'
+    )
+
+    Write-Host "[INFO] Starting Development Initialization Pack for '$DestProject'" -ForegroundColor Cyan
+    Write-Host "[NOTE] You may see some 404 errors - these are normal when checking if resources already exist" -ForegroundColor Gray
+
+    # Validate project exists
+    if (-not (Test-AdoProjectExists -ProjectName $DestProject)) {
+        throw "Project '$DestProject' was not found in Azure DevOps. Create it first (Initialize mode)."
+    }
+
+    # Get project and wiki
+    $proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($DestProject))?includeCapabilities=true"
+    $projId = $proj.id
+    $wiki = Ensure-AdoProjectWiki $projId $DestProject
+
+    # Provision development wiki pages
+    Write-Host "[INFO] Provisioning development wiki pages..." -ForegroundColor Cyan
+    Ensure-AdoDevWiki -Project $DestProject -WikiId $wiki.id
+
+    # Create development dashboard
+    Write-Host "[INFO] Creating development dashboard..." -ForegroundColor Cyan
+    Ensure-AdoDevDashboard -Project $DestProject -WikiId $wiki.id
+
+    # Ensure development queries
+    Write-Host "[INFO] Creating development-focused queries..." -ForegroundColor Cyan
+    Ensure-AdoDevQueries -Project $DestProject
+
+    # Get repository for adding files
+    $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($DestProject))/_apis/git/repositories"
+    $repo = $repos.value | Where-Object { $_.name -eq $DestProject } | Select-Object -First 1
+    
+    if ($repo) {
+        Write-Host "[INFO] Adding enhanced repository files..." -ForegroundColor Cyan
+        Ensure-AdoRepoFiles -Project $DestProject -RepoId $repo.id -RepoName $repo.name -ProjectType $ProjectType
+    }
+    else {
+        Write-Host "[WARN] No repository found - skipping repository files" -ForegroundColor Yellow
+        Write-Host "[INFO] Repository files will be added after code migration" -ForegroundColor Gray
+    }
+
+    # Generate readiness summary report
+    $paths = Get-ProjectPaths -ProjectName $DestProject
+    $summary = [pscustomobject]@{
+        timestamp         = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        ado_project       = $DestProject
+        project_type      = $ProjectType
+        wiki_pages        = @('Architecture-Decision-Records','Development-Setup','API-Documentation','Git-Workflow','Code-Review-Checklist','Troubleshooting','Dependencies')
+        dev_queries       = @('My PRs Awaiting Review','PRs I Need to Review','Technical Debt','Recently Completed','Code Review Feedback')
+        repo_files        = @('.gitignore','.editorconfig','CONTRIBUTING.md','CODEOWNERS')
+        repository_found  = ($null -ne $repo)
+        notes             = 'Development initialization completed. Repository files added if repository exists.'
+    }
+
+    $reportFile = Join-Path $paths.reportsDir "dev-init-summary.json"
+    Write-MigrationReport -ReportFile $reportFile -Data $summary
+    Write-Host "[SUCCESS] Development Initialization Pack complete" -ForegroundColor Green
     Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
 }
 
@@ -1647,6 +1765,7 @@ Export-ModuleMember -Function @(
     'Show-MigrationMenu',
     'Initialize-AdoProject',
     'Initialize-BusinessInit',
+    'Initialize-DevInit',
     'New-MigrationPreReport',
     'Invoke-SingleMigration',
     'Invoke-BulkPreparationWorkflow',

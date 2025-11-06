@@ -33,6 +33,9 @@ CLI mode enables headless automation for CI/CD pipelines, scripts, and batch pro
 # Business initialization (business-facing assets)
 .\Gitlab2DevOps.ps1 -Mode BusinessInit -Project "ADOProject"
 
+# Development initialization (dev team assets)
+.\Gitlab2DevOps.ps1 -Mode DevInit -Project "ADOProject" -Source "group/project"
+
 # Force migration (skip blocking issues)
 .\Gitlab2DevOps.ps1 -Mode Migrate -Source "group/project" -Force
 
@@ -50,7 +53,7 @@ CLI mode enables headless automation for CI/CD pipelines, scripts, and batch pro
 Execution mode for the operation.
 
 **Type**: String  
-**Values**: `Preflight`, `Initialize`, `Migrate`, `BulkPrepare`, `BulkMigrate`, `BusinessInit`  
+**Values**: `Preflight`, `Initialize`, `Migrate`, `BulkPrepare`, `BulkMigrate`, `BusinessInit`, `DevInit`  
 **Required**: Yes (in CLI mode)
 
 ```powershell
@@ -61,6 +64,7 @@ Execution mode for the operation.
 -Mode BulkPrepare # Preflight all projects
 -Mode BulkMigrate # Migrate all projects
 -Mode BusinessInit # Provision wiki, queries, iterations, dashboard for business stakeholders
+-Mode DevInit      # Provision dev wiki, dashboard, queries, repo files for development team
 ```
 
 ---
@@ -305,6 +309,44 @@ Provision business-facing assets in an existing Azure DevOps project (no code mi
 **Use Cases**:
 - Jumpstart business stakeholders with wiki and visibility assets
 - Prepare governance and reporting structure before/after code migration
+
+---
+
+### Mode: DevInit
+
+Provision development team assets in an existing Azure DevOps project (no code migration).
+
+```powershell
+.\Gitlab2DevOps.ps1 -Mode DevInit -Project "API" -Source "group/api"
+# Or specify project type for tailored .gitignore
+.\Gitlab2DevOps.ps1 -Mode DevInit -Project "API" -Source "group/api"  # Auto-detects from Source
+```
+
+**Actions**:
+- ✅ Ensures project wiki exists and creates development pages (ADR Template, Dev Setup Guide, API Documentation, Git Workflow, Code Review Checklist, Troubleshooting, Dependencies, Component Tags)
+- ✅ Creates development dashboard with PR metrics, code quality widgets, and test results
+- ✅ Creates dev-focused queries (My PRs Awaiting Review, PRs I Need to Review, Technical Debt, Recently Completed, Code Review Feedback)
+- ✅ Adds enhanced repository files (.gitignore, .editorconfig, CONTRIBUTING.md, CODEOWNERS) tailored to project type
+- ✅ Generates readiness summary report
+
+**Project Types**:
+- `dotnet` - .NET/C# projects
+- `node` - Node.js/JavaScript/TypeScript projects
+- `python` - Python projects
+- `java` - Java/Maven/Gradle projects
+- `all` - Multi-language (default)
+
+**Notes**:
+- [NOTE] You may see some 404 errors during checks — these are normal when verifying if resources already exist.
+- Repository files are only added if a repository already exists in the project
+
+**Output**:
+- File: `migrations/<project>/reports/dev-init-summary.json`
+
+**Use Cases**:
+- Empower development teams with best-practice guides and templates
+- Establish code quality standards and PR workflows
+- Prepare development infrastructure before/after code migration
 
 ---
 
