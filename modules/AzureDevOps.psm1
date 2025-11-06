@@ -2365,42 +2365,35 @@ function Ensure-AdoQAGuidelinesWiki {
         [string]$WikiId
     )
     
-    Write-Host "[INFO] Creating QA guidelines wiki page..." -ForegroundColor Cyan
+    Write-Host "[INFO] Creating QA wiki pages..." -ForegroundColor Cyan
     
-    # Load QA guidelines content from external template
-    $qaGuidelinesContent = Get-WikiTemplate "QA/QAGuidelines"
+    # Define all QA wiki pages
+    $pages = @(
+        @{ path = '/QA-Guidelines'; template = 'QA/QAGuidelines'; title = 'QA Guidelines & Testing Standards' },
+        @{ path = '/Test-Strategy'; template = 'QA/TestStrategy'; title = 'Test Strategy & Planning' },
+        @{ path = '/Test-Data-Management'; template = 'QA/TestDataManagement'; title = 'Test Data Management' },
+        @{ path = '/Automation-Framework'; template = 'QA/AutomationFramework'; title = 'Automation Framework & Best Practices' },
+        @{ path = '/Bug-Lifecycle'; template = 'QA/BugLifecycle'; title = 'Bug Lifecycle & Quality Metrics' }
+    )
     
-    try {
-        # Check if page exists
+    foreach ($page in $pages) {
         try {
-            $existingPage = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis/$WikiId/pages?path=/QA-Guidelines"
-            Write-Host "[INFO] QA Guidelines page already exists" -ForegroundColor Gray
-            return $existingPage
+            $content = Get-WikiTemplate $page.template
+            Upsert-AdoWikiPage $Project $WikiId $page.path $content | Out-Null
+            Write-Host "[SUCCESS] Created/updated wiki page: $($page.title)" -ForegroundColor Green
         }
         catch {
-            # Page doesn't exist, create it
-            Write-Verbose "[Ensure-AdoQAGuidelinesWiki] Creating QA Guidelines page"
-            $page = Upsert-AdoWikiPage $Project $WikiId "/QA-Guidelines" $qaGuidelinesContent
-            Write-Host "[SUCCESS] Created QA Guidelines wiki page" -ForegroundColor Green
-            Write-Host ""
-            Write-Host "[INFO] QA Guidelines documented:" -ForegroundColor Cyan
-            Write-Host "  📋 Testing Strategy: Unit, Integration, System/UI testing" -ForegroundColor Gray
-            Write-Host "  🖥️ Test Configurations: 13 browser/OS/environment configs" -ForegroundColor Gray
-            Write-Host "  📚 Test Plan Structure: 4 suites (Regression, Smoke, Integration, UAT)" -ForegroundColor Gray
-            Write-Host "  ✍️ Writing Test Cases: Templates and best practices" -ForegroundColor Gray
-            Write-Host "  🐛 Bug Reporting: Severity guidelines and lifecycle" -ForegroundColor Gray
-            Write-Host "  📊 QA Queries & Dashboards: 8 queries and metrics dashboard" -ForegroundColor Gray
-            Write-Host "  ✅ Testing Checklist: Pre/during/post testing activities" -ForegroundColor Gray
-            Write-Host "  📂 Location: Project Wiki → QA-Guidelines" -ForegroundColor Gray
-            
-            return $page
+            Write-Warning "Failed to create page $($page.path): $_"
         }
     }
-    catch {
-        Write-Warning "Failed to create QA Guidelines page: $_"
-        Write-Verbose "[Ensure-AdoQAGuidelinesWiki] Error details: $($_.Exception.Message)"
-        return $null
-    }
+    
+    Write-Host ""
+    Write-Host "[INFO] QA wiki structure created with 5 comprehensive guides:" -ForegroundColor Cyan
+    Write-Host "  📋 QA Guidelines: Testing standards and practices" -ForegroundColor Gray
+    Write-Host "  🎯 Test Strategy: Planning and execution frameworks" -ForegroundColor Gray
+    Write-Host "  � Test Data: Data management and generation strategies" -ForegroundColor Gray
+    Write-Host "  🤖 Automation: Framework architecture and best practices" -ForegroundColor Gray
+    Write-Host "  🐛 Bug Lifecycle: Defect management and quality metrics" -ForegroundColor Gray
 }
 
 <#
@@ -3142,29 +3135,37 @@ function Ensure-AdoBestPracticesWiki {
         [string]$WikiId
     )
     
-    Write-Host "[INFO] Creating Azure DevOps best practices wiki page..." -ForegroundColor Cyan
+    Write-Host "[INFO] Creating Best Practices wiki pages..." -ForegroundColor Cyan
     
-    $bestPracticesContent = Get-WikiTemplate "BestPractices/BestPractices"
-
-    try {
-        # Check if page exists
+    # Define all Best Practices wiki pages
+    $pages = @(
+        @{ path = '/Best-Practices'; template = 'BestPractices/BestPractices'; title = 'Azure DevOps Best Practices' },
+        @{ path = '/Performance-Optimization'; template = 'BestPractices/PerformanceOptimization'; title = 'Performance Optimization' },
+        @{ path = '/Error-Handling'; template = 'BestPractices/ErrorHandling'; title = 'Error Handling & Resilience' },
+        @{ path = '/Logging-Standards'; template = 'BestPractices/LoggingStandards'; title = 'Logging Standards' },
+        @{ path = '/Testing-Strategies'; template = 'BestPractices/TestingStrategies'; title = 'Testing Strategies' },
+        @{ path = '/Documentation-Guidelines'; template = 'BestPractices/DocumentationGuidelines'; title = 'Documentation Guidelines' }
+    )
+    
+    foreach ($page in $pages) {
         try {
-            $existingPage = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis/$WikiId/pages?path=/Best-Practices"
-            Write-Host "[INFO] Best Practices page already exists" -ForegroundColor Gray
-            return $existingPage
+            $content = Get-WikiTemplate $page.template
+            Upsert-AdoWikiPage $Project $WikiId $page.path $content | Out-Null
+            Write-Host "[SUCCESS] Created/updated wiki page: $($page.title)" -ForegroundColor Green
         }
         catch {
-            # Page doesn't exist, create it
-            Write-Verbose "[Ensure-AdoBestPracticesWiki] Creating Best Practices page"
-            $page = Upsert-AdoWikiPage $Project $WikiId "/Best-Practices" $bestPracticesContent
-            Write-Host "[SUCCESS] Created Best Practices wiki page" -ForegroundColor Green
-            return $page
+            Write-Warning "Failed to create page $($page.path): $_"
         }
     }
-    catch {
-        Write-Warning "Failed to create Best Practices page: $_"
-        return $null
-    }
+    
+    Write-Host ""
+    Write-Host "[INFO] Best Practices wiki structure created with 6 comprehensive guides:" -ForegroundColor Cyan
+    Write-Host "  💎 Best Practices: Work items, boards, and team productivity" -ForegroundColor Gray
+    Write-Host "  🚀 Performance: Optimization strategies for frontend and backend" -ForegroundColor Gray
+    Write-Host "  🛡️ Error Handling: Resilience patterns and error management" -ForegroundColor Gray
+    Write-Host "  📝 Logging: Structured logging and monitoring best practices" -ForegroundColor Gray
+    Write-Host "  🧪 Testing: Comprehensive testing strategies and patterns" -ForegroundColor Gray
+    Write-Host "  📚 Documentation: Guidelines for effective technical documentation" -ForegroundColor Gray
 }
 
 <#
