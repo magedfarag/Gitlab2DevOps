@@ -7,7 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - v2.1.0 Development
 
+### 🎉 Major Enhancements - Modular Architecture & Team Initialization Packs
+
+This release focuses on code quality, maintainability, and providing production-ready documentation templates for all team roles.
+
 ### Added (Post-v2.0.0)
+- **Module Restructuring**: Split monolithic AzureDevOps.psm1 (10,763 lines) into 7 focused sub-modules:
+  - Core.psm1 (256 lines, 4 functions): REST foundation, error handling, retries
+  - Security.psm1 (84 lines, 3 functions): Token masking, credential cleanup
+  - Projects.psm1 (415 lines, 7 functions): Project creation, areas, iterations
+  - Repositories.psm1 (905 lines, 6 functions): Repository management, branch policies
+  - Wikis.psm1 (318 lines, 8 functions): Wiki page creation and management
+  - WorkItems.psm1 (1,507 lines, 9 functions): Work items, queries, templates
+  - Dashboards.psm1 (676 lines, 4 functions): Dashboard creation for all teams
+  - Total: 51.6% reduction in file size, improved maintainability
+- **43 Wiki Templates** (~18,000 lines of production-ready content):
+  - **Business Wiki** (10 templates): Welcome, Decision Log, Risks/Issues, Glossary, Ways of Working, KPIs, Training, Communication Templates, Cutover Timeline, Post-Cutover Summary
+  - **Dev Wiki** (7 templates): ADR, Dev Setup, API Docs, Git Workflow, Code Review, Troubleshooting, Dependencies
+  - **Security Wiki** (7 templates): Security Policies, Threat Modeling, Security Testing, Incident Response, Compliance, Secret Management, Security Champions
+  - **Management Wiki** (8 templates): Program Overview, Sprint Planning, Capacity Planning, Roadmap, RAID Log, Stakeholder Communications, Retrospectives, Metrics Dashboard
+  - **Best Practices Wiki** (6 templates): Code Standards, Performance Optimization, Error Handling, Logging Standards, Testing Strategies, Documentation Guidelines
+  - **QA Guidelines Wiki** (5 templates): QA Overview, Test Strategy, Test Data Management, Automation Framework, Bug Lifecycle
+- **Team Initialization Modes**: 4 specialized provisioning modes for existing projects:
+  - **BusinessInit**: 10 wiki pages + 8 queries + business dashboard
+  - **DevInit**: 7 wiki pages + technical documentation
+  - **SecurityInit**: 7 wiki pages + security queries + security dashboard
+  - **ManagementInit**: 8 wiki pages + 6 program management queries + executive dashboard
+- **JSON Configuration System**: External configuration files for project settings:
+  - migration.config.json: Project areas, iterations, process templates
+  - branch-policies.config.json: Branch protection rules, merge strategies
+  - ConfigLoader.psm1: Configuration loading and validation
+  - config/ directory with 3 example configurations (mobile, relaxed, strict)
+- **URL References**: All 43 wiki templates include authoritative reference links:
+  - Microsoft Learn, OWASP, NIST, IEEE standards
+  - Official tool documentation (Git, SonarQube, Jest, etc.)
+  - Industry best practices and security benchmarks
 - **curl Fallback System**: Automatic fallback to curl with `-k` flag when PowerShell SSL/TLS fails on on-premise servers
   - Detects "connection forcibly closed" and SSL certificate errors
   - Uses Basic authentication (`-u ":$PAT"`) for Azure DevOps
@@ -36,6 +70,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **.github/copilot-instructions.md**: AI agent guidance for codebase architecture and patterns
 
 ### Changed (Post-v2.0.0)
+- **Module Architecture**: Transitioned from monolithic 10,763-line file to 8 focused modules
+- **Template Storage**: Extracted all wiki templates to external .md files in WikiTemplates/ directory
+- **Template Loading**: New Get-WikiTemplate helper function with UTF-8 encoding and error handling
+- **Configuration Management**: Externalized project settings to JSON files with schema validation
+- **Interactive Menu**: Expanded from 6 options to 10 options with team initialization modes
 - **SSL/TLS Handling**: All Azure DevOps REST calls require `-SkipCertificateCheck` parameter
 - **Authentication**: Azure DevOps curl fallback uses Basic auth instead of headers
 - **Work Item Detection**: Enhanced with process template awareness and better error messages
@@ -59,33 +98,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test expectations to match actual function implementations
 
 ### Documentation (Post-v2.0.0)
-- **.github/copilot-instructions.md**: Comprehensive AI agent guidance (250+ lines)
-  - Architecture overview with module separation
-  - SSL/TLS handling with curl fallback strategy
-  - Work item type detection patterns
+- **.github/copilot-instructions.md**: Comprehensive AI agent guidance (400+ lines)
+  - Architecture overview with module separation and decoupling principles
+  - SSL/TLS handling with curl fallback strategy and expected 404 errors
+  - Work item type detection with dynamic process template resolution
   - Migration workflow separation (Option 2 vs Option 6)
   - REST API patterns and error handling
   - Testing, configuration, and security best practices
+  - Module restructuring patterns and file organization
 - **docs/QUICK_SETUP.md**: Complete .env setup guide (250+ lines)
 - **tests/TEST_COVERAGE.md**: Test documentation (323 lines)
 - **docs/advanced-features.md**: Progress, telemetry, dry-run documentation
-- **Updated README.md**: Comprehensive quick start and feature matrix
-- **Updated IMPLEMENTATION_ROADMAP.md**: Current status at 90% complete
+- **config/README.md**: JSON configuration guide with examples
+- **docs/WORK_ITEM_TEMPLATES.md**: Work item template documentation
+- **Updated README.md**: Comprehensive quick start and feature matrix with team init packs
+- **Updated CHANGELOG.md**: Complete v2.1.0 feature documentation
+- **Updated IMPLEMENTATION_ROADMAP.md**: Current status at 95% complete (17/21 tasks)
 
 ### Technical Details
+- **Module Restructuring**:
+  - Backup: AzureDevOps.psm1.backup preserved (10,763 lines)
+  - Split into 7 sub-modules (total 4,163 lines, 51.6% reduction)
+  - AzureDevOps.psm1 now loader (47 lines) importing all sub-modules
+  - All 40 functions tested and working
+- **WikiTemplates/ Directory Structure**:
+  - Business/ (10 templates, ~3,500 lines)
+  - Dev/ (7 templates, ~2,800 lines)
+  - Security/ (7 templates, ~3,200 lines)
+  - Management/ (8 templates, ~3,400 lines)
+  - BestPractices/ (6 templates, ~2,700 lines)
+  - QA/ (5 templates, ~2,100 lines)
+- **Wikis.psm1 Functions**:
+  - Ensure-AdoBusinessWiki: Creates 10 business wiki pages
+  - Ensure-AdoDevWiki: Creates 7 dev wiki pages
+  - Ensure-AdoSecurityWiki: Creates 7 security wiki pages
+  - Ensure-AdoManagementWiki: Creates 8 management wiki pages
+  - Ensure-AdoBestPracticesWiki: Creates 6 best practices pages
+  - Ensure-AdoQAGuidelinesWiki: Creates 5 QA guidelines pages
+  - Upsert-AdoWikiPage: Core wiki page creation function
+  - Get-WikiTemplate: Template loader with UTF-8 encoding
+- **WorkItems.psm1 Queries**:
+  - 8 business queries (active work, risks, bugs, blockers, etc.)
+  - 6 management queries (program status, sprint progress, risks, dependencies, etc.)
+- **Dashboards.psm1 Functions**:
+  - Ensure-AdoBusinessDashboard: Business metrics and KPIs
+  - Ensure-AdoSecurityDashboard: Security vulnerabilities and compliance
+  - Ensure-AdoManagementDashboard: Program health and executive metrics
+  - Ensure-AdoQADashboard: Testing metrics (already existed)
+- **Migration.psm1 Menu**:
+  - Option 7: Business Initialization Pack
+  - Option 8: Development Initialization Pack
+  - Option 9: Security Initialization Pack
+  - Option 10: Management Initialization Pack
+  - Functions: Initialize-BusinessInit, Initialize-DevInit, Initialize-SecurityInit, Initialize-ManagementInit
 - **Core.Rest.psm1 Changes**:
   - Lines 458-590: curl fallback implementation with Basic auth
   - HTTP header parsing with status code extraction
   - Network error detection and retry logic
   - Automatic SSL/TLS error detection
-- **AzureDevOps.psm1 Changes**:
-  - Lines 650-780: Enhanced work item type detection
+- **Projects.psm1 Changes**:
+  - Enhanced work item type detection with process template awareness
   - Get-AdoRepoDefaultBranch null return for empty repos
-  - Ensure-AdoTeamTemplates with 3-second initialization wait
+  - Ensure-AdoTeamTemplates with initialization wait
 - **Migration.psm1 Changes**:
-  - Lines 515-575: Project setup with conditional branch policy check
-  - Lines 858-938: Post-migration branch policy application
-  - Success messages clarify when policies are applied
+  - Project setup with conditional branch policy check
+  - Post-migration branch policy application
+  - 4 new initialization functions for team-specific provisioning
 
 ---
 

@@ -19,9 +19,10 @@ Migrate Git repositories with full history, branch policies, and comprehensive a
 | 🛡️ **SSL/TLS Resilience** | Automatic curl fallback for on-premise servers with certificate issues |
 | ✅ **Idempotent Operations** | Safe to re-run, `-WhatIf` preview, `-Force` override |
 | ⚡ **Performance Optimized** | Project caching, repository reuse, 2-5x faster re-runs |
-| 🤖 **CLI Automation** | 6 modes, GitHub Actions/Azure Pipelines ready |
+| 🤖 **CLI Automation** | 10 modes including Business/Dev/Security/Management Init |
 | 📊 **Full Observability** | Run manifests, REST timing, structured logs |
 | 🔄 **Bulk Migration** | Process dozens of projects with single command |
+| 📚 **43 Wiki Templates** | ~18,000 lines of production-ready documentation |
 
 ---
 
@@ -68,11 +69,20 @@ Migrate Git repositories with full history, branch policies, and comprehensive a
 .\Gitlab2DevOps.ps1 -Mode Migrate -Source "my-group/my-project" -Project "MyADOProject"
 ```
 
-Optional: Provision business-facing assets (wiki, queries, sprints, dashboard) in an existing ADO project:
+Optional: Provision team-specific initialization packs in an existing ADO project:
 
 ```powershell
-.# After Initialize or Migration
+# Business team assets (10 wiki pages, 8 queries, dashboard)
 ./Gitlab2DevOps.ps1 -Mode BusinessInit -Project "MyADOProject"
+
+# Development team assets (7 wiki pages, technical documentation)
+./Gitlab2DevOps.ps1 -Mode DevInit -Project "MyADOProject"
+
+# Security team assets (7 wiki pages, security queries, dashboard)
+./Gitlab2DevOps.ps1 -Mode SecurityInit -Project "MyADOProject"
+
+# Management/PMO assets (8 wiki pages, 6 queries, executive dashboard)
+./Gitlab2DevOps.ps1 -Mode ManagementInit -Project "MyADOProject"
 ```
 
 📖 **New to this tool?** → [Full Quick Start Guide](docs/quickstart.md)
@@ -108,7 +118,7 @@ Optional: Provision business-facing assets (wiki, queries, sprints, dashboard) i
 ### Core Capabilities
 
 - **Idempotent Operations**: Safe to re-run with `-Force` and `-Replace` flags
-- **CLI Automation**: 6 modes (Preflight, Initialize, BusinessInit, Migrate, BulkPrepare, BulkMigrate)
+- **CLI Automation**: 10 modes (Preflight, Initialize, Migrate, BulkPrepare, BulkMigrate, BusinessInit, DevInit, SecurityInit, ManagementInit, MenuMode)
 - **Progress Tracking**: Visual progress bars with ETA for long-running operations
 - **Telemetry Analytics**: Opt-in metrics collection for performance analysis (local only)
 - **Dry-Run Preview**: Generate HTML/JSON reports before migration with size estimates
@@ -117,6 +127,8 @@ Optional: Provision business-facing assets (wiki, queries, sprints, dashboard) i
 - **Audit Trails**: Run manifests with execution metadata
 - **REST Observability**: Timing measurements, status code logging
 - **Bulk Migration**: Process multiple projects efficiently
+- **Modular Architecture**: 7 sub-modules (Core, Security, Projects, Repositories, Wikis, WorkItems, Dashboards)
+- **JSON Configuration**: Project settings, branch policies, and templates via configuration files
 
 ### Production-Grade Features
 
@@ -255,11 +267,19 @@ $env:GITLAB_PAT = "your-gitlab-token-here"
 - **Security Restrictions**: BA group cannot push/create PRs
 - **Work Item Templates**: Complete Agile template set (User Story, Task, Bug, Epic, Feature, Test Case)
 - **Project Wiki**: Automated setup with conventions documentation
-- **Test Plan**: 4 test suites (Regression, Smoke, Integration, UAT) ⭐ NEW
-- **QA Queries**: 8 specialized queries for testing workflow ⭐ NEW
-- **QA Dashboard**: Comprehensive testing metrics with 8 widgets ⭐ NEW
-- **Test Configurations**: 13 browser/OS/environment configurations ⭐ NEW
-- **QA Guidelines**: Complete testing documentation in wiki ⭐ NEW
+- **Test Plan**: 4 test suites (Regression, Smoke, Integration, UAT)
+- **QA Queries**: 8 specialized queries for testing workflow
+- **QA Dashboard**: Comprehensive testing metrics with 8 widgets
+- **Test Configurations**: 13 browser/OS/environment configurations
+
+### 📚 **Team Initialization Packs** ⭐ NEW in v2.1.0
+- **Business Init**: 10 wiki pages (Welcome, Decision Log, Risks, Glossary, Ways of Working, KPIs, Training, Communication Templates, Cutover Timeline, Post-Cutover Summary) + 8 queries + dashboard
+- **Dev Init**: 7 wiki pages (ADR, Dev Setup, API Docs, Git Workflow, Code Review, Troubleshooting, Dependencies) + technical documentation
+- **Security Init**: 7 wiki pages (Security Policies, Threat Modeling, Security Testing, Incident Response, Compliance, Secret Management, Security Champions) + security queries + dashboard
+- **Management Init**: 8 wiki pages (Program Overview, Sprint Planning, Capacity Planning, Roadmap, RAID Log, Stakeholder Communications, Retrospectives, Metrics Dashboard) + 6 program management queries + executive dashboard
+- **Best Practices**: 6 wiki pages (Code Standards, Performance Optimization, Error Handling, Logging Standards, Testing Strategies, Documentation Guidelines)
+- **QA Guidelines**: 5 wiki pages (QA Overview, Test Strategy, Test Data Management, Automation Framework, Bug Lifecycle)
+- **Total**: 43 wiki templates with ~18,000 lines of production-ready content
 
 ### 📦 **Bulk Migration Support**
 - Multi-project preparation and analysis
