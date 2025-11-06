@@ -110,7 +110,7 @@
 
 .NOTES
     Author: Migration Team
-    Version: 2.0.0
+    Version: 2.1.0
     Requires: PowerShell 5.1+, Git, Azure DevOps PAT, GitLab PAT
     
     Environment Variables (recommended):

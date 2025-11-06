@@ -7,11 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - v2.1.0 Development
 
-### 🎉 Major Enhancements - Modular Architecture & Team Initialization Packs
+### 🎉 Major Enhancements - Modular Architecture & Self-Contained Migrations
 
-This release focuses on code quality, maintainability, and providing production-ready documentation templates for all team roles.
+This release focuses on code quality, maintainability, and providing production-ready documentation templates for all team roles. **⚠️ BREAKING CHANGE**: Folder structure has been redesigned to use self-contained directories.
+
+### ⚠️ BREAKING CHANGES
+
+#### Self-Contained Folder Structures (v2.1.0)
+**This is a breaking change from v2.0.x.** Both single and bulk migrations now use self-contained folder hierarchies that are portable and easier to manage:
+
+**Single Migration** (NEW):
+```
+migrations/
+└── MyDevOpsProject/              # Azure DevOps project (parent)
+    ├── migration-config.json     # Project metadata
+    ├── reports/                  # Project-level reports
+    ├── logs/                     # Project-level logs
+    └── my-gitlab-project/        # GitLab project (child)
+        ├── reports/              # GitLab-specific reports
+        └── repository/           # Bare Git mirror
+```
+
+**Bulk Migration** (NEW):
+```
+migrations/
+└── ConsolidatedProject/          # Azure DevOps project (parent)
+    ├── bulk-migration-config.json
+    ├── reports/
+    ├── logs/
+    ├── frontend-app/             # GitLab project 1
+    │   ├── reports/
+    │   └── repository/
+    ├── backend-api/              # GitLab project 2
+    │   ├── reports/
+    │   └── repository/
+    └── infrastructure/           # GitLab project 3
+        ├── reports/
+        └── repository/
+```
+
+**Migration Path**: Legacy projects (v2.0.x flat structure) will display with `[legacy]` indicator in Option 2 menu. Re-prepare these projects using Option 1 to convert to v2.1.0 structure.
+
+**Benefits**:
+- ✅ Clear 1:1 relationship between DevOps projects and GitLab projects
+- ✅ Self-contained: Move/archive entire project by moving one folder
+- ✅ Consistent structure for single and bulk migrations
+- ✅ Support for multiple GitLab projects per DevOps project (future)
 
 ### Added (Post-v2.0.0)
+- **Self-Contained Migration Structures**: ⚠️ Breaking change - redesigned folder hierarchy:
+  - Single migrations: `migrations/{AdoProject}/{GitLabProject}/` with parent-child relationship
+  - Bulk migrations: `migrations/{AdoProject}/{Project1,Project2,...}/` with all repos as children
+  - `migration-config.json` for single projects (stores metadata)
+  - `bulk-migration-config.json` for bulk migrations (not template anymore)
+  - `Get-BulkProjectPaths()` function in Logging.psm1 for bulk path management
+  - `Get-ProjectPaths()` dual parameter sets: New (AdoProject+GitLabProject) vs Legacy (ProjectName)
+  - Auto-detection of v2.1.0 vs legacy structures in menus and workflows
+  - Structure indicators in Option 2 menu: `[v2.1.0]` (green) vs `[legacy]` (yellow)
 - **Module Restructuring**: Split monolithic AzureDevOps.psm1 (10,763 lines) into 7 focused sub-modules:
   - Core.psm1 (256 lines, 4 functions): REST foundation, error handling, retries
   - Security.psm1 (84 lines, 3 functions): Token masking, credential cleanup
@@ -70,6 +122,14 @@ This release focuses on code quality, maintainability, and providing production-
 - **.github/copilot-instructions.md**: AI agent guidance for codebase architecture and patterns
 
 ### Changed (Post-v2.0.0)
+- **Folder Structure** ⚠️ Breaking: All migrations use self-contained directories (see BREAKING CHANGES)
+  - Option 1 (Prepare): Now prompts for both DevOps and GitLab project names
+  - Option 2 (Initialize): Creates `migration-config.json` in `migrations/{AdoProject}/`
+  - Option 3 (Migrate): Auto-detects v2.1.0 vs legacy structure using config file presence
+  - Option 4 (Bulk Prep): Creates bulk folders with self-contained structure
+  - Option 6 (Bulk Exec): Reads from `bulk-migration-config.json` (renamed from template)
+  - `Get-PreparedProjects()`: Returns `Structure` property ("v2.1.0" or "legacy")
+  - `Prepare-GitLab()`: Accepts `-CustomBaseDir` and `-CustomProjectName` for flexible placement
 - **Module Architecture**: Transitioned from monolithic 10,763-line file to 8 focused modules
 - **Template Storage**: Extracted all wiki templates to external .md files in WikiTemplates/ directory
 - **Template Loading**: New Get-WikiTemplate helper function with UTF-8 encoding and error handling

@@ -26,6 +26,16 @@ Migrate Git repositories with full history, branch policies, and comprehensive a
 
 ---
 
+## ⚠️ v2.1.0 Breaking Change
+
+**Self-contained folder structures** are now used for all migrations. See [Project Structure](#project-structure) for details.
+
+- Single migrations: `migrations/{AdoProject}/{GitLabProject}/`
+- Bulk migrations: `migrations/{AdoProject}/{Project1,Project2,...}/`
+- Legacy projects (v2.0.x) can be detected and re-prepared
+
+---
+
 ## 📚 Documentation
 
 **New to Gitlab2DevOps?** Start here:
@@ -574,28 +584,56 @@ Project 4: [empty line to finish]
 
 ## Project Structure
 
+### ⚠️ v2.1.0 Breaking Change: Self-Contained Folder Structures
+
+Starting in v2.1.0, both single and bulk migrations use **self-contained folder hierarchies** for better organization and portability:
+
+**Single Migration Structure:**
 ```
 Gitlab2DevOps/
-├── Gitlab2DevOps.ps1             # Main migration script
-├── .gitignore                    # Git ignore configuration
-├── README.md                     # This documentation
+├── Gitlab2DevOps.ps1
+├── modules/                      # PowerShell modules
 └── migrations/                   # Migration workspace
-    ├── project-name/             # Individual project folders
-    │   ├── reports/              # JSON reports and analysis
-    │   │   ├── preflight-report.json
-    │   │   └── migration-summary.json
-    │   ├── logs/                 # Detailed operation logs
-    │   │   ├── preparation-YYYYMMDD-HHMMSS.log
-    │   │   └── migration-YYYYMMDD-HHMMSS.log
-    │   └── repository/           # Local Git mirror (bare repository)
-    ├── bulk-prep-ProjectName/    # Bulk preparation workspace
-    │   ├── bulk-migration-template.json
-    │   ├── preparation-summary.json
-    │   └── bulk-preparation.log
-    └── bulk-execution-YYYYMMDD-HHMMSS/  # Bulk migration results
-        ├── migration-report.json
-        └── bulk-execution.log
+    └── MyDevOpsProject/          # Azure DevOps project (parent)
+        ├── migration-config.json # Project metadata
+        ├── reports/              # Project-level reports
+        ├── logs/                 # Project-level logs
+        └── my-gitlab-project/    # GitLab project (child)
+            ├── reports/          # GitLab-specific reports
+            │   └── preflight-report.json
+            └── repository/       # Bare Git mirror
 ```
+
+**Bulk Migration Structure:**
+```
+migrations/
+└── ConsolidatedProject/          # Azure DevOps project (parent)
+    ├── bulk-migration-config.json
+    ├── reports/
+    │   └── preparation-summary.json
+    ├── logs/
+    │   └── bulk-preparation-YYYYMMDD-HHMMSS.log
+    ├── frontend-app/             # GitLab project 1
+    │   ├── reports/
+    │   │   └── preflight-report.json
+    │   └── repository/
+    ├── backend-api/              # GitLab project 2
+    │   ├── reports/
+    │   │   └── preflight-report.json
+    │   └── repository/
+    └── infrastructure/           # GitLab project 3
+        ├── reports/
+        │   └── preflight-report.json
+        └── repository/
+```
+
+**Benefits:**
+- ✅ Clear 1:1 relationship: DevOps project → GitLab projects
+- ✅ Self-contained: Archive/move entire project by moving one folder
+- ✅ Consistent structure for single and bulk migrations
+- ✅ Support for multiple GitLab projects per DevOps project
+
+**Migration Path:** Legacy projects (v2.0.x flat structure) will display with `[legacy]` indicator in Option 2 menu. Re-prepare using Option 1 to convert to v2.1.0 structure.
 
 ## Generated Reports
 

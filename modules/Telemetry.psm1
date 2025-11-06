@@ -9,7 +9,7 @@
 
 .NOTES
     Part of Gitlab2DevOps migration toolkit.
-    Version: 2.0.0
+    Version: 2.1.0
     Privacy: All telemetry is opt-in and stored locally only
 #>
 

@@ -10,7 +10,7 @@
 .NOTES
     Part of Gitlab2DevOps migration toolkit.
     Requires: Core.Rest, GitLab, AzureDevOps, Logging modules
-    Version: 2.0.0
+    Version: 2.1.0
 #>
 
 #Requires -Version 5.1
@@ -344,6 +344,9 @@ function Show-MigrationMenu {
             Write-Host ""
             Write-Host "=== PREPARED PROJECTS ===" -ForegroundColor Cyan
             Write-Host ""
+            Write-Host "[INFO] Projects marked [v2.1.0] use self-contained folder structures (recommended)" -ForegroundColor Cyan
+            Write-Host "[INFO] Projects marked [legacy] use flat folder structures (consider re-preparing)" -ForegroundColor DarkYellow
+            Write-Host ""
             
             # Filter out already-created projects (keep only those not yet in Azure DevOps)
             $availableProjects = @($preparedProjects | Where-Object { -not $_.ProjectExists })
@@ -379,8 +382,19 @@ function Show-MigrationMenu {
                 Write-Host "Single Project Preparations:" -ForegroundColor Green
                 for ($i = 0; $i -lt $singleProjects.Count; $i++) {
                     $proj = $singleProjects[$i]
-                    Write-Host "  $($i + 1)) $($proj.ProjectName) (from $($proj.GitLabPath))" -ForegroundColor White
+                    $structureIndicator = if ($proj.Structure -eq "v2.1.0") { "[v2.1.0]" } else { "[legacy]" }
+                    $structureColor = if ($proj.Structure -eq "v2.1.0") { "Green" } else { "Yellow" }
+                    
+                    Write-Host "  $($i + 1)) $($proj.ProjectName) (from $($proj.GitLabPath)) " -ForegroundColor White -NoNewline
+                    Write-Host $structureIndicator -ForegroundColor $structureColor
                     Write-Host "      Size: $($proj.RepoSizeMB) MB | Prepared: $($proj.PreparationTime)" -ForegroundColor Gray
+                }
+                
+                # Show helpful migration guidance if any legacy structures detected
+                $legacyCount = @($singleProjects | Where-Object { $_.Structure -eq "legacy" }).Count
+                if ($legacyCount -gt 0) {
+                    Write-Host ""
+                    Write-Host "  [NOTE] Legacy structures detected. Consider re-preparing with Option 1 for v2.1.0 self-contained folders." -ForegroundColor Yellow
                 }
                 Write-Host ""
             }
@@ -775,6 +789,28 @@ function Initialize-AdoProject {
     }
     else {
         Write-Host "[WARN] Repository '$RepoName' was not created. Skipping branch policies, templates, and repo-level security." -ForegroundColor Yellow
+    }
+    
+    # Create migration config in new v2.1.0 structure
+    try {
+        $paths = Get-ProjectPaths -AdoProject $DestProject -GitLabProject $RepoName
+        
+        # Create migration config
+        $config = [pscustomobject]@{
+            ado_project      = $DestProject
+            ado_repo_name    = $RepoName
+            migration_type   = "SINGLE"
+            created_date     = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssZ')
+            last_updated     = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssZ')
+            status           = "INITIALIZED"
+        }
+        
+        $config | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 $paths.configFile
+        Write-Verbose "[Initialize-AdoProject] Migration config created: $($paths.configFile)"
+    }
+    catch {
+        Write-Verbose "[Initialize-AdoProject] Could not create migration config: $_"
+        # Non-critical, continue
     }
     
     Write-Host ""

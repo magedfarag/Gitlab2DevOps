@@ -2,6 +2,17 @@
 
 Complete reference for command-line automation with Gitlab2DevOps.
 
+## ⚠️ v2.1.0 Breaking Change
+
+**Self-contained folder structures** are now used for all migrations:
+- Single: `migrations/{AdoProject}/{GitLabProject}/`
+- Bulk: `migrations/{AdoProject}/{Project1,Project2,...}/`
+- Output paths updated throughout this guide (see individual mode sections)
+
+See [README - Project Structure](../README.md#project-structure) for full details.
+
+---
+
 ## CLI Mode Overview
 
 CLI mode enables headless automation for CI/CD pipelines, scripts, and batch processing.
@@ -256,7 +267,8 @@ Validates migration readiness without making changes.
 
 **Output**:
 - Console: Summary of issues
-- File: `migrations/<project>/reports/preflight-report.json`
+- File: `migrations/{AdoProject}/{GitLabProject}/reports/preflight-report.json` (v2.1.0+)
+- Legacy: `migrations/{ProjectName}/reports/preflight-report.json` (v2.0.x)
 
 **Exit Codes**:
 - `0`: No blocking issues
@@ -304,7 +316,8 @@ Provision business-facing assets in an existing Azure DevOps project (no code mi
 - [NOTE] You may see some 404 errors during checks — these are normal when verifying if resources already exist.
 
 **Output**:
-- File: `migrations/<project>/reports/business-init-summary.json`
+- File: `migrations/{AdoProject}/reports/business-init-summary.json` (v2.1.0+)
+- Legacy: `migrations/{ProjectName}/reports/business-init-summary.json` (v2.0.x)
 
 **Use Cases**:
 - Jumpstart business stakeholders with wiki and visibility assets
@@ -341,7 +354,8 @@ Provision development team assets in an existing Azure DevOps project (no code m
 - Repository files are only added if a repository already exists in the project
 
 **Output**:
-- File: `migrations/<project>/reports/dev-init-summary.json`
+- File: `migrations/{AdoProject}/reports/dev-init-summary.json` (v2.1.0+)
+- Legacy: `migrations/{ProjectName}/reports/dev-init-summary.json` (v2.0.x)
 
 **Use Cases**:
 - Empower development teams with best-practice guides and templates
@@ -470,7 +484,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: migration-reports
-          path: migrations/*/reports/*.json
+          path: migrations/**/reports/*.json  # v2.1.0+ structure (includes nested GitLab projects)
 ```
 
 ---
