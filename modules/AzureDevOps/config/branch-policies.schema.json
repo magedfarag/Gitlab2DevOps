@@ -1,0 +1,203 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Azure DevOps Branch Policies Configuration",
+  "description": "Configuration for branch protection policies and repository security",
+  "type": "object",
+  "properties": {
+    "branchPolicies": {
+      "type": "object",
+      "description": "Branch policy settings",
+      "properties": {
+        "requiredReviewers": {
+          "type": "object",
+          "description": "Minimum number of reviewers required",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "isBlocking": {
+              "type": "boolean",
+              "description": "Prevent merge if policy not met",
+              "default": true
+            },
+            "minimumApproverCount": {
+              "type": "integer",
+              "description": "Minimum number of approvers",
+              "minimum": 1,
+              "maximum": 10,
+              "default": 2
+            },
+            "creatorVoteCounts": {
+              "type": "boolean",
+              "description": "PR creator's vote counts toward minimum",
+              "default": false
+            },
+            "allowDownvotes": {
+              "type": "boolean",
+              "description": "Allow downvotes (reject)",
+              "default": true
+            },
+            "resetOnSourcePush": {
+              "type": "boolean",
+              "description": "Reset votes when source branch is updated",
+              "default": false
+            }
+          },
+          "required": ["enabled", "isBlocking", "minimumApproverCount"]
+        },
+        "workItemLinking": {
+          "type": "object",
+          "description": "Require work item linking in PRs",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "isBlocking": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": ["enabled", "isBlocking"]
+        },
+        "commentResolution": {
+          "type": "object",
+          "description": "Require all comments to be resolved",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "isBlocking": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": ["enabled", "isBlocking"]
+        },
+        "buildValidation": {
+          "type": "object",
+          "description": "Require build to pass before merge",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "isBlocking": {
+              "type": "boolean",
+              "default": true
+            },
+            "buildDefinitionId": {
+              "type": "integer",
+              "description": "Azure Pipelines build definition ID",
+              "minimum": 0,
+              "default": 0
+            },
+            "displayName": {
+              "type": "string",
+              "description": "Display name for the policy",
+              "default": "CI validation"
+            },
+            "validDuration": {
+              "type": "integer",
+              "description": "How long (hours) a build is valid. 0 = always require new build",
+              "minimum": 0,
+              "default": 0
+            },
+            "queueOnSourceUpdateOnly": {
+              "type": "boolean",
+              "description": "Only queue build on source branch updates",
+              "default": false
+            }
+          },
+          "required": ["enabled"]
+        },
+        "statusCheck": {
+          "type": "object",
+          "description": "External status check (e.g., SonarQube)",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "isBlocking": {
+              "type": "boolean",
+              "default": false
+            },
+            "statusName": {
+              "type": "string",
+              "description": "Name of the status to check"
+            },
+            "statusGenre": {
+              "type": "string",
+              "description": "Status genre (e.g., 'SonarQube')",
+              "default": "SonarQube"
+            },
+            "applicableFor": {
+              "type": "string",
+              "description": "Branch ref pattern (e.g., 'refs/heads/main')",
+              "default": "refs/heads/main"
+            }
+          },
+          "required": ["enabled"]
+        },
+        "mergeStrategy": {
+          "type": "object",
+          "description": "Allowed merge strategies",
+          "properties": {
+            "noFastForward": {
+              "type": "boolean",
+              "description": "Merge commit (no fast-forward)",
+              "default": true
+            },
+            "squash": {
+              "type": "boolean",
+              "description": "Squash merge",
+              "default": false
+            },
+            "rebase": {
+              "type": "boolean",
+              "description": "Rebase and fast-forward",
+              "default": false
+            },
+            "rebaseMerge": {
+              "type": "boolean",
+              "description": "Rebase with merge commit",
+              "default": false
+            }
+          }
+        }
+      },
+      "required": ["requiredReviewers", "workItemLinking", "commentResolution"]
+    },
+    "repositorySecurity": {
+      "type": "object",
+      "description": "Repository-level security settings",
+      "properties": {
+        "denyGroups": {
+          "type": "object",
+          "description": "Groups to deny specific permissions",
+          "patternProperties": {
+            "^[A-Za-z]+$": {
+              "type": "object",
+              "properties": {
+                "denyDirectPush": {
+                  "type": "boolean",
+                  "description": "Deny direct push to branches",
+                  "default": true
+                },
+                "denyForcePush": {
+                  "type": "boolean",
+                  "description": "Deny force push",
+                  "default": true
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "required": ["branchPolicies"]
+}

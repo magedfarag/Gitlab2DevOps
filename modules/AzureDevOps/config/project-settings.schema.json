@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Azure DevOps Project Settings",
+  "description": "Configuration for Azure DevOps project initialization",
+  "type": "object",
+  "properties": {
+    "areas": {
+      "type": "array",
+      "description": "Work item area paths to create",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Area name (e.g., 'Frontend', 'Backend')"
+          },
+          "description": {
+            "type": "string",
+            "description": "Area description"
+          }
+        },
+        "required": ["name"]
+      },
+      "minItems": 1
+    },
+    "iterations": {
+      "type": "object",
+      "description": "Sprint iteration configuration",
+      "properties": {
+        "sprintCount": {
+          "type": "integer",
+          "description": "Number of sprints to create initially",
+          "minimum": 1,
+          "maximum": 52,
+          "default": 6
+        },
+        "sprintDurationDays": {
+          "type": "integer",
+          "description": "Duration of each sprint in days",
+          "minimum": 7,
+          "maximum": 28,
+          "default": 14
+        },
+        "sprintPrefix": {
+          "type": "string",
+          "description": "Prefix for sprint names (e.g., 'Sprint', 'Iteration')",
+          "default": "Sprint"
+        }
+      },
+      "required": ["sprintCount", "sprintDurationDays"]
+    },
+    "processTemplate": {
+      "type": "string",
+      "description": "Azure DevOps process template",
+      "enum": ["Agile", "Scrum", "CMMI", "Basic"],
+      "default": "Agile"
+    },
+    "defaultRepository": {
+      "type": "object",
+      "description": "Default repository settings",
+      "properties": {
+        "defaultBranch": {
+          "type": "string",
+          "description": "Default branch name",
+          "default": "main"
+        },
+        "initializeWithReadme": {
+          "type": "boolean",
+          "description": "Create initial README.md file",
+          "default": true
+        }
+      }
+    },
+    "team": {
+      "type": "object",
+      "description": "Team configuration",
+      "properties": {
+        "defaultTeamSuffix": {
+          "type": "string",
+          "description": "Suffix for default team name (e.g., ' Team')",
+          "default": " Team"
+        }
+      }
+    }
+  },
+  "required": ["areas", "iterations", "processTemplate"]
+}

@@ -1,0 +1,49 @@
+{
+  "repositorySecurity": {
+    "denyGroups": {
+      "BA": {
+        "denyForcePush": true,
+        "denyDirectPush": true
+      }
+    }
+  },
+  "branchPolicies": {
+    "mergeStrategy": {
+      "rebaseMerge": false,
+      "squash": false,
+      "rebase": false,
+      "noFastForward": true
+    },
+    "commentResolution": {
+      "isBlocking": true,
+      "enabled": true
+    },
+    "buildValidation": {
+      "displayName": "CI validation",
+      "validDuration": 0,
+      "enabled": true,
+      "buildDefinitionId": 42,
+      "isBlocking": true,
+      "queueOnSourceUpdateOnly": false
+    },
+    "workItemLinking": {
+      "isBlocking": true,
+      "enabled": true
+    },
+    "statusCheck": {
+      "applicableFor": "refs/heads/main",
+      "statusName": "SonarQube/quality-gate",
+      "statusGenre": "SonarQube",
+      "isBlocking": true,
+      "enabled": true
+    },
+    "requiredReviewers": {
+      "enabled": true,
+      "minimumApproverCount": 3,
+      "isBlocking": true,
+      "allowDownvotes": true,
+      "resetOnSourcePush": true,
+      "creatorVoteCounts": false
+    }
+  }
+}

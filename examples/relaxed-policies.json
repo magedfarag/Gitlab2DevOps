@@ -1,0 +1,49 @@
+{
+  "repositorySecurity": {
+    "denyGroups": {
+      "BA": {
+        "denyForcePush": true,
+        "denyDirectPush": true
+      }
+    }
+  },
+  "branchPolicies": {
+    "mergeStrategy": {
+      "rebaseMerge": false,
+      "squash": false,
+      "rebase": false,
+      "noFastForward": true
+    },
+    "commentResolution": {
+      "enabled": false,
+      "isBlocking": true
+    },
+    "buildValidation": {
+      "displayName": "CI validation",
+      "validDuration": 0,
+      "enabled": false,
+      "buildDefinitionId": 0,
+      "isBlocking": true,
+      "queueOnSourceUpdateOnly": false
+    },
+    "workItemLinking": {
+      "enabled": true,
+      "isBlocking": false
+    },
+    "statusCheck": {
+      "enabled": false,
+      "statusName": "",
+      "applicableFor": "refs/heads/main",
+      "isBlocking": false,
+      "statusGenre": "SonarQube"
+    },
+    "requiredReviewers": {
+      "enabled": true,
+      "minimumApproverCount": 1,
+      "isBlocking": true,
+      "allowDownvotes": true,
+      "resetOnSourcePush": false,
+      "creatorVoteCounts": false
+    }
+  }
+}

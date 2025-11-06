@@ -1,0 +1,33 @@
+{
+  "team": {
+    "defaultTeamSuffix": " Team"
+  },
+  "areas": [
+    {
+      "description": "iOS mobile application",
+      "name": "iOS"
+    },
+    {
+      "description": "Android mobile application",
+      "name": "Android"
+    },
+    {
+      "description": "API and services",
+      "name": "Backend"
+    },
+    {
+      "description": "CI/CD and infrastructure",
+      "name": "DevOps"
+    }
+  ],
+  "defaultRepository": {
+    "initializeWithReadme": true,
+    "defaultBranch": "main"
+  },
+  "iterations": {
+    "sprintPrefix": "Sprint",
+    "sprintDurationDays": 10,
+    "sprintCount": 8
+  },
+  "processTemplate": "Scrum"
+}

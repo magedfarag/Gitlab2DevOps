@@ -1,0 +1,34 @@
+{
+  "$schema": "./project-settings.schema.json",
+  "areas": [
+    {
+      "name": "Frontend",
+      "description": "User interface and client-side code"
+    },
+    {
+      "name": "Backend",
+      "description": "Server-side logic and APIs"
+    },
+    {
+      "name": "Infrastructure",
+      "description": "DevOps, CI/CD, and cloud infrastructure"
+    },
+    {
+      "name": "Documentation",
+      "description": "Technical documentation and wiki content"
+    }
+  ],
+  "iterations": {
+    "sprintCount": 6,
+    "sprintDurationDays": 14,
+    "sprintPrefix": "Sprint"
+  },
+  "processTemplate": "Agile",
+  "defaultRepository": {
+    "defaultBranch": "main",
+    "initializeWithReadme": true
+  },
+  "team": {
+    "defaultTeamSuffix": " Team"
+  }
+}

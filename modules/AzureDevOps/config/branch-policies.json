@@ -1,0 +1,50 @@
+{
+  "$schema": "./branch-policies.schema.json",
+  "branchPolicies": {
+    "requiredReviewers": {
+      "enabled": true,
+      "isBlocking": true,
+      "minimumApproverCount": 1,
+      "creatorVoteCounts": false,
+      "allowDownvotes": true,
+      "resetOnSourcePush": false
+    },
+    "workItemLinking": {
+      "enabled": true,
+      "isBlocking": true
+    },
+    "commentResolution": {
+      "enabled": true,
+      "isBlocking": true
+    },
+    "buildValidation": {
+      "enabled": false,
+      "isBlocking": true,
+      "buildDefinitionId": 0,
+      "displayName": "CI validation",
+      "validDuration": 0,
+      "queueOnSourceUpdateOnly": false
+    },
+    "statusCheck": {
+      "enabled": false,
+      "isBlocking": false,
+      "statusName": "",
+      "statusGenre": "SonarQube",
+      "applicableFor": "refs/heads/main"
+    },
+    "mergeStrategy": {
+      "noFastForward": true,
+      "squash": false,
+      "rebase": false,
+      "rebaseMerge": false
+    }
+  },
+  "repositorySecurity": {
+    "denyGroups": {
+      "BA": {
+        "denyDirectPush": true,
+        "denyForcePush": true
+      }
+    }
+  }
+}
