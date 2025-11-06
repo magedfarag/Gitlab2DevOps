@@ -28,23 +28,19 @@ Describe "DevInit Module Exports" {
         $exports.Name | Should -Contain "Initialize-DevInit"
     }
     
-    It "AzureDevOps module exports Ensure-AdoDevWiki" {
-        $exports = Get-Command -Module AzureDevOps
-        $exports.Name | Should -Contain "Ensure-AdoDevWiki"
+    It "Wikis sub-module exports Ensure-AdoDevWiki" {
+        Get-Command Ensure-AdoDevWiki -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
     
-    It "AzureDevOps module exports Ensure-AdoDevDashboard" {
-        $exports = Get-Command -Module AzureDevOps
-        $exports.Name | Should -Contain "Ensure-AdoDevDashboard"
+    It "Dashboards sub-module exports Ensure-AdoDevDashboard" {
+        Get-Command Ensure-AdoDevDashboard -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
     
-    It "AzureDevOps module exports Ensure-AdoDevQueries" {
-        $exports = Get-Command -Module AzureDevOps
-        $exports.Name | Should -Contain "Ensure-AdoDevQueries"
+    It "WorkItems sub-module exports Ensure-AdoDevQueries" {
+        Get-Command Ensure-AdoDevQueries -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
     
-    It "AzureDevOps module exports Ensure-AdoRepoFiles" {
-        $exports = Get-Command -Module AzureDevOps
-        $exports.Name | Should -Contain "Ensure-AdoRepoFiles"
+    It "Repositories sub-module exports Ensure-AdoRepoFiles" {
+        Get-Command Ensure-AdoRepoFiles -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
 }

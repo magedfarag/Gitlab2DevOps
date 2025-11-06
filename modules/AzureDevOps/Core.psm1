@@ -44,9 +44,8 @@ function Get-WikiTemplate {
         [string]$TemplateName
     )
     
-    # Navigate up from AzureDevOps/ to modules/ then back to WikiTemplates
-    $modulesRoot = Split-Path $PSScriptRoot -Parent
-    $templatePath = Join-Path $modulesRoot "WikiTemplates\$TemplateName.md"
+    # WikiTemplates are in the same directory as this module (AzureDevOps/WikiTemplates)
+    $templatePath = Join-Path $PSScriptRoot "WikiTemplates\$TemplateName.md"
     
     if (-not (Test-Path $templatePath)) {
         throw "[Get-WikiTemplate] Template not found: $templatePath"

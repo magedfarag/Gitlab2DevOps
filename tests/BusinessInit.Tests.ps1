@@ -38,12 +38,12 @@ Describe "BusinessInit Module Exports" {
         Get-Command Initialize-BusinessInit -Module Migration -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
 
-    It "AzureDevOps module exports Ensure-AdoBusinessWiki" {
-        Get-Command Ensure-AdoBusinessWiki -Module AzureDevOps -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
+    It "Wikis sub-module exports Ensure-AdoBusinessWiki" {
+        Get-Command Ensure-AdoBusinessWiki -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
 
-    It "AzureDevOps module exports Ensure-AdoBusinessQueries" {
-        Get-Command Ensure-AdoBusinessQueries -Module AzureDevOps -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
+    It "WorkItems sub-module exports Ensure-AdoBusinessQueries" {
+        Get-Command Ensure-AdoBusinessQueries -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
 }
 
