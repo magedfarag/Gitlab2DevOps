@@ -9630,6 +9630,140 @@ A **Security Champion** is a developer who:
 
 <#
 .SYNOPSIS
+    Creates security-focused queries for vulnerability tracking and compliance monitoring.
+
+.DESCRIPTION
+    Creates a "Security" query folder with 5 pre-configured queries:
+    1. Security Bugs (Priority 0-1) - Critical security vulnerabilities
+    2. Vulnerability Backlog - All open security items
+    3. Security Review Required - Work items pending security review
+    4. Compliance Items - Compliance-related work items
+    5. Security Debt - Security technical debt tracking
+
+.PARAMETER Project
+    The name of the Azure DevOps project.
+
+.EXAMPLE
+    Ensure-AdoSecurityQueries -Project "MyProject"
+#>
+function Ensure-AdoSecurityQueries {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Project
+    )
+
+    Write-Host "[INFO] Setting up security queries..." -ForegroundColor Cyan
+
+    # Security Bugs (Priority 0-1)
+    $securityBugsQuery = @"
+SELECT [System.Id], [System.Title], [System.State], [System.Priority], [Microsoft.VSTS.Common.Severity], [System.AssignedTo], [System.CreatedDate]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND [System.WorkItemType] = 'Bug'
+  AND [System.Tags] CONTAINS 'security'
+  AND [System.State] <> 'Closed'
+  AND [System.State] <> 'Removed'
+  AND [System.Priority] <= 1
+ORDER BY [System.Priority], [Microsoft.VSTS.Common.Severity] DESC, [System.CreatedDate]
+"@
+
+    # Vulnerability Backlog
+    $vulnerabilityBacklogQuery = @"
+SELECT [System.Id], [System.Title], [System.State], [System.Tags], [System.AssignedTo], [System.CreatedDate], [Microsoft.VSTS.Scheduling.TargetDate]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND (
+    [System.Tags] CONTAINS 'security' OR
+    [System.Tags] CONTAINS 'vulnerability' OR
+    [System.Tags] CONTAINS 'cve' OR
+    [System.Tags] CONTAINS 'sast' OR
+    [System.Tags] CONTAINS 'dast' OR
+    [System.Tags] CONTAINS 'dependency-scan'
+  )
+  AND [System.State] <> 'Closed'
+  AND [System.State] <> 'Removed'
+ORDER BY [System.Priority], [System.CreatedDate]
+"@
+
+    # Security Review Required
+    $securityReviewQuery = @"
+SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.CreatedDate], [Microsoft.VSTS.Scheduling.TargetDate]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND (
+    [System.Tags] CONTAINS 'security-review-required' OR
+    [System.Tags] CONTAINS 'threat-model-required' OR
+    [System.Tags] CONTAINS 'pentest-required'
+  )
+  AND [System.State] <> 'Closed'
+  AND [System.State] <> 'Removed'
+ORDER BY [Microsoft.VSTS.Scheduling.TargetDate], [System.CreatedDate]
+"@
+
+    # Compliance Items
+    $complianceItemsQuery = @"
+SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.Tags], [System.AssignedTo], [System.CreatedDate], [Microsoft.VSTS.Scheduling.TargetDate]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND (
+    [System.Tags] CONTAINS 'compliance' OR
+    [System.Tags] CONTAINS 'gdpr' OR
+    [System.Tags] CONTAINS 'soc2' OR
+    [System.Tags] CONTAINS 'iso27001' OR
+    [System.Tags] CONTAINS 'pci-dss' OR
+    [System.Tags] CONTAINS 'hipaa' OR
+    [System.Tags] CONTAINS 'audit'
+  )
+  AND [System.State] <> 'Closed'
+  AND [System.State] <> 'Removed'
+ORDER BY [Microsoft.VSTS.Scheduling.TargetDate], [System.Priority], [System.CreatedDate]
+"@
+
+    # Security Debt
+    $securityDebtQuery = @"
+SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [Microsoft.VSTS.Common.Priority], [System.AssignedTo], [System.CreatedDate], [Microsoft.VSTS.Scheduling.TargetDate]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND (
+    [System.Tags] CONTAINS 'security-debt' OR
+    [System.Tags] CONTAINS 'security-refactor' OR
+    [System.Tags] CONTAINS 'security-upgrade'
+  )
+  AND [System.State] <> 'Closed'
+  AND [System.State] <> 'Removed'
+ORDER BY [Microsoft.VSTS.Common.Priority], [System.CreatedDate]
+"@
+
+    try {
+        # Ensure "Security" folder exists
+        $folderPath = "Shared Queries/Security"
+        Ensure-AdoQueryFolder -Project $Project -Path $folderPath
+
+        # Create queries
+        Upsert-AdoQuery -Project $Project -Path "$folderPath/Security Bugs (Priority 0-1)" -Wiql $securityBugsQuery
+        Write-Host "  ✅ Security Bugs (Priority 0-1)" -ForegroundColor Gray
+
+        Upsert-AdoQuery -Project $Project -Path "$folderPath/Vulnerability Backlog" -Wiql $vulnerabilityBacklogQuery
+        Write-Host "  ✅ Vulnerability Backlog" -ForegroundColor Gray
+
+        Upsert-AdoQuery -Project $Project -Path "$folderPath/Security Review Required" -Wiql $securityReviewQuery
+        Write-Host "  ✅ Security Review Required" -ForegroundColor Gray
+
+        Upsert-AdoQuery -Project $Project -Path "$folderPath/Compliance Items" -Wiql $complianceItemsQuery
+        Write-Host "  ✅ Compliance Items" -ForegroundColor Gray
+
+        Upsert-AdoQuery -Project $Project -Path "$folderPath/Security Debt" -Wiql $securityDebtQuery
+        Write-Host "  ✅ Security Debt" -ForegroundColor Gray
+
+        Write-Host "[SUCCESS] All 5 security queries created" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Failed to create some security queries: $_"
+    }
+}
+
+<#
+.SYNOPSIS
     Creates development-focused queries for PR tracking and technical debt.
 
 .DESCRIPTION
@@ -10573,6 +10707,8 @@ Export-ModuleMember -Function @(
     'Ensure-AdoDevDashboard',
     'Ensure-AdoDevQueries',
     'Ensure-AdoRepoFiles',
+    'Ensure-AdoSecurityWiki',
+    'Ensure-AdoSecurityQueries',
     'Ensure-AdoTestPlan',
     'Ensure-AdoQAQueries',
     'Ensure-AdoQADashboard',
