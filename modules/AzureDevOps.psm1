@@ -1930,22 +1930,28 @@ function Ensure-AdoQADashboard {
     
     Write-Host "[INFO] Creating QA dashboard..." -ForegroundColor Cyan
     
-    # Get team context
+    # Get team context (optional for fallback)
+    $teamId = $null
     try {
         $teamContext = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))/teams/$([uri]::EscapeDataString($Team))"
         $teamId = $teamContext.id
     }
     catch {
-        Write-Warning "Failed to get team context: $_"
-        return $null
+        Write-Verbose "[Ensure-AdoQADashboard] Team context not available; will attempt project-level dashboards as fallback. Error: $_"
     }
     
     # Check if QA dashboard already exists
     $dashboardName = "$Team - QA Metrics"
     try {
-        $existingDashboards = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Preview
+        $existingDashboards = $null
+        if ($teamId) {
+            $existingDashboards = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Preview
+        }
+        else {
+            $existingDashboards = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/dashboard/dashboards" -Preview
+        }
         $existing = $existingDashboards.dashboardEntries | Where-Object { $_.name -eq $dashboardName }
-        
+
         if ($existing) {
             Write-Host "[INFO] QA dashboard '$dashboardName' already exists" -ForegroundColor Gray
             return $existing
@@ -2028,7 +2034,18 @@ function Ensure-AdoQADashboard {
             _links = $null
         }
         
-        $dashboard = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Body $dashboardBody -Preview
+        $dashboard = $null
+        if ($teamId) {
+            try {
+                $dashboard = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Body $dashboardBody -Preview
+            }
+            catch {
+                Write-Verbose "[Ensure-AdoQADashboard] Team dashboards API failed, attempting project-level fallback: $_"
+            }
+        }
+        if (-not $dashboard) {
+            $dashboard = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/dashboard/dashboards" -Body $dashboardBody -Preview
+        }
         
         Write-Host "[SUCCESS] Created QA dashboard: $dashboardName" -ForegroundColor Green
         Write-Host ""
@@ -2127,7 +2144,26 @@ function Ensure-AdoTestConfigurations {
         foreach ($varDef in $testVariableDefs) {
             if ($existingVariables.ContainsKey($varDef.Name)) {
                 Write-Host "  • Test variable '$($varDef.Name)' already exists" -ForegroundColor DarkGray
-                $createdVariables += $existingVariables[$varDef.Name]
+                $existingVar = $existingVariables[$varDef.Name]
+
+                # Ensure required values exist (merge and update if needed)
+                $currentValues = @()
+                if ($existingVar.PSObject.Properties['values']) { $currentValues = @($existingVar.values) }
+                $missing = @($varDef.Values | Where-Object { $_ -notin $currentValues })
+                if ($missing.Count -gt 0) {
+                    Write-Host "    ↻ Updating variable '$($varDef.Name)' to add missing values: $($missing -join ', ')" -ForegroundColor Yellow
+                    $newValues = @($currentValues + $missing | Select-Object -Unique)
+                    $updateBody = @{ name = $existingVar.name; description = $existingVar.description; values = $newValues } | ConvertTo-Json -Depth 10
+                    try {
+                        $updated = Invoke-AdoRest PATCH "/$([uri]::EscapeDataString($Project))/_apis/testplan/variables/$($existingVar.id)?api-version=7.1" -Body $updateBody
+                        $existingVar = $updated
+                    }
+                    catch {
+                        Write-Verbose "[Ensure-AdoTestConfigurations] Failed to update variable '$($varDef.Name)': $_"
+                    }
+                }
+
+                $createdVariables += $existingVar
                 continue
             }
             
@@ -2192,10 +2228,18 @@ function Ensure-AdoTestConfigurations {
             $configValues = @()
             foreach ($varName in $configDef.Values.Keys) {
                 $varValue = $configDef.Values[$varName]
-                
+
                 # Find the variable ID from created variables
-                $variable = $createdVariables | Where-Object { $_.name -eq $varName }
+                $variable = $createdVariables | Where-Object { $_.name -eq $varName } | Select-Object -First 1
                 if ($variable) {
+                    # Validate that the chosen value exists in variable.values; if not, skip this variable for the config
+                    $allowed = @()
+                    if ($variable.PSObject.Properties['values']) { $allowed = @($variable.values) }
+                    if ($allowed -and ($varValue -notin $allowed)) {
+                        Write-Verbose "[Ensure-AdoTestConfigurations] Skipping value '$varValue' for variable '$varName' (not in allowed values)"
+                        continue
+                    }
+
                     $configValues += @{
                         variable = @{
                             id = $variable.id
@@ -3167,22 +3211,28 @@ function Ensure-AdoDashboard {
     
     Write-Host "[INFO] Creating team dashboard..." -ForegroundColor Cyan
     
-    # Get team context
+    # Get team context (optional for fallback)
+    $teamId = $null
     try {
         $teamContext = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))/teams/$([uri]::EscapeDataString($Team))"
         $teamId = $teamContext.id
     }
     catch {
-        Write-Warning "Failed to get team context: $_"
-        return $null
+        Write-Verbose "[Ensure-AdoDashboard] Team context not available; will attempt project-level dashboards as fallback. Error: $_"
     }
     
     # Check if dashboard already exists
     $dashboardName = "$Team - Overview"
     try {
-        $existingDashboards = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Preview
+        $existingDashboards = $null
+        if ($teamId) {
+            $existingDashboards = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Preview
+        }
+        else {
+            $existingDashboards = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/dashboard/dashboards" -Preview
+        }
         $existing = $existingDashboards.dashboardEntries | Where-Object { $_.name -eq $dashboardName }
-        
+
         if ($existing) {
             Write-Host "[INFO] Dashboard '$dashboardName' already exists" -ForegroundColor Gray
             return $existing
@@ -3265,7 +3315,19 @@ function Ensure-AdoDashboard {
             _links = $null
         }
         
-        $dashboard = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Body $dashboardBody -Preview
+        $dashboard = $null
+        if ($teamId) {
+            try {
+                $dashboard = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Body $dashboardBody -Preview
+            }
+            catch {
+                # Fallback to project-level dashboards (some servers don't support team route)
+                Write-Verbose "[Ensure-AdoDashboard] Team dashboards API failed, attempting project-level fallback: $_"
+            }
+        }
+        if (-not $dashboard) {
+            $dashboard = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/dashboard/dashboards" -Body $dashboardBody -Preview
+        }
         
         Write-Host "[SUCCESS] Created team dashboard: $dashboardName" -ForegroundColor Green
         Write-Host ""
@@ -4029,6 +4091,215 @@ Every repository needs:
 
 <#
 .SYNOPSIS
+    Provisions business-facing wiki pages (idempotent).
+
+.DESCRIPTION
+    Creates or updates a set of business-oriented wiki pages to help non-technical
+    stakeholders understand the migration, how to work in ADO, and where to get help.
+
+.PARAMETER Project
+    Project name.
+
+.PARAMETER WikiId
+    Wiki ID.
+
+.EXAMPLE
+    Ensure-AdoBusinessWiki -Project "MyProject" -WikiId "wiki-id-123"
+#>
+function Ensure-AdoBusinessWiki {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$Project,
+        [Parameter(Mandatory)] [string]$WikiId
+    )
+    Write-Host "[INFO] Creating business wiki pages..." -ForegroundColor Cyan
+
+    $pages = @(
+        @{ path = '/Business-Welcome'; content = @"
+# Welcome – Business Overview
+
+This project is now hosted on Azure DevOps Server. Here’s what you need to know to get started.
+
+## What’s happening
+- We migrated source code from GitLab to Azure DevOps.
+- Work tracking uses the Agile process (stories, tasks, bugs, epics, features).
+
+## How to access
+- Project URL: [$Project](/Home)
+- If you need access, contact the Project Admins.
+
+## How we track work
+- Boards → Backlog and Sprints
+- Shared Queries provide curated views (My Work, Ready for Review, Blocked Items)
+
+## Cutover timeline
+See [Cutover & Rollback](/Cutover-Timeline).
+
+## Support
+- Teams/Slack: #ado-support
+- Office hours: Tue/Thu 14:00–15:00
+"@ },
+    @{ path = '/Decision-Log'; content = @"
+# Decision Log
+
+Record key decisions succinctly.
+
+| Date | Decision | Owner | Impact |
+|------|----------|-------|--------|
+| yyyy-mm-dd | Short statement | Name | Short impact |
+"@ },
+    @{ path = '/Risks-Issues'; content = @"
+# Risks & Issues
+
+Track business-visible risks and issues.
+
+| Type | Title | Owner | Mitigation | Due |
+|------|-------|-------|------------|-----|
+| Risk | | | | |
+| Issue | | | | |
+"@ },
+    @{ path = '/Glossary'; content = @"
+# Glossary – GitLab → Azure DevOps
+
+- Merge Request → Pull Request
+- Issue → Work Item (Story/Task/Bug/etc.)
+- Labels → Tags
+"@ },
+    @{ path = '/Ways-of-Working'; content = @"
+# Ways of Working
+
+## Definition of Ready (DoR)
+- Clear user value
+- Acceptance criteria present
+- Dependencies identified
+
+## Definition of Done (DoD)
+- Code reviewed, tests passing, docs updated, accepted by PO
+"@ },
+    @{ path = '/KPIs-and-Success'; content = @"
+# KPIs & Success Criteria
+
+- Enablement: % trained, active users
+- Flow: Lead time, Cycle time (baseline then trend)
+- Quality: Bugs by severity trend
+- Migration readiness: Preflight checks passed, SSL/TLS status
+"@ },
+    @{ path = '/Training-Quick-Start'; content = @"
+# Training – Quick Start (30–45 min)
+
+Agenda:
+1) Navigation (Boards, Repos, Queries, Dashboards)
+2) Create/Update work items; use tags; link PRs
+3) Review dashboards; stand-up checklist
+
+Cheat sheets:
+- Top 10 daily tasks
+- GitLab vs Azure DevOps differences
+"@ },
+    @{ path = '/Communication-Templates'; content = @"
+# Communication Templates
+
+## Announcement (Draft)
+Why: Value, timeline, what changes. Links to wiki and support.
+
+## Freeze Window Notice (Draft)
+Scope, start/end, exceptions, rollback criteria.
+
+## Go/No-Go Checklist (Draft)
+Preconditions, sign-offs, owner list.
+
+## Post-Cutover Survey (Draft)
+3–5 quick questions to capture satisfaction and gaps.
+"@ },
+    @{ path = '/Cutover-Timeline'; content = @"
+# Cutover & Rollback Plan (Overview)
+
+1) Freeze window → Final verification → Go/No-Go
+2) Cutover execution → Validation
+3) Rollback path documented (if needed)
+"@ },
+    @{ path = '/Post-Cutover-Summary'; content = @"
+# Post-Cutover Summary
+
+To be updated after code push:
+- Default branch name
+- Branch policies applied
+- Branches/tags counts
+"@ }
+    )
+
+    foreach ($p in $pages) {
+        try {
+            Upsert-AdoWikiPage -Project $Project -WikiId $WikiId -Path $p.path -Markdown $p.content | Out-Null
+            Write-Host "[SUCCESS] Wiki page ensured: $($p.path)" -ForegroundColor Green
+        }
+        catch {
+            Write-Warning "Failed to upsert page $($p.path): $_"
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Creates additional business-friendly shared queries.
+
+.DESCRIPTION
+    Adds curated queries commonly requested by business stakeholders: current sprint commitment,
+    unestimated stories, and epics by target date. Idempotent creation under Shared Queries.
+
+.PARAMETER Project
+    Project name.
+
+.EXAMPLE
+    Ensure-AdoBusinessQueries -Project "MyProject"
+#>
+function Ensure-AdoBusinessQueries {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$Project
+    )
+
+    Write-Host "[INFO] Creating business shared queries..." -ForegroundColor Cyan
+
+    $queries = @(
+        @{ name = 'Current Sprint: Commitment'; wiql = "SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.IterationPath] UNDER @CurrentIteration('$Project') ORDER BY [System.WorkItemType] ASC, [System.State] ASC, [System.ChangedDate] DESC" },
+        @{ name = 'Unestimated Stories'; wiql = "SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [Microsoft.VSTS.Scheduling.StoryPoints] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.WorkItemType] IN ('User Story','Product Backlog Item','Requirement','Issue') AND ([Microsoft.VSTS.Scheduling.StoryPoints] = '' OR [Microsoft.VSTS.Scheduling.StoryPoints] = 0) AND [System.State] <> 'Closed' AND [System.State] <> 'Removed' ORDER BY [System.CreatedDate] DESC" },
+        @{ name = 'Epics by Target Date'; wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Scheduling.TargetDate] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.WorkItemType] = 'Epic' AND [System.State] <> 'Closed' AND [System.State] <> 'Removed' ORDER BY [Microsoft.VSTS.Scheduling.TargetDate] ASC, [System.CreatedDate] DESC" }
+    )
+
+    # Read existing queries under Shared Queries
+    $existing = @{}
+    try {
+        $resp = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=1"
+        if ($resp -and $resp.children) { $resp.children | ForEach-Object { $existing[$_.name] = $_ } }
+    }
+    catch {
+        Write-Verbose "[Ensure-AdoBusinessQueries] Could not retrieve existing queries: $_"
+    }
+
+    $created = 0; $skipped = 0
+    foreach ($q in $queries) {
+        if ($existing.ContainsKey($q.name)) {
+            Write-Host "[INFO] Query '$($q.name)' already exists" -ForegroundColor Gray
+            $skipped++
+            continue
+        }
+        try {
+            $body = @{ name = $q.name; wiql = $q.wiql }
+            Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" -Body $body | Out-Null
+            Write-Host "[SUCCESS] Created query: $($q.name)" -ForegroundColor Green
+            $created++
+        }
+        catch {
+            Write-Warning "Failed to create query '$($q.name)': $_"
+        }
+    }
+
+    Write-Host "[INFO] Business queries summary: Created=$created, Skipped=$skipped" -ForegroundColor Cyan
+}
+
+<#
+.SYNOPSIS
     Ensures a repository exists in the project.
 
 .DESCRIPTION
@@ -4131,6 +4402,10 @@ function Ensure-AdoRepository {
         }
         Write-Host "[SUCCESS] Repository '$RepoName' created successfully" -ForegroundColor Green
         return $newRepo
+    }
+    else {
+        Write-Warning "Repository creation was cancelled by the user"
+        return $null
     }
 }
 
@@ -4429,11 +4704,13 @@ Export-ModuleMember -Function @(
     'Ensure-AdoDashboard',
     'Ensure-AdoCommonTags',
     'Ensure-AdoBestPracticesWiki',
+    'Ensure-AdoBusinessWiki',
     'Ensure-AdoTestPlan',
     'Ensure-AdoQAQueries',
     'Ensure-AdoQADashboard',
     'Ensure-AdoTestConfigurations',
     'Ensure-AdoQAGuidelinesWiki',
+    'Ensure-AdoBusinessQueries',
     'Ensure-AdoRepository',
     'Get-AdoRepoDefaultBranch',
     'Ensure-AdoBranchPolicies',

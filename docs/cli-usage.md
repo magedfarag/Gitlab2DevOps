@@ -30,6 +30,9 @@ CLI mode enables headless automation for CI/CD pipelines, scripts, and batch pro
 # Initialize without migrating
 .\Gitlab2DevOps.ps1 -Mode Initialize -Source "group/project" -Project "ADOProject"
 
+# Business initialization (business-facing assets)
+.\Gitlab2DevOps.ps1 -Mode BusinessInit -Project "ADOProject"
+
 # Force migration (skip blocking issues)
 .\Gitlab2DevOps.ps1 -Mode Migrate -Source "group/project" -Force
 
@@ -47,7 +50,7 @@ CLI mode enables headless automation for CI/CD pipelines, scripts, and batch pro
 Execution mode for the operation.
 
 **Type**: String  
-**Values**: `Preflight`, `Initialize`, `Migrate`, `BulkPrepare`, `BulkMigrate`  
+**Values**: `Preflight`, `Initialize`, `Migrate`, `BulkPrepare`, `BulkMigrate`, `BusinessInit`  
 **Required**: Yes (in CLI mode)
 
 ```powershell
@@ -57,6 +60,7 @@ Execution mode for the operation.
 -Mode Migrate     # Full migration
 -Mode BulkPrepare # Preflight all projects
 -Mode BulkMigrate # Migrate all projects
+-Mode BusinessInit # Provision wiki, queries, iterations, dashboard for business stakeholders
 ```
 
 ---
@@ -274,6 +278,33 @@ Creates Azure DevOps project and repository without migrating code.
 - Prepare infrastructure before migration
 - Test project creation
 - Pre-create projects for bulk migration
+
+---
+
+### Mode: BusinessInit
+
+Provision business-facing assets in an existing Azure DevOps project (no code migration).
+
+```powershell
+.\Gitlab2DevOps.ps1 -Mode BusinessInit -Project "API"
+```
+
+**Actions**:
+- ✅ Ensures project wiki exists and creates business pages (Welcome, Decision Log, Risks & Issues, Glossary, Ways of Working, KPIs & Success, Training Quick Start, Communication Templates, Post-Cutover Summary)
+- ✅ Creates shared queries and business queries (e.g., Current Sprint: Commitment, Unestimated Stories, Epics by Target Date)
+- ✅ Seeds 3 short iterations (2 weeks each) for the default team
+- ✅ Ensures the default team dashboard exists
+- ✅ Generates readiness summary report
+
+**Notes**:
+- [NOTE] You may see some 404 errors during checks — these are normal when verifying if resources already exist.
+
+**Output**:
+- File: `migrations/<project>/reports/business-init-summary.json`
+
+**Use Cases**:
+- Jumpstart business stakeholders with wiki and visibility assets
+- Prepare governance and reporting structure before/after code migration
 
 ---
 

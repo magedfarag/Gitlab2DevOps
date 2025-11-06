@@ -129,7 +129,7 @@
 param(
     # CLI Mode Parameters
     [Parameter(ParameterSetName='CLI', Mandatory)]
-    [ValidateSet('Preflight', 'Initialize', 'Migrate', 'BulkPrepare', 'BulkMigrate')]
+    [ValidateSet('Preflight', 'Initialize', 'Migrate', 'BulkPrepare', 'BulkMigrate', 'BusinessInit')]
     [string]$Mode,
     
     [Parameter(ParameterSetName='CLI')]
@@ -376,6 +376,16 @@ if ($PSCmdlet.ParameterSetName -eq 'CLI') {
         'BulkMigrate' {
             Write-Host "[INFO] Starting bulk migration workflow" -ForegroundColor Cyan
             Invoke-BulkMigrationWorkflow
+        }
+        'BusinessInit' {
+            if ([string]::IsNullOrWhiteSpace($Project)) {
+                Write-Host "[ERROR] -Project parameter is required for BusinessInit mode" -ForegroundColor Red
+                Write-Host "Usage: .\Gitlab2DevOps.ps1 -Mode BusinessInit -Project 'MyProject'" -ForegroundColor Yellow
+                exit 1
+            }
+
+            Write-Host "[INFO] Provisioning Business Initialization Pack for project: $Project" -ForegroundColor Cyan
+            Initialize-BusinessInit -DestProject $Project
         }
         }
     }

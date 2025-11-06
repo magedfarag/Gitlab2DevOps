@@ -19,7 +19,7 @@ Migrate Git repositories with full history, branch policies, and comprehensive a
 | 🛡️ **SSL/TLS Resilience** | Automatic curl fallback for on-premise servers with certificate issues |
 | ✅ **Idempotent Operations** | Safe to re-run, `-WhatIf` preview, `-Force` override |
 | ⚡ **Performance Optimized** | Project caching, repository reuse, 2-5x faster re-runs |
-| 🤖 **CLI Automation** | 5 modes, GitHub Actions/Azure Pipelines ready |
+| 🤖 **CLI Automation** | 6 modes, GitHub Actions/Azure Pipelines ready |
 | 📊 **Full Observability** | Run manifests, REST timing, structured logs |
 | 🔄 **Bulk Migration** | Process dozens of projects with single command |
 
@@ -68,6 +68,13 @@ Migrate Git repositories with full history, branch policies, and comprehensive a
 .\Gitlab2DevOps.ps1 -Mode Migrate -Source "my-group/my-project" -Project "MyADOProject"
 ```
 
+Optional: Provision business-facing assets (wiki, queries, sprints, dashboard) in an existing ADO project:
+
+```powershell
+.# After Initialize or Migration
+./Gitlab2DevOps.ps1 -Mode BusinessInit -Project "MyADOProject"
+```
+
 📖 **New to this tool?** → [Full Quick Start Guide](docs/quickstart.md)
 
 ---
@@ -101,7 +108,7 @@ Migrate Git repositories with full history, branch policies, and comprehensive a
 ### Core Capabilities
 
 - **Idempotent Operations**: Safe to re-run with `-Force` and `-Replace` flags
-- **CLI Automation**: 5 modes (Preflight, Initialize, Migrate, BulkPrepare, BulkMigrate)
+- **CLI Automation**: 6 modes (Preflight, Initialize, BusinessInit, Migrate, BulkPrepare, BulkMigrate)
 - **Progress Tracking**: Visual progress bars with ETA for long-running operations
 - **Telemetry Analytics**: Opt-in metrics collection for performance analysis (local only)
 - **Dry-Run Preview**: Generate HTML/JSON reports before migration with size estimates

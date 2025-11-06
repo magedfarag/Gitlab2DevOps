@@ -210,9 +210,10 @@ function Show-MigrationMenu {
     Write-Host "  4) Download & analyze multiple GitLab projects (bulk preparation)"
     Write-Host "  5) Review & update bulk migration template"
     Write-Host "  6) Execute bulk migration from prepared template"
+    Write-Host "  7) Provision Business Initialization Pack (wiki, queries, sprints, dashboard)"
     Write-Host ""
     
-    $choice = Read-Host "Enter 1, 2, 3, 4, 5, or 6"
+    $choice = Read-Host "Enter 1, 2, 3, 4, 5, 6, or 7"
     
     switch ($choice) {
         '1' {
@@ -434,6 +435,21 @@ function Show-MigrationMenu {
         '6' {
             Invoke-BulkMigrationWorkflow
         }
+        '7' {
+            $DestProjectName = Read-Host "Enter Azure DevOps project name (e.g., MyProject)"
+            if ([string]::IsNullOrWhiteSpace($DestProjectName)) {
+                Write-Host "[ERROR] Project name cannot be empty." -ForegroundColor Red
+                return
+            }
+            try {
+                Write-Host "[INFO] Provisioning Business Initialization Pack for '$DestProjectName'..." -ForegroundColor Cyan
+                Initialize-BusinessInit -DestProject $DestProjectName
+                Write-Host "[SUCCESS] Business Initialization Pack completed" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "[ERROR] Business Initialization failed: $_" -ForegroundColor Red
+            }
+        }
         default {
             Write-Host "Invalid choice." -ForegroundColor Red
         }
@@ -581,34 +597,39 @@ This project was migrated from GitLab using automated tooling.
     
     # Create repository
     $repo = Ensure-AdoRepository $DestProject $projId $RepoName
-    
-    # Wait for default branch to be established
-    Start-Sleep -Seconds 2
-    $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
-    
-    # Apply branch policies only if repository has a default branch
-    if ($defaultRef) {
-        Ensure-AdoBranchPolicies `
-            -Project $DestProject `
-            -RepoId $repo.id `
-            -Ref $defaultRef `
-            -Min 2 `
-            -BuildId $BuildDefinitionId `
-            -StatusContext $SonarStatusContext
-        
-        # Add repository templates (README and PR template) if repository has commits
-        Ensure-AdoRepositoryTemplates $DestProject $repo.id $RepoName
+
+    if ($null -ne $repo) {
+        # Wait for default branch to be established
+        Start-Sleep -Seconds 2
+        $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
+
+        # Apply branch policies only if repository has a default branch
+        if ($defaultRef) {
+            Ensure-AdoBranchPolicies `
+                -Project $DestProject `
+                -RepoId $repo.id `
+                -Ref $defaultRef `
+                -Min 2 `
+                -BuildId $BuildDefinitionId `
+                -StatusContext $SonarStatusContext
+
+            # Add repository templates (README and PR template) if repository has commits
+            Ensure-AdoRepositoryTemplates $DestProject $repo.id $RepoName
+        }
+        else {
+            Write-Host "[INFO] Skipping branch policies - repository has no branches yet" -ForegroundColor Yellow
+            Write-Host "[INFO] Branch policies will be applied after first push" -ForegroundColor Yellow
+            Write-Host "[INFO] Repository templates (README, PR template) will be added after first push" -ForegroundColor Yellow
+        }
+
+        # Apply security restrictions (BA group cannot push directly) - only if RBAC is available
+        if ($desc -and $grpBA) {
+            $denyBits = 4 + 8  # GenericContribute + ForcePush
+            Ensure-AdoRepoDeny $projId $repo.id $grpBA.descriptor $denyBits
+        }
     }
     else {
-        Write-Host "[INFO] Skipping branch policies - repository has no branches yet" -ForegroundColor Yellow
-        Write-Host "[INFO] Branch policies will be applied after first push" -ForegroundColor Yellow
-        Write-Host "[INFO] Repository templates (README, PR template) will be added after first push" -ForegroundColor Yellow
-    }
-    
-    # Apply security restrictions (BA group cannot push directly) - only if RBAC is available
-    if ($desc -and $grpBA) {
-        $denyBits = 4 + 8  # GenericContribute + ForcePush
-        Ensure-AdoRepoDeny $projId $repo.id $grpBA.descriptor $denyBits
+        Write-Host "[WARN] Repository '$RepoName' was not created. Skipping branch policies, templates, and repo-level security." -ForegroundColor Yellow
     }
     
     Write-Host ""
@@ -661,14 +682,17 @@ This project was migrated from GitLab using automated tooling.
     Write-Host ""
     Write-Host "🔧 Repository Configuration:" -ForegroundColor Cyan
     Write-Host "   ✅ Repository: $RepoName" -ForegroundColor Green
-    if ($defaultRef) {
+    if ($null -ne $repo -and $defaultRef) {
         Write-Host "   ✅ Branch Policies: Applied to $defaultRef" -ForegroundColor Green
         Write-Host "   ✅ README.md: Starter template added" -ForegroundColor Green
         Write-Host "   ✅ PR Template: Pull request template added" -ForegroundColor Green
     }
-    else {
+    elseif ($null -ne $repo) {
         Write-Host "   ⏳ Branch Policies: Will apply after first push" -ForegroundColor Yellow
         Write-Host "   ⏳ Templates: Will add after first push" -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "   ⚠️  Repository creation was skipped by user" -ForegroundColor Yellow
     }
     
     Write-Host ""
@@ -686,6 +710,79 @@ This project was migrated from GitLab using automated tooling.
     Write-Host " 10. Review tag guidelines in Wiki → Tag-Guidelines" -ForegroundColor Gray
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
+}
+
+<#
+.SYNOPSIS
+    Provisions business-facing initialization assets for an existing ADO project.
+
+.DESCRIPTION
+    Adds wiki pages targeted at business stakeholders, shared queries for status/visibility,
+    short-term iterations, and ensures the team dashboard exists. Generates a readiness summary report.
+
+.PARAMETER DestProject
+    Azure DevOps project name.
+
+.EXAMPLE
+    Initialize-BusinessInit -DestProject "MyProject"
+#>
+function Initialize-BusinessInit {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$DestProject
+    )
+
+    Write-Host "[INFO] Starting Business Initialization Pack for '$DestProject'" -ForegroundColor Cyan
+    Write-Host "[NOTE] You may see some 404 errors - these are normal when checking if resources already exist" -ForegroundColor Gray
+
+    # Validate project exists
+    if (-not (Test-AdoProjectExists -ProjectName $DestProject)) {
+        throw "Project '$DestProject' was not found in Azure DevOps. Create it first (Initialize mode)."
+    }
+
+    # Get project and wiki
+    $proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($DestProject))?includeCapabilities=true"
+    $projId = $proj.id
+    $wiki = Ensure-AdoProjectWiki $projId $DestProject
+
+    # Provision business wiki pages
+    Ensure-AdoBusinessWiki -Project $DestProject -WikiId $wiki.id
+
+    # Ensure common tags/guidelines wiki page for consistent labeling (idempotent)
+    try {
+        Ensure-AdoCommonTags $DestProject $wiki.id | Out-Null
+    }
+    catch {
+        Write-Warning "[BusinessInit] Failed to ensure common tags wiki page: $_"
+    }
+
+    # Ensure baseline shared queries + business queries
+    Ensure-AdoSharedQueries -Project $DestProject -Team "$DestProject Team" | Out-Null
+    Ensure-AdoBusinessQueries -Project $DestProject | Out-Null
+
+    # Seed short-term iterations (3 sprints of 2 weeks)
+    Ensure-AdoIterations -Project $DestProject -Team "$DestProject Team" -SprintCount 3 -SprintDurationDays 14 | Out-Null
+
+    # Ensure dashboard
+    Ensure-AdoDashboard -Project $DestProject -Team "$DestProject Team" | Out-Null
+
+    # Generate readiness summary report
+    $paths = Get-ProjectPaths -ProjectName $DestProject
+    $summary = [pscustomobject]@{
+        timestamp         = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        ado_project       = $DestProject
+        wiki_pages        = @('Business-Welcome','Decision-Log','Risks-Issues','Glossary','Ways-of-Working','KPIs-and-Success','Training-Quick-Start','Communication-Templates','Post-Cutover-Summary')
+        shared_queries    = @('My Active Work','Team Backlog','Active Bugs','Ready for Review','Blocked Items','Current Sprint: Commitment','Unestimated Stories','Epics by Target Date')
+        iterations_seeded = 3
+        dashboard_created = $true
+        notes             = 'Business initialization completed. Some items may already have existed—idempotent operations.'
+    }
+
+    $reportFile = Join-Path $paths.reportsDir "business-init-summary.json"
+    Write-MigrationReport -ReportFile $reportFile -Data $summary
+    Write-Host "[SUCCESS] Business Initialization Pack complete" -ForegroundColor Green
+    Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
 }
 
 <#
@@ -1549,6 +1646,7 @@ function Invoke-BulkMigrationWorkflow {
 Export-ModuleMember -Function @(
     'Show-MigrationMenu',
     'Initialize-AdoProject',
+    'Initialize-BusinessInit',
     'New-MigrationPreReport',
     'Invoke-SingleMigration',
     'Invoke-BulkPreparationWorkflow',

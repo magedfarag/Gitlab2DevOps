@@ -884,11 +884,13 @@ Test-Requirement "GitLab module exports core functions" {
 }
 
 Test-Requirement "AzureDevOps module exports core functions" {
+    # Ensure Core.Rest is available so Invoke-AdoRest is present in session
+    Import-Module (Join-Path $moduleRoot "Core.Rest.psm1") -Force
     Import-Module (Join-Path $moduleRoot "AzureDevOps.psm1") -Force
     
-    # Check for Invoke-AdoRest at minimum
+    # Check for Invoke-AdoRest available in session (provided by Core.Rest)
     if (-not (Get-Command Invoke-AdoRest -ErrorAction SilentlyContinue)) {
-        throw "AzureDevOps module missing Invoke-AdoRest function"
+        throw "Invoke-AdoRest function not available"
     }
     
     # Check for repository management functions (actual names vary)

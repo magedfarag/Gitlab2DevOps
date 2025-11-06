@@ -383,7 +383,7 @@ function New-RunManifest {
         [string]$RunId = [guid]::NewGuid().ToString(),
         
         [Parameter(Mandatory)]
-        [ValidateSet('Preflight', 'Initialize', 'Migrate', 'BulkPrepare', 'BulkMigrate', 'Interactive')]
+    [ValidateSet('Preflight', 'Initialize', 'Migrate', 'BulkPrepare', 'BulkMigrate', 'BusinessInit', 'Interactive')]
         [string]$Mode,
         
         [string]$Source = "",
