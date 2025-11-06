@@ -7644,6 +7644,722 @@ For each data flow and component, apply STRIDE:
 **Questions?** #security or security@company.com
 "@
 
+    # Security Testing Checklist
+    $securityTestingContent = @"
+# Security Testing Checklist
+
+Comprehensive checklist for security testing throughout SDLC.
+
+## Testing Types
+
+### SAST (Static Application Security Testing)
+
+**Purpose**: Analyze source code for vulnerabilities before runtime.
+
+**Tools**:
+- **SonarQube**: Code quality + security
+- **Checkmarx**: Enterprise SAST
+- **Semgrep**: Open source, customizable rules
+- **GitHub Advanced Security**: Code scanning
+
+**When to Run**:
+- Every commit (PR validation)
+- Before merging to main
+- Scheduled scans (daily)
+
+**Common Findings**:
+- SQL injection vulnerabilities
+- XSS (Cross-Site Scripting)
+- Hardcoded secrets
+- Insecure randomness
+- Path traversal
+
+**Pass Criteria**:
+- Zero high/critical issues
+- All medium issues reviewed
+- Technical debt documented
+
+### DAST (Dynamic Application Security Testing)
+
+**Purpose**: Test running application for vulnerabilities.
+
+**Tools**:
+- **OWASP ZAP**: Open source, automated scanning
+- **Burp Suite**: Manual + automated testing
+- **Acunetix**: Web vulnerability scanner
+- **Netsparker**: Automated DAST
+
+**When to Run**:
+- After deployment to QA/staging
+- Before production release
+- Monthly in production
+
+**Common Findings**:
+- Authentication bypass
+- Authorization flaws
+- Session management issues
+- Security misconfigurations
+- Sensitive data exposure
+
+**Pass Criteria**:
+- Zero high/critical vulnerabilities
+- All medium issues have mitigation plan
+- Signed off by security team
+
+### Dependency Scanning
+
+**Purpose**: Identify vulnerabilities in third-party libraries.
+
+**Tools**:
+- **Dependabot**: GitHub-native, automated PRs
+- **Snyk**: Comprehensive dependency + container scanning
+- **WhiteSource**: Enterprise license + vulnerability management
+- **npm audit** / **dotnet list package --vulnerable**
+
+**When to Run**:
+- Every build
+- Daily scheduled scans
+- Before adding new dependency
+
+**Pass Criteria**:
+- No critical vulnerabilities
+- High vulnerabilities: Fix within 7 days
+- Medium vulnerabilities: Fix within 30 days
+
+### Container Scanning
+
+**Purpose**: Find vulnerabilities in container images.
+
+**Tools**:
+- **Trivy**: Fast, accurate, easy to use
+- **Clair**: Open source, CoreOS project
+- **Anchore**: Policy-based scanning
+- **Azure Container Registry scanning**
+
+**When to Run**:
+- Every image build
+- Before pushing to registry
+- Daily scans of registry
+
+**Pass Criteria**:
+- No critical OS vulnerabilities
+- Base image updated within 30 days
+- No malware detected
+
+### Infrastructure as Code (IaC) Scanning
+
+**Purpose**: Find misconfigurations in infrastructure code.
+
+**Tools**:
+- **Checkov**: Multi-cloud, Terraform/CloudFormation/Kubernetes
+- **tfsec**: Terraform-specific
+- **Terrascan**: Policy-as-code
+- **Azure Security Center recommendations**
+
+**When to Run**:
+- Every commit
+- Before infrastructure deployment
+- Scheduled audit (weekly)
+
+**Common Findings**:
+- Public storage buckets
+- Unencrypted resources
+- Missing network restrictions
+- Overly permissive IAM roles
+
+**Pass Criteria**:
+- Zero high-severity issues
+- All resources encrypted
+- Network segmentation validated
+
+### Penetration Testing
+
+**Purpose**: Simulate real-world attacks to find exploitable vulnerabilities.
+
+**Types**:
+- **Black Box**: No internal knowledge
+- **Gray Box**: Limited knowledge (typical)
+- **White Box**: Full access to code/architecture
+
+**When to Run**:
+- Before major release
+- After significant architecture change
+- Annually (compliance requirement)
+
+**Scope**:
+- Web applications
+- APIs
+- Mobile apps
+- Network infrastructure
+
+**Deliverables**:
+- Executive summary
+- Detailed findings with PoC
+- Remediation recommendations
+- Retest report
+
+**Pass Criteria**:
+- All critical findings remediated
+- Retest confirms fixes
+- CISO sign-off
+
+## Security Testing in CI/CD
+
+### Build Phase
+
+````````````yaml
+# Example: Azure Pipelines
+stages:
+  - stage: Build
+    jobs:
+      - job: Security_Scan
+        steps:
+          # SAST
+          - task: SonarQubePrepare@4
+          - task: DotNetCoreCLI@2
+            inputs:
+              command: 'build'
+          - task: SonarQubeAnalyze@4
+          
+          # Dependency scan
+          - script: |
+              dotnet list package --vulnerable --include-transitive
+            displayName: 'Check for vulnerable dependencies'
+          
+          # Secret scanning
+          - task: CredScan@3
+````````````
+
+### Deploy Phase
+
+````````````yaml
+  - stage: Deploy_QA
+    jobs:
+      - job: Security_Tests
+        steps:
+          # DAST
+          - task: OwaspZap@1
+            inputs:
+              target: 'https://qa.example.com'
+          
+          # Container scan
+          - script: |
+              trivy image myapp:${{BUILD_ID}}
+            displayName: 'Scan container image'
+````````````
+
+## Manual Security Testing
+
+### Authentication Testing
+
+**Checklist**:
+- [ ] Test with invalid credentials
+- [ ] Test account lockout (brute force protection)
+- [ ] Test password reset flow
+- [ ] Verify MFA enforcement
+- [ ] Test session timeout
+- [ ] Test concurrent sessions
+- [ ] Test remember me functionality
+- [ ] Test logout (session invalidation)
+
+**Tools**: Burp Suite, OWASP ZAP
+
+### Authorization Testing
+
+**Checklist**:
+- [ ] Test vertical privilege escalation (user → admin)
+- [ ] Test horizontal privilege escalation (user A → user B)
+- [ ] Test direct object reference (manipulate IDs)
+- [ ] Test API authorization (missing token, expired token)
+- [ ] Test role-based access (each role's permissions)
+- [ ] Test default permissions (least privilege)
+
+**Tools**: Burp Suite, Postman
+
+### Input Validation Testing
+
+**Checklist**:
+- [ ] Test SQL injection (all input fields)
+- [ ] Test XSS (reflected, stored, DOM-based)
+- [ ] Test command injection
+- [ ] Test path traversal
+- [ ] Test XML injection / XXE
+- [ ] Test LDAP injection
+- [ ] Test file upload (malicious files, size limits)
+- [ ] Test special characters
+
+**Payloads**: OWASP Testing Guide, PayloadsAllTheThings
+
+### Session Management Testing
+
+**Checklist**:
+- [ ] Verify HTTPOnly flag on cookies
+- [ ] Verify Secure flag on cookies
+- [ ] Test session fixation
+- [ ] Test session hijacking
+- [ ] Test CSRF protection
+- [ ] Test session invalidation on logout
+- [ ] Test concurrent session handling
+
+**Tools**: Browser DevTools, Burp Suite
+
+### API Security Testing
+
+**Checklist**:
+- [ ] Test broken authentication (missing/weak tokens)
+- [ ] Test excessive data exposure (API returns too much)
+- [ ] Test rate limiting
+- [ ] Test mass assignment (binding attack)
+- [ ] Test security misconfiguration
+- [ ] Test injection flaws
+- [ ] Test improper asset management (old/vulnerable endpoints)
+
+**Reference**: OWASP API Security Top 10
+
+## Security Testing Metrics
+
+### Coverage Metrics
+
+- **SAST Coverage**: % of codebase scanned
+- **DAST Coverage**: % of endpoints tested
+- **Dependency Coverage**: % of libraries scanned
+- **Code Review Coverage**: % of security-relevant code reviewed
+
+### Quality Metrics
+
+- **Mean Time to Detect (MTTD)**: Time from vulnerability introduction to detection
+- **Mean Time to Remediate (MTTR)**: Time from detection to fix deployed
+- **False Positive Rate**: % of findings that are false positives
+- **Escape Rate**: % of vulnerabilities found in production
+
+### Compliance Metrics
+
+- **Critical Findings**: Must be zero before release
+- **High Findings**: Must have mitigation plan
+- **SLA Compliance**: % of vulnerabilities fixed within SLA
+- **Retest Rate**: % of findings requiring retest
+
+## Bug Bounty Program
+
+**Scope**:
+- ✅ In-scope: Web app, API, mobile app
+- ❌ Out-of-scope: Social engineering, physical security, DDoS
+
+**Rewards**:
+- Critical: $$5,000 - $$10,000
+- High: $$2,000 - $$5,000
+- Medium: $$500 - $$2,000
+- Low: $$100 - $$500
+
+**Rules**:
+- Do not access other users' data
+- Do not perform destructive testing
+- Report responsibly (don't disclose publicly)
+- One report per vulnerability
+
+**Platform**: HackerOne, Bugcrowd, or internal program
+
+## Security Testing Checklist (Release)
+
+Before production deployment, verify:
+
+- [ ] **SAST**: Clean scan (zero high/critical)
+- [ ] **DAST**: Clean scan (zero high/critical)
+- [ ] **Dependency Scan**: No critical vulnerabilities
+- [ ] **Container Scan**: Base image up-to-date
+- [ ] **Manual Testing**: Critical paths tested
+- [ ] **Threat Model**: Reviewed and up-to-date
+- [ ] **Security Review**: Approved by security team
+- [ ] **Penetration Test**: Completed (if required)
+- [ ] **Compliance**: All requirements met
+
+---
+
+**Security Testing Schedule**:
+- **Daily**: SAST, dependency scanning
+- **Per PR**: SAST, secret scanning
+- **Per Release**: DAST, full security review
+- **Monthly**: Infrastructure scan, third-party audit
+- **Annually**: Penetration test, compliance audit
+
+**Questions?** #security or security@company.com
+"@
+
+    # Incident Response Plan
+    $incidentResponseContent = @"
+# Incident Response Plan
+
+Procedures for detecting, responding to, and recovering from security incidents.
+
+## Incident Severity Levels
+
+| Severity | Definition | Examples | Response Time |
+|----------|-----------|----------|---------------|
+| **Critical** | Data breach, ransomware, full system compromise | Customer data leaked, production down | 15 minutes |
+| **High** | Attempted breach, malware detected, DDoS | Failed intrusion attempt, malware quarantined | 1 hour |
+| **Medium** | Policy violation, suspicious activity | Unusual login, unpatched vulnerability | 4 hours |
+| **Low** | Minor policy issues, false positives | Failed login attempts, scanning activity | 24 hours |
+
+## Incident Response Team
+
+### Roles & Responsibilities
+
+**Incident Commander** (CISO or designate):
+- Overall response coordination
+- Communication with executives
+- Final decision authority
+- Post-incident review
+
+**Technical Lead** (Security Engineer):
+- Technical investigation
+- Containment and eradication
+- Evidence collection
+- Recovery coordination
+
+**Communications Lead** (PR/Legal):
+- Internal communication
+- External communication (if required)
+- Regulatory notification
+- Media relations
+
+**IT Operations**:
+- System isolation
+- Log collection
+- System restoration
+- Monitoring
+
+**Legal Counsel**:
+- Regulatory compliance
+- Contractual obligations
+- Litigation holds
+- Privilege assessment
+
+**Business Owner**:
+- Business impact assessment
+- Stakeholder communication
+- Business continuity decisions
+
+## Incident Response Process
+
+### Phase 1: Preparation
+
+**Before an Incident**:
+- [ ] Incident response plan documented
+- [ ] Team roles assigned
+- [ ] Contact list up-to-date
+- [ ] Monitoring and alerting configured
+- [ ] Backup and recovery tested
+- [ ] Tabletop exercises conducted (quarterly)
+- [ ] Forensics tools ready
+
+**Contact List**:
+- Security Team: security@company.com, #security-incidents
+- CISO: [Name], [Phone], [Email]
+- IT Operations: [24/7 number]
+- Legal: [Name], [Phone]
+- PR: [Name], [Phone]
+- External: IR firm, law firm, cyber insurance
+
+### Phase 2: Detection & Analysis
+
+**Detection Methods**:
+- Security monitoring alerts (SIEM)
+- User reports
+- Third-party notification
+- Anomaly detection
+- Threat intelligence
+
+**Initial Assessment**:
+1. **Verify**: Is this a real incident?
+2. **Classify**: What type of incident?
+3. **Severity**: What is the impact?
+4. **Scope**: What systems are affected?
+5. **Notify**: Alert appropriate team members
+
+**Evidence Collection**:
+- Preserve logs (write-protect)
+- Take system snapshots
+- Document timeline
+- Screenshot suspicious activity
+- Chain of custody for evidence
+
+**Analysis Questions**:
+- What happened?
+- When did it happen?
+- How did it happen?
+- What systems are affected?
+- What data is at risk?
+- Is the threat still active?
+
+### Phase 3: Containment
+
+**Short-Term Containment**:
+- Isolate affected systems (network segmentation)
+- Disable compromised accounts
+- Block malicious IPs/domains
+- Reset credentials
+- Increase monitoring
+
+**Long-Term Containment**:
+- Apply temporary patches
+- Implement compensating controls
+- Prepare clean system images
+- Document containment actions
+
+**Containment Checklist**:
+- [ ] Affected systems identified
+- [ ] Network isolation applied
+- [ ] Credentials rotated
+- [ ] Backups secured
+- [ ] Evidence preserved
+- [ ] Stakeholders notified
+
+### Phase 4: Eradication
+
+**Remove Threat**:
+- Delete malware
+- Close vulnerabilities
+- Remove unauthorized access
+- Patch systems
+- Rebuild compromised systems
+
+**Root Cause Analysis**:
+- How did attacker gain access?
+- What vulnerabilities were exploited?
+- What controls failed?
+- What could have prevented this?
+
+**Validation**:
+- Verify threat removed
+- Scan for persistence mechanisms
+- Check for backdoors
+- Review all access points
+
+### Phase 5: Recovery
+
+**Restore Operations**:
+- Restore from clean backups (if needed)
+- Rebuild systems from known-good images
+- Gradually restore services
+- Monitor for re-infection
+- Verify system integrity
+
+**Verification**:
+- [ ] Systems restored
+- [ ] Monitoring enhanced
+- [ ] Backups validated
+- [ ] Access controls verified
+- [ ] Business operations resumed
+
+**Return to Normal Operations**:
+- Gradual restoration (phased approach)
+- Continuous monitoring (24-48 hours)
+- User communication
+- Document lessons learned
+
+### Phase 6: Post-Incident Activity
+
+**Lessons Learned Meeting** (within 7 days):
+- What happened (timeline)
+- What went well
+- What needs improvement
+- Action items with owners
+
+**Report Generation**:
+- Executive summary
+- Technical details
+- Impact assessment
+- Cost analysis
+- Recommendations
+
+**Follow-Up Actions**:
+- Update incident response plan
+- Implement improvements
+- Security awareness training
+- Policy updates
+- Technology improvements
+
+## Communication Plan
+
+### Internal Communication
+
+**Immediate Notification** (Critical/High):
+- Security team
+- CISO
+- CIO/CTO
+- Legal
+- Affected business units
+
+**Regular Updates**:
+- Every 2 hours (Critical)
+- Every 4 hours (High)
+- Daily (Medium/Low)
+- Use #security-incidents channel
+
+**Communication Template**:
+````````````
+[INCIDENT UPDATE - Severity]
+Time: [timestamp]
+Status: Detection/Containment/Recovery
+Impact: [business impact]
+Actions Taken: [summary]
+Next Steps: [planned actions]
+ETA to Resolution: [estimate]
+````````````
+
+### External Communication
+
+**Regulatory Notification**:
+- **GDPR**: 72 hours to notify authority
+- **HIPAA**: 60 days (if PHI breach)
+- **State Laws**: Varies by jurisdiction
+- **Payment Card**: PCI DSS notification
+
+**Customer Notification**:
+- Notify if customer data affected
+- Clear, honest communication
+- Remediation steps offered
+- Support resources provided
+
+**Media Relations**:
+- Single spokesperson (PR lead)
+- Prepared statements
+- No speculation
+- Focus on response actions
+
+**Law Enforcement**:
+- Notify if required (ransomware, fraud)
+- Evidence preservation
+- Cooperation with investigation
+
+## Specific Incident Types
+
+### Ransomware
+
+**Immediate Actions**:
+1. Isolate affected systems (disconnect network)
+2. Identify ransomware variant
+3. Check backups (are they encrypted?)
+4. Do NOT pay ransom (consult legal/CISO)
+5. Report to law enforcement
+
+**Recovery**:
+- Restore from clean backups
+- Rebuild systems from scratch
+- Patch vulnerabilities
+- Reset all credentials
+
+### Data Breach
+
+**Immediate Actions**:
+1. Stop data exfiltration
+2. Identify compromised data
+3. Assess scope (how many records?)
+4. Check regulatory requirements
+5. Notify legal immediately
+
+**Notification Timeline**:
+- Internal: Immediate
+- Regulatory: Per regulation (72 hours for GDPR)
+- Customers: As soon as feasible
+- Law enforcement: If criminal activity
+
+### Phishing Attack
+
+**Immediate Actions**:
+1. Block malicious email/domain
+2. Identify victims (who clicked?)
+3. Reset compromised credentials
+4. Scan for malware
+5. User awareness reminder
+
+**Indicators**:
+- Credential harvesting page
+- Malware download
+- Financial fraud attempt
+- Business email compromise (BEC)
+
+### Insider Threat
+
+**Immediate Actions**:
+1. Disable user access
+2. Preserve evidence
+3. Involve HR/Legal
+4. Review access logs
+5. Interview if appropriate
+
+**Investigation**:
+- Motive, means, opportunity
+- Data accessed/exfiltrated
+- Timeline of activities
+- Accomplices
+
+### DDoS Attack
+
+**Immediate Actions**:
+1. Activate DDoS mitigation (Cloudflare, Azure DDoS)
+2. Identify attack vector
+3. Filter malicious traffic
+4. Scale infrastructure (if possible)
+5. Notify ISP
+
+**Mitigation**:
+- Rate limiting
+- Geographic filtering
+- Challenge-response (CAPTCHA)
+- WAF rules
+
+## Compliance & Legal Considerations
+
+**Evidence Preservation**:
+- Chain of custody
+- Write-protect logs
+- System snapshots
+- Attorney-client privilege
+
+**Regulatory Notification**:
+- Know your obligations
+- Consult legal before notification
+- Document notification sent
+- Keep acknowledgment records
+
+**Cyber Insurance**:
+- Notify insurer immediately
+- Follow policy requirements
+- Document all costs
+- Retain approved vendors
+
+## Tools & Resources
+
+**Incident Response Tools**:
+- **SIEM**: Splunk, Azure Sentinel, ELK
+- **EDR**: CrowdStrike, Carbon Black
+- **Forensics**: EnCase, FTK, Volatility
+- **Threat Intelligence**: MISP, ThreatConnect
+
+**Playbooks**:
+- Ransomware response
+- Data breach response
+- Phishing response
+- DDoS response
+- Insider threat response
+
+**External Resources**:
+- Incident response firm (on retainer)
+- Forensics specialists
+- Law firm (cyber practice)
+- Cyber insurance carrier
+
+---
+
+**Test Your Plan**:
+- **Tabletop Exercise**: Quarterly
+- **Full Simulation**: Annually
+- **Update Plan**: After each incident or annually
+
+**Questions?** #security-incidents or security@company.com
+"@
+
     try {
         Upsert-AdoWikiPage $Project $WikiId "/Security/Security-Policies" $securityPoliciesContent
         Write-Host "  ✅ Security Policies" -ForegroundColor Gray
@@ -7651,8 +8367,1261 @@ For each data flow and component, apply STRIDE:
         Upsert-AdoWikiPage $Project $WikiId "/Security/Threat-Modeling-Guide" $threatModelingContent
         Write-Host "  ✅ Threat Modeling Guide" -ForegroundColor Gray
         
-        Write-Host "[SUCCESS] Security wiki pages created (2 of 7 completed)" -ForegroundColor Green
-        Write-Host "[INFO] Remaining pages: Security Testing, Incident Response, Compliance, Secret Management, Security Champions" -ForegroundColor Gray
+        Upsert-AdoWikiPage $Project $WikiId "/Security/Security-Testing-Checklist" $securityTestingContent
+        Write-Host "  ✅ Security Testing Checklist" -ForegroundColor Gray
+        
+        Upsert-AdoWikiPage $Project $WikiId "/Security/Incident-Response-Plan" $incidentResponseContent
+        Write-Host "  ✅ Incident Response Plan" -ForegroundColor Gray
+        
+        # Compliance Requirements
+        $complianceContent = @"
+# Compliance Requirements
+
+Regulatory and compliance obligations for our systems and data.
+
+## Applicable Standards
+
+### GDPR (General Data Protection Regulation)
+
+**Scope**: EU personal data processing
+
+**Key Requirements**:
+- **Lawful Basis**: Consent, contract, legal obligation, vital interests, public task, legitimate interests
+- **Data Subject Rights**:
+  - Right to access
+  - Right to rectification
+  - Right to erasure ("right to be forgotten")
+  - Right to data portability
+  - Right to object
+  - Right to restrict processing
+- **Data Protection Impact Assessment (DPIA)**: Required for high-risk processing
+- **Data Breach Notification**: 72 hours to supervisory authority
+- **Privacy by Design**: Embed privacy from project start
+
+**Implementation**:
+- [ ] Data inventory (what personal data we process)
+- [ ] Legal basis documented for each processing activity
+- [ ] Consent management (if using consent as basis)
+- [ ] Data subject request process
+- [ ] Privacy policy published
+- [ ] DPIA for high-risk projects
+
+**Penalties**: Up to €20M or 4% of annual global turnover
+
+### SOC 2 (Service Organization Control)
+
+**Scope**: Service providers handling customer data
+
+**Trust Service Criteria**:
+- **Security**: Protection against unauthorized access
+- **Availability**: System available for operation as committed
+- **Processing Integrity**: System achieves purpose accurately/completely
+- **Confidentiality**: Confidential information protected
+- **Privacy**: Personal information collected/used/retained/disclosed per commitments
+
+**SOC 2 Type II Requirements**:
+- **Policies and Procedures**: Documented security program
+- **Risk Assessment**: Annual threat assessment
+- **Logical Access Controls**: Authentication, authorization, audit
+- **Change Management**: Controlled deployment process
+- **Monitoring**: Continuous security monitoring
+- **Incident Response**: Documented IR procedures
+- **Vendor Management**: Third-party risk assessment
+
+**Evidence Required**:
+- Configuration screenshots
+- Policy documents
+- Access reviews
+- Penetration test reports
+- Incident logs
+- Training records
+
+**Audit Frequency**: Annual
+
+### ISO 27001 (Information Security Management)
+
+**Scope**: Information security management system (ISMS)
+
+**Key Domains** (Annex A):
+1. **Information Security Policies**
+2. **Organization of Information Security**
+3. **Human Resource Security**
+4. **Asset Management**
+5. **Access Control**
+6. **Cryptography**
+7. **Physical and Environmental Security**
+8. **Operations Security**
+9. **Communications Security**
+10. **System Acquisition, Development, and Maintenance**
+11. **Supplier Relationships**
+12. **Information Security Incident Management**
+13. **Business Continuity Management**
+14. **Compliance**
+
+**Implementation**:
+- [ ] Statement of Applicability (SoA)
+- [ ] Risk assessment and treatment
+- [ ] Documented policies and procedures
+- [ ] Internal audits
+- [ ] Management review
+- [ ] Continual improvement
+
+**Certification**: External audit by accredited body
+
+### PCI DSS (Payment Card Industry Data Security Standard)
+
+**Scope**: Systems handling credit card data
+
+**12 Requirements**:
+1. **Install and maintain firewall**
+2. **Don't use vendor defaults** (passwords, security parameters)
+3. **Protect stored cardholder data** (encrypt)
+4. **Encrypt transmission** (TLS 1.2+)
+5. **Use anti-virus**
+6. **Develop secure systems** (secure coding)
+7. **Restrict access by business need-to-know**
+8. **Assign unique ID** (no shared accounts)
+9. **Restrict physical access**
+10. **Track and monitor network access** (logging)
+11. **Test security systems** (quarterly scans, annual pentest)
+12. **Maintain security policy**
+
+**Merchant Levels**:
+- **Level 1**: >6M transactions/year (annual onsite audit)
+- **Level 2**: 1-6M transactions/year (annual SAQ)
+- **Level 3**: 20K-1M e-commerce transactions/year (annual SAQ)
+- **Level 4**: <20K e-commerce transactions/year (annual SAQ)
+
+**Best Practice**: Use payment processor (tokenization) to reduce scope
+
+### HIPAA (Health Insurance Portability and Accountability Act)
+
+**Scope**: Protected Health Information (PHI)
+
+**Key Rules**:
+- **Privacy Rule**: Protects PHI from disclosure
+- **Security Rule**: Administrative, physical, technical safeguards
+- **Breach Notification Rule**: Notification within 60 days
+
+**Technical Safeguards**:
+- Access control (unique user IDs)
+- Audit controls (logging)
+- Integrity controls (protect from alteration)
+- Transmission security (encryption)
+
+**Administrative Safeguards**:
+- Risk analysis
+- Workforce training
+- Business associate agreements
+- Contingency plan
+
+**Physical Safeguards**:
+- Facility access controls
+- Workstation security
+- Device and media controls
+
+**Penalties**: Up to $$1.5M per year per violation category
+
+### Azure Compliance
+
+**Built-In Compliance**:
+- **GDPR**: Data residency, DPAs available
+- **SOC 1/2/3**: Certified
+- **ISO 27001/27018/27701**: Certified
+- **HIPAA/HITECH**: BAA available
+- **PCI DSS Level 1**: Service provider certified
+
+**Shared Responsibility**:
+- **Microsoft**: Physical security, network, hypervisor
+- **Us**: Application, data, access control, configuration
+
+**Compliance Manager**: Azure portal compliance assessment tool
+
+## Compliance Implementation
+
+### Data Classification
+
+| Classification | Examples | Encryption | Access | Retention |
+|----------------|----------|------------|--------|-----------|
+| **Public** | Marketing materials | Optional | Anyone | As needed |
+| **Internal** | Policies, roadmaps | At rest | Employees | 7 years |
+| **Confidential** | Customer data, financials | At rest + transit | Need-to-know | Per regulation |
+| **Restricted** | PII, PHI, PCI | At rest + transit + use | Role-based | Per regulation |
+
+**PII Examples**: Name, email, address, phone, SSN, IP address, biometric data
+
+**Implementation**:
+- [ ] Data classification policy
+- [ ] Data discovery and labeling
+- [ ] Encryption based on classification
+- [ ] Access controls based on classification
+- [ ] DLP (Data Loss Prevention) policies
+
+### Data Retention
+
+| Data Type | Retention Period | Legal Hold | Disposal Method |
+|-----------|-----------------|------------|-----------------|
+| **Customer PII** | Duration of relationship + 90 days | Yes | Secure deletion |
+| **Audit Logs** | 7 years | Yes | Archive then delete |
+| **Financial Records** | 7 years | Yes | Archive then delete |
+| **Email** | 7 years | Yes | Archive then delete |
+| **Source Code** | Indefinite | No | Keep in Git |
+| **Backups** | 90 days | No | Overwrite |
+
+**Legal Hold**: Suspend deletion if litigation/investigation
+
+**Implementation**:
+- [ ] Retention policy documented
+- [ ] Automated retention enforcement
+- [ ] Legal hold process
+- [ ] Secure deletion procedures
+
+### Data Subject Rights (GDPR)
+
+**Right to Access**:
+- Process: Submit request via privacy@company.com
+- Response time: 30 days
+- Format: Portable format (JSON, CSV)
+
+**Right to Erasure**:
+- Process: Submit request via privacy@company.com
+- Response time: 30 days
+- Exceptions: Legal obligation, litigation
+
+**Right to Portability**:
+- Process: Submit request via privacy@company.com
+- Response time: 30 days
+- Format: Machine-readable (JSON, CSV)
+
+**Implementation**:
+- [ ] Data subject request portal
+- [ ] Identity verification process
+- [ ] Request tracking system
+- [ ] 30-day SLA
+
+### Third-Party Risk Management
+
+**Vendor Assessment**:
+- [ ] Security questionnaire (SIG Lite)
+- [ ] SOC 2 report review
+- [ ] Privacy policy review
+- [ ] Data Processing Agreement (DPA)
+- [ ] Business Associate Agreement (BAA) if HIPAA
+
+**Approved Vendors**:
+- **Cloud**: Azure, AWS, GCP (with appropriate config)
+- **SaaS**: GitHub, Azure DevOps, Slack, Office 365
+- **Payment**: Stripe, PayPal (PCI DSS Level 1)
+- **Analytics**: Azure App Insights, Google Analytics (anonymized)
+
+**Vendor Review Frequency**: Annual
+
+### Privacy by Design
+
+**7 Foundational Principles**:
+1. **Proactive not Reactive**: Anticipate and prevent privacy issues
+2. **Privacy as Default**: Maximum privacy by default
+3. **Privacy Embedded**: Into design of systems
+4. **Full Functionality**: Positive-sum, not zero-sum
+5. **End-to-End Security**: Lifecycle protection
+6. **Visibility and Transparency**: Open and verifiable
+7. **Respect for User Privacy**: User-centric
+
+**Implementation Checklist**:
+- [ ] Privacy impact assessment before project start
+- [ ] Minimize data collection (only what's needed)
+- [ ] Pseudonymization/anonymization where possible
+- [ ] Encryption by default
+- [ ] User consent management
+- [ ] Privacy-preserving analytics
+- [ ] Secure by default configuration
+
+## Audit & Compliance Evidence
+
+### Evidence Collection
+
+**Automated Evidence**:
+- Access logs (Azure AD sign-ins)
+- Security alerts (Azure Sentinel)
+- Change logs (Git commits, Azure DevOps)
+- Configuration snapshots (Azure Policy)
+- Vulnerability scans (Defender for Cloud)
+
+**Manual Evidence**:
+- Policy documents
+- Training records
+- Risk assessments
+- Penetration test reports
+- Vendor assessments
+- Incident reports
+
+**Storage**:
+- **Location**: Secure SharePoint with restricted access
+- **Retention**: Per compliance requirement (typically 7 years)
+- **Organization**: By control domain (e.g., Access Control, Encryption)
+
+### Audit Preparation
+
+**Before Audit**:
+- [ ] Evidence collected and organized
+- [ ] Gaps identified and remediated
+- [ ] Stakeholders briefed
+- [ ] Conference room/tools prepared
+- [ ] Point of contact assigned
+
+**During Audit**:
+- [ ] Daily debrief with team
+- [ ] Track auditor requests
+- [ ] Provide evidence promptly
+- [ ] Clarify questions
+- [ ] Document audit findings
+
+**After Audit**:
+- [ ] Remediation plan for findings
+- [ ] Assign owners and due dates
+- [ ] Track to closure
+- [ ] Management review
+- [ ] Update controls for next audit
+
+### Continuous Compliance
+
+**Monthly**:
+- [ ] Review access permissions
+- [ ] Review security alerts
+- [ ] Review failed authentication attempts
+- [ ] Vendor risk assessment for new vendors
+
+**Quarterly**:
+- [ ] Vulnerability scan
+- [ ] Compliance dashboard review
+- [ ] Policy updates (if needed)
+- [ ] Training completion check
+
+**Annually**:
+- [ ] Risk assessment
+- [ ] Penetration test
+- [ ] Disaster recovery test
+- [ ] Compliance audit (SOC 2, ISO 27001)
+- [ ] Policy review and approval
+- [ ] Vendor risk re-assessment
+
+## Compliance Metrics
+
+**KPIs**:
+- **Audit Findings**: Target: 0 high, <5 medium
+- **Data Breaches**: Target: 0
+- **Training Compliance**: Target: 100% completion within 30 days of hire
+- **Vulnerability Remediation**: Target: <7 days for critical, <30 days for high
+- **Access Review**: Target: 100% quarterly
+- **Data Subject Requests**: Target: 100% within 30 days
+
+**Dashboard**: Power BI compliance dashboard (link in wiki)
+
+---
+
+**Compliance Contact**: compliance@company.com or #compliance
+
+**Questions?** Reach out to Legal or Security teams.
+"@
+
+        Upsert-AdoWikiPage $Project $WikiId "/Security/Compliance-Requirements" $complianceContent
+        Write-Host "  ✅ Compliance Requirements" -ForegroundColor Gray
+        
+        # Secret Management
+        $secretManagementContent = @"
+# Secret Management
+
+Best practices for storing, accessing, and rotating secrets (passwords, API keys, certificates).
+
+## What Are Secrets?
+
+**Secrets** are sensitive credentials that grant access to systems or data:
+- **API Keys**: Third-party services (Stripe, SendGrid)
+- **Database Passwords**: Connection strings
+- **Certificates**: TLS/SSL certificates, code signing
+- **SSH Keys**: Server access, Git operations
+- **Tokens**: Personal Access Tokens (PAT), OAuth tokens
+- **Encryption Keys**: Data encryption keys
+
+**Never**:
+- ❌ Hardcode secrets in source code
+- ❌ Commit secrets to Git (even in private repos)
+- ❌ Store secrets in plaintext files
+- ❌ Share secrets via email/chat
+- ❌ Use same secret across environments
+
+## Secret Storage Solutions
+
+### Azure Key Vault (Primary)
+
+**Use For**:
+- Database connection strings
+- API keys
+- Certificates
+- Encryption keys
+
+**Features**:
+- Encryption at rest (FIPS 140-2 Level 2 HSMs)
+- Access policies with Azure AD integration
+- Audit logging (who accessed what, when)
+- Secret versioning
+- Automatic rotation (for supported services)
+- Soft delete and purge protection
+
+**Access Patterns**:
+
+````````````csharp
+// C# example
+using Azure.Identity;
+using Azure.Security.KeyVault.Secrets;
+
+var client = new SecretClient(
+    new Uri("https://myvault.vault.azure.net/"),
+    new DefaultAzureCredential()
+);
+
+KeyVaultSecret secret = await client.GetSecretAsync("database-password");
+string password = secret.Value;
+````````````
+
+````````````powershell
+# PowerShell example
+$secret = Get-AzKeyVaultSecret -VaultName "myvault" -Name "database-password"
+$password = $secret.SecretValueText
+````````````
+
+**Best Practices**:
+- Use Managed Identities (no credentials in code)
+- Restrict access to Key Vault (RBAC)
+- Enable audit logging
+- Use separate Key Vaults per environment (dev, staging, prod)
+- Enable soft delete and purge protection
+
+### Azure DevOps Variable Groups
+
+**Use For**:
+- Pipeline secrets (build/deploy)
+- Environment-specific variables
+
+**Features**:
+- Encrypted at rest
+- Link to Azure Key Vault
+- Scoped to pipelines or stages
+- Approval gates
+
+**Configuration**:
+
+````````````yaml
+# azure-pipelines.yml
+variables:
+  - group: production-secrets  # Variable group
+
+steps:
+  - script: |
+      echo "Deploying with API key"
+      curl -H "X-API-Key: $(API_KEY)" https://api.example.com
+    env:
+      API_KEY: $(API_KEY)  # Secret variable from variable group
+````````````
+
+**Best Practices**:
+- Mark as "secret" (obfuscated in logs)
+- Link to Azure Key Vault for production
+- Use separate variable groups per environment
+- Restrict access to variable groups
+
+### Environment Variables (Runtime)
+
+**Use For**:
+- Application runtime secrets
+- Container secrets
+
+**Configuration**:
+
+````````````yaml
+# docker-compose.yml
+services:
+  web:
+    image: myapp:latest
+    environment:
+      - DATABASE_PASSWORD=$${DATABASE_PASSWORD}
+````````````
+
+````````````yaml
+# Kubernetes Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+type: Opaque
+data:
+  password: cGFzc3dvcmQxMjM=  # Base64 encoded
+````````````
+
+**Best Practices**:
+- Never log environment variables
+- Use Kubernetes Secrets (not ConfigMaps) for sensitive data
+- Rotate regularly
+- Inject at runtime (not baked into images)
+
+### Git-Ignored .env Files (Development Only)
+
+**Use For**:
+- Local development (never production)
+
+**Setup**:
+
+````````````bash
+# .env file (gitignored)
+DATABASE_PASSWORD=local_dev_password
+API_KEY=dev_key_12345
+````````````
+
+````````````bash
+# .gitignore
+.env
+.env.local
+````````````
+
+**Best Practices**:
+- Provide `.env.template` with dummy values
+- Document in README.md
+- Never commit actual `.env` file
+- Use weak/fake secrets for local dev
+
+## Secret Rotation
+
+### Why Rotate?
+
+- Reduce impact of credential compromise
+- Compliance requirements (PCI DSS, SOC 2)
+- Limit exposure window
+- Detect misuse (old credentials stop working)
+
+### Rotation Frequency
+
+| Secret Type | Rotation Frequency | Why |
+|-------------|-------------------|-----|
+| **Database Passwords** | 90 days | Compliance, reduce risk |
+| **API Keys** | 180 days | Balance security vs. disruption |
+| **Certificates** | Before expiry (90 days) | Avoid downtime |
+| **SSH Keys** | 1 year | Infrequent change due to disruption |
+| **Personal Access Tokens** | 90 days | User-specific, high privilege |
+| **Service Account Passwords** | 90 days | High privilege |
+
+### Rotation Process
+
+**Automated Rotation** (Preferred):
+
+````````````powershell
+# Example: Azure Key Vault + Azure Function
+function Rotate-Secret {
+    param($SecretName)
+    
+    # Generate new secret
+    $newPassword = New-RandomPassword -Length 32
+    
+    # Update application (e.g., database user password)
+    Update-DatabasePassword -Username "appuser" -NewPassword $newPassword
+    
+    # Update Key Vault
+    Set-AzKeyVaultSecret -VaultName "myvault" -Name $SecretName -SecretValue (ConvertTo-SecureString $newPassword -AsPlainText -Force)
+    
+    # Verify application still works
+    Test-Application
+}
+````````````
+
+**Manual Rotation** (If required):
+1. Generate new secret
+2. Update secret in Key Vault (new version)
+3. Deploy application (picks up new secret)
+4. Verify application works
+5. Delete old secret version (after grace period)
+
+**Zero-Downtime Rotation**:
+- Use dual-write pattern (accept both old and new secrets during transition)
+- Example: API key rotation with versioned keys
+
+### Certificate Rotation
+
+**Automatic Renewal** (Let's Encrypt, Azure App Service):
+- Certificates auto-renew 30 days before expiry
+- No manual intervention required
+
+**Manual Renewal**:
+1. Generate new certificate (30 days before expiry)
+2. Upload to Azure Key Vault
+3. Update application configuration
+4. Verify HTTPS works
+5. Remove old certificate
+
+**Monitoring**:
+- Alert 30 days before expiry
+- Weekly check for expiring certificates
+
+## Secret Scanning
+
+### Pre-Commit Scanning
+
+**Tools**:
+- **git-secrets**: AWS credential scanner
+- **truffleHog**: Scans Git history for secrets
+- **detect-secrets**: Yelp's secret scanner
+
+**Setup** (git-secrets):
+
+````````````bash
+# Install
+brew install git-secrets  # macOS
+choco install git-secrets  # Windows
+
+# Configure
+git secrets --install
+git secrets --register-aws  # AWS patterns
+git secrets --add 'password\s*=\s*.+'  # Custom patterns
+````````````
+
+### CI/CD Scanning
+
+**Azure Pipelines** (CredScan):
+
+````````````yaml
+steps:
+  - task: CredScan@3
+    inputs:
+      suppressionsFile: '.credscan/suppressions.json'
+  
+  - task: PostAnalysis@2
+    inputs:
+      CredScan: true
+````````````
+
+**GitHub** (Secret Scanning):
+- Automatically scans for secrets
+- Alerts on detected secrets
+- Partner patterns (Stripe, AWS, Azure)
+
+**Custom Patterns**:
+
+````````````regex
+# Example patterns
+api[_-]?key\s*[:=]\s*['"][a-zA-Z0-9]{32}['"]
+password\s*[:=]\s*['"][^'"]{8,}['"]
+BEGIN\s+(RSA|DSA|EC|OPENSSH)\s+PRIVATE\s+KEY
+````````````
+
+### Post-Commit Scanning
+
+**git-secrets** (scan history):
+
+````````````bash
+git secrets --scan-history
+````````````
+
+**TruffleHog** (deep scan):
+
+````````````bash
+trufflehog git https://github.com/myorg/myrepo --only-verified
+````````````
+
+### Remediation
+
+**If Secret Committed**:
+1. **Rotate Immediately**: Assume secret is compromised
+2. **Remove from Git History**: Use `git filter-branch` or BFG Repo-Cleaner
+3. **Force Push**: After history rewrite
+4. **Notify Team**: All clones need to be reset
+5. **Audit**: Check if secret was used maliciously
+
+**BFG Repo-Cleaner** (faster than git filter-branch):
+
+````````````bash
+# Replace all passwords in history
+bfg --replace-text passwords.txt myrepo.git
+
+# Remove files
+bfg --delete-files secrets.json myrepo.git
+
+# Cleanup
+cd myrepo.git
+git reflog expire --expire=now --all
+git gc --prune=now --aggressive
+````````````
+
+## Access Control
+
+### Principle of Least Privilege
+
+**Grant Minimum Access**:
+- Developers: Read-only access to Key Vault (via Managed Identity)
+- CI/CD: Read-only access to secrets needed for deployment
+- Admins: Full access (create, update, delete secrets)
+- Applications: Read-only access to specific secrets
+
+**Azure Key Vault Access Policies**:
+
+````````````powershell
+# Grant app read-only access to specific secret
+Set-AzKeyVaultAccessPolicy -VaultName "myvault" `
+    -ObjectId $appManagedIdentityId `
+    -PermissionsToSecrets Get,List `
+    -SecretName "database-password"
+````````````
+
+### Managed Identities (Preferred)
+
+**Why?**
+- No credentials in code
+- Automatic credential rotation
+- Azure AD integration
+
+**Types**:
+- **System-Assigned**: Tied to resource lifecycle (VM, App Service)
+- **User-Assigned**: Shared across resources
+
+**Example** (App Service):
+
+````````````csharp
+// No credentials needed - uses Managed Identity
+var client = new SecretClient(
+    new Uri("https://myvault.vault.azure.net/"),
+    new DefaultAzureCredential()  // Automatically uses Managed Identity
+);
+````````````
+
+### Service Principals (If Managed Identity Not Available)
+
+**Use For**:
+- Third-party CI/CD (GitHub Actions, CircleCI)
+- On-premise servers
+
+**Permissions**:
+- Grant only necessary permissions
+- Use short-lived tokens (if possible)
+- Rotate credentials regularly
+
+## Monitoring & Auditing
+
+### Key Vault Audit Logs
+
+**Enable Diagnostic Logs**:
+
+````````````powershell
+Set-AzDiagnosticSetting -ResourceId $keyVaultId `
+    -Name "KeyVaultAudit" `
+    -WorkspaceId $logAnalyticsWorkspaceId `
+    -Enabled $true `
+    -Category AuditEvent
+````````````
+
+**Monitor For**:
+- Failed access attempts (unauthorized access)
+- Secret retrieved by unexpected identity
+- Secret deleted (should be rare)
+- High volume of secret retrievals (potential scraping)
+
+**Alerts**:
+- Alert on failed Key Vault access
+- Alert on secret deletion
+- Alert on access from unexpected IP
+
+### Azure DevOps Audit Logs
+
+**Track**:
+- Variable group access
+- Pipeline runs (which secrets used)
+- Variable group changes
+
+**Audit Query**:
+
+````````````kusto
+AzureDevOpsAuditLogs
+| where OperationName == "VariableGroup.SecretAccessed"
+| project TimeGenerated, UserPrincipalName, ResourceName
+````````````
+
+## Secrets in Code Review
+
+**Checklist**:
+- [ ] No hardcoded secrets
+- [ ] No secrets in comments
+- [ ] No secrets in test files
+- [ ] Connection strings use Key Vault
+- [ ] API keys come from environment variables
+- [ ] Certificates loaded from Key Vault
+- [ ] No secrets in logs
+
+**Red Flags**:
+- String literals that look like passwords: `"P@ssw0rd123"`
+- Long alphanumeric strings: `"ak_live_51H..."`
+- Base64-encoded strings (potential secret)
+- Comments like "// TODO: remove hardcoded password"
+
+## Common Pitfalls
+
+### Logging Secrets
+
+❌ **Bad**:
+````````````csharp
+logger.LogInformation($$"Connecting with password: {password}");
+````````````
+
+✅ **Good**:
+````````````csharp
+logger.LogInformation("Connecting to database");
+````````````
+
+### Exception Messages
+
+❌ **Bad**:
+````````````csharp
+throw new Exception($$"Failed to connect with connection string: {connectionString}");
+````````````
+
+✅ **Good**:
+````````````csharp
+throw new Exception("Failed to connect to database");
+````````````
+
+### URL Parameters
+
+❌ **Bad**:
+````````````
+https://api.example.com/data?api_key=12345
+````````````
+
+✅ **Good**:
+````````````
+https://api.example.com/data
+Authorization: Bearer 12345
+````````````
+
+### Git Commits
+
+❌ **Bad**:
+````````````bash
+git commit -m "Add API key: sk_live_12345"
+````````````
+
+✅ **Good**:
+````````````bash
+git commit -m "Add API key from Key Vault"
+````````````
+
+## Emergency Procedures
+
+### Compromised Secret
+
+1. **Rotate Immediately**: Generate new secret
+2. **Revoke Old Secret**: Disable/delete compromised credential
+3. **Audit Usage**: Check logs for unauthorized usage
+4. **Notify Stakeholders**: Security team, affected service owners
+5. **Post-Mortem**: How was it compromised? How to prevent?
+
+### Lost Access to Key Vault
+
+**Recovery**:
+- Use break-glass admin account (stored in secure physical location)
+- Or recover via Azure subscription owner
+
+**Prevention**:
+- Multiple Key Vault admins
+- Break-glass procedure documented
+- Periodic access verification
+
+---
+
+**Secret Management Checklist**:
+- [ ] All secrets stored in Azure Key Vault (production)
+- [ ] Managed Identities used (where possible)
+- [ ] Secret scanning in CI/CD
+- [ ] Secrets rotated per schedule
+- [ ] Audit logging enabled
+- [ ] No secrets in source code
+- [ ] Developers trained on secret management
+
+**Questions?** #security or security@company.com
+"@
+
+        Upsert-AdoWikiPage $Project $WikiId "/Security/Secret-Management" $secretManagementContent
+        Write-Host "  ✅ Secret Management" -ForegroundColor Gray
+        
+        # Security Champions Program
+        $securityChampionsContent = @"
+# Security Champions Program
+
+Empower developers to become security advocates within their teams.
+
+## What Is a Security Champion?
+
+A **Security Champion** is a developer who:
+- Acts as security liaison between dev team and security team
+- Promotes security best practices
+- Participates in threat modeling sessions
+- Reviews security findings and coordinates remediation
+- Stays current on security trends and vulnerabilities
+- Mentors team members on secure coding
+
+**Not a replacement for security team** - Champions extend security culture into engineering teams.
+
+## Program Goals
+
+1. **Shift Left Security**: Embed security early in development
+2. **Scale Security**: Extend security team's reach
+3. **Build Security Culture**: Make security everyone's responsibility
+4. **Faster Remediation**: Security issues fixed at the source
+5. **Knowledge Sharing**: Spread security expertise across org
+
+## Roles & Responsibilities
+
+### Security Champions
+
+**Responsibilities**:
+- [ ] Attend monthly Security Champion meetings
+- [ ] Review security findings for your team (SAST, DAST, dependency scans)
+- [ ] Participate in threat modeling (new features)
+- [ ] Conduct security-focused code reviews
+- [ ] Promote security awareness within your team
+- [ ] Coordinate vulnerability remediation
+- [ ] Contribute to security documentation
+- [ ] Complete security training (annually)
+
+**Time Commitment**: 2-4 hours per week
+
+**Recognition**:
+- Security Champion badge on profile
+- Certificate of completion (annual)
+- Public recognition in all-hands meetings
+- Priority access to security training
+- Invitation to security conferences
+
+### Security Team
+
+**Responsibilities**:
+- [ ] Provide training and resources
+- [ ] Facilitate monthly Champion meetings
+- [ ] Support Champions with security questions
+- [ ] Triage and assign security findings
+- [ ] Conduct threat modeling workshops
+- [ ] Recognize Champion contributions
+
+**Support Channels**:
+- #security-champions (Slack/Teams)
+- security-champions@company.com
+- Monthly office hours
+
+### Engineering Managers
+
+**Responsibilities**:
+- [ ] Nominate Security Champions
+- [ ] Allocate time for Champion activities
+- [ ] Support Champion initiatives
+- [ ] Recognize Champion contributions in reviews
+- [ ] Attend quarterly security reviews
+
+## How to Become a Security Champion
+
+### Eligibility
+
+**Requirements**:
+- Software engineer (any level)
+- Good understanding of application architecture
+- Interest in security (no prior security experience required)
+- Manager approval
+
+**Nice-to-Have**:
+- Experience with threat modeling
+- Security certifications (CISSP, CEH, OSCP)
+- Contributions to security tools/projects
+
+### Application Process
+
+1. **Nominate Yourself**: Fill out nomination form (link below)
+2. **Manager Approval**: Manager confirms time allocation
+3. **Security Team Review**: Security team reviews nomination
+4. **Onboarding**: Complete Security Champion onboarding (2-week program)
+5. **Assignment**: Assigned to your team
+
+**Nomination Form**: [Link to form]
+
+### Onboarding Program (2 Weeks)
+
+**Week 1: Foundations**
+- Day 1-2: Security fundamentals (OWASP Top 10, STRIDE)
+- Day 3-4: Threat modeling workshop
+- Day 5: Secure coding practices
+
+**Week 2: Tools & Processes**
+- Day 1-2: Security tools (SAST, DAST, dependency scanning)
+- Day 3: Incident response procedures
+- Day 4: Security code review techniques
+- Day 5: Capstone project (threat model a real feature)
+
+**Completion**: Security Champion certificate + badge
+
+## Champion Activities
+
+### Monthly Security Champion Meeting
+
+**Format**: 1 hour, all Champions + security team
+
+**Agenda**:
+- Security news and trends
+- Recent vulnerabilities and lessons learned
+- New tools and techniques
+- Q&A with security team
+- Recognition of Champion contributions
+
+**Schedule**: First Thursday of each month, 2pm PT
+
+### Threat Modeling Sessions
+
+**When**: For new features or significant changes
+
+**Process**:
+1. Champion coordinates with security team
+2. Whiteboard session (1-2 hours)
+3. Identify threats using STRIDE
+4. Document mitigations
+5. Update threat model in wiki
+
+**Champion Role**:
+- Schedule session
+- Invite stakeholders (PM, architects, security)
+- Document threat model
+- Track mitigation implementation
+
+**Threat Model Template**: [Link to template in Security/Threat-Modeling-Guide]
+
+### Security Code Review
+
+**Champion Review Checklist**:
+
+**Authentication & Authorization**:
+- [ ] Authentication required for sensitive endpoints?
+- [ ] Authorization checks on all protected resources?
+- [ ] No privilege escalation vulnerabilities?
+
+**Input Validation**:
+- [ ] All user input validated?
+- [ ] Parameterized queries (no SQL injection)?
+- [ ] Output encoding (no XSS)?
+- [ ] File upload restrictions (type, size)?
+
+**Data Protection**:
+- [ ] Sensitive data encrypted at rest?
+- [ ] TLS used for data in transit?
+- [ ] No secrets in code?
+- [ ] PII handling per privacy policy?
+
+**Error Handling**:
+- [ ] Errors logged but not exposed to user?
+- [ ] No stack traces in production?
+- [ ] Sensitive data redacted from logs?
+
+**Dependencies**:
+- [ ] No vulnerable dependencies?
+- [ ] Dependencies from trusted sources?
+- [ ] Dependency versions pinned?
+
+### Vulnerability Triage
+
+**Champion Process**:
+1. Review security findings (SAST, DAST, dependency scan)
+2. Validate findings (eliminate false positives)
+3. Prioritize (critical → high → medium → low)
+4. Assign to team members
+5. Track to completion
+6. Verify fixes
+
+**SLA by Severity**:
+- Critical: 7 days
+- High: 30 days
+- Medium: 90 days
+- Low: Best effort
+
+**Escalation**: If SLA at risk, escalate to security team
+
+### Security Training
+
+**Champion-Led Training** (quarterly):
+- Secure coding workshop (2 hours)
+- OWASP Top 10 deep dive
+- Hands-on labs (vulnerable apps)
+- Capture The Flag (CTF) competition
+
+**External Training**:
+- Security conferences (BSides, OWASP AppSec)
+- Online courses (SANS, Pluralsight)
+- Certifications (company-sponsored)
+
+## Champion Resources
+
+### Documentation
+
+- **OWASP Top 10**: https://owasp.org/Top10/
+- **OWASP Cheat Sheets**: https://cheatsheetseries.owasp.org/
+- **Security Policies**: [Link to Security/Security-Policies]
+- **Threat Modeling Guide**: [Link to Security/Threat-Modeling-Guide]
+- **Incident Response Plan**: [Link to Security/Incident-Response-Plan]
+- **Secret Management**: [Link to Security/Secret-Management]
+
+### Tools
+
+**SAST**:
+- SonarQube: [Link]
+- Semgrep: https://semgrep.dev/
+
+**DAST**:
+- OWASP ZAP: https://www.zaproxy.org/
+- Burp Suite Community: https://portswigger.net/burp/communitydownload
+
+**Dependency Scanning**:
+- Snyk: [Link]
+- Dependabot: Built into GitHub
+
+**Threat Modeling**:
+- Microsoft Threat Modeling Tool: https://aka.ms/threatmodelingtool
+- OWASP Threat Dragon: https://owasp.org/www-project-threat-dragon/
+
+**Learning**:
+- OWASP WebGoat (vulnerable app): https://owasp.org/www-project-webgoat/
+- Damn Vulnerable Web Application (DVWA): http://www.dvwa.co.uk/
+- HackTheBox: https://www.hackthebox.com/
+
+### Communication
+
+**Slack Channels**:
+- #security-champions (primary channel)
+- #security (general security discussions)
+- #security-incidents (incident response)
+
+**Email**: security-champions@company.com
+
+**Office Hours**: Every Wednesday, 2-3pm PT (optional)
+
+## Success Metrics
+
+### Individual Champion Metrics
+
+- Security findings reviewed (target: 100% within 7 days)
+- Threat models facilitated (target: ≥1 per quarter)
+- Security training attended (target: ≥4 hours per quarter)
+- Code reviews with security focus (target: ≥5 per month)
+- Security improvements contributed (documented)
+
+### Program Metrics
+
+- Number of active Champions (target: ≥1 per team)
+- Vulnerability remediation time (target: 30% reduction)
+- Security findings per 1000 LOC (target: downward trend)
+- Champion satisfaction (target: ≥4.0/5.0)
+- Security culture survey score (target: ≥4.0/5.0)
+
+**Dashboard**: [Link to Power BI dashboard]
+
+## Recognition & Rewards
+
+### Quarterly Recognition
+
+**Security Champion of the Quarter**:
+- Criteria: Most impactful contribution
+- Reward: $500 bonus, public recognition, plaque
+
+**Nomination Process**: Self-nomination or peer nomination
+
+### Annual Recognition
+
+**Security Champion of the Year**:
+- Criteria: Consistent contributions, mentorship, innovation
+- Reward: $2000 bonus, conference attendance, trophy
+
+### Continuous Recognition
+
+- Shout-outs in #security-champions channel
+- Monthly summary email highlighting contributions
+- Profile badge and certificate
+- Career development support
+
+## Champion Advancement
+
+### Levels
+
+**Level 1: Security Champion** (0-1 year):
+- Learning phase
+- Focus on your team
+- Complete core training
+
+**Level 2: Senior Security Champion** (1-2 years):
+- Mentor new Champions
+- Lead threat modeling sessions
+- Contribute to security tools/processes
+
+**Level 3: Lead Security Champion** (2+ years):
+- Program leadership
+- Define security strategy
+- Cross-team security initiatives
+- May transition to security team
+
+### Career Path
+
+**Paths**:
+1. **Stay in Engineering**: Security-focused senior engineer, security architect
+2. **Transition to Security**: Security engineer, application security engineer
+3. **Security Leadership**: Security manager, CISO
+
+**Support**:
+- Career development conversations (quarterly)
+- Training budget for certifications
+- Internal mobility support
+
+## Program Evolution
+
+### Feedback
+
+**Channels**:
+- Monthly Champion survey (pulse check)
+- Quarterly program retrospective
+- Annual program review
+
+**Act On Feedback**:
+- Adjust meeting frequency/format
+- Update training content
+- Improve tools and processes
+
+### Continuous Improvement
+
+**Quarterly Goals**:
+- Q1: Onboard 10 new Champions
+- Q2: Reduce vulnerability remediation time by 30%
+- Q3: Launch security training platform
+- Q4: Achieve 100% Champion satisfaction
+
+---
+
+**Join the Security Champions Program!**
+
+**Why Become a Champion?**
+- Build valuable security skills
+- Make a real impact on product security
+- Career growth opportunities
+- Recognition and rewards
+- Join a community of security-minded engineers
+
+**Ready to Apply?** [Link to nomination form]
+
+**Questions?** Reach out to security-champions@company.com or #security-champions
+
+---
+
+*Security is everyone's responsibility. Security Champions make it everyone's capability.*
+"@
+
+        Upsert-AdoWikiPage $Project $WikiId "/Security/Security-Champions-Program" $securityChampionsContent
+        Write-Host "  ✅ Security Champions Program" -ForegroundColor Gray
+        
+        Write-Host "[SUCCESS] All 7 security wiki pages created" -ForegroundColor Green
     }
     catch {
         Write-Warning "Failed to create some security wiki pages: $_"
