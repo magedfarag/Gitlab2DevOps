@@ -3193,117 +3193,16 @@ function Ensure-AdoBusinessWiki {
     Write-Host "[INFO] Creating business wiki pages..." -ForegroundColor Cyan
 
     $pages = @(
-        @{ path = '/Business-Welcome'; content = @"
-# Welcome – Business Overview
-
-This project is now hosted on Azure DevOps Server. Here’s what you need to know to get started.
-
-## What’s happening
-- We migrated source code from GitLab to Azure DevOps.
-- Work tracking uses the Agile process (stories, tasks, bugs, epics, features).
-
-## How to access
-- Project URL: [$Project](/Home)
-- If you need access, contact the Project Admins.
-
-## How we track work
-- Boards → Backlog and Sprints
-- Shared Queries provide curated views (My Work, Ready for Review, Blocked Items)
-
-## Cutover timeline
-See [Cutover & Rollback](/Cutover-Timeline).
-
-## Support
-- Teams/Slack: #ado-support
-- Office hours: Tue/Thu 14:00–15:00
-"@ },
-    @{ path = '/Decision-Log'; content = @"
-# Decision Log
-
-Record key decisions succinctly.
-
-| Date | Decision | Owner | Impact |
-|------|----------|-------|--------|
-| yyyy-mm-dd | Short statement | Name | Short impact |
-"@ },
-    @{ path = '/Risks-Issues'; content = @"
-# Risks & Issues
-
-Track business-visible risks and issues.
-
-| Type | Title | Owner | Mitigation | Due |
-|------|-------|-------|------------|-----|
-| Risk | | | | |
-| Issue | | | | |
-"@ },
-    @{ path = '/Glossary'; content = @"
-# Glossary – GitLab → Azure DevOps
-
-- Merge Request → Pull Request
-- Issue → Work Item (Story/Task/Bug/etc.)
-- Labels → Tags
-"@ },
-    @{ path = '/Ways-of-Working'; content = @"
-# Ways of Working
-
-## Definition of Ready (DoR)
-- Clear user value
-- Acceptance criteria present
-- Dependencies identified
-
-## Definition of Done (DoD)
-- Code reviewed, tests passing, docs updated, accepted by PO
-"@ },
-    @{ path = '/KPIs-and-Success'; content = @"
-# KPIs & Success Criteria
-
-- Enablement: % trained, active users
-- Flow: Lead time, Cycle time (baseline then trend)
-- Quality: Bugs by severity trend
-- Migration readiness: Preflight checks passed, SSL/TLS status
-"@ },
-    @{ path = '/Training-Quick-Start'; content = @"
-# Training – Quick Start (30–45 min)
-
-Agenda:
-1) Navigation (Boards, Repos, Queries, Dashboards)
-2) Create/Update work items; use tags; link PRs
-3) Review dashboards; stand-up checklist
-
-Cheat sheets:
-- Top 10 daily tasks
-- GitLab vs Azure DevOps differences
-"@ },
-    @{ path = '/Communication-Templates'; content = @"
-# Communication Templates
-
-## Announcement (Draft)
-Why: Value, timeline, what changes. Links to wiki and support.
-
-## Freeze Window Notice (Draft)
-Scope, start/end, exceptions, rollback criteria.
-
-## Go/No-Go Checklist (Draft)
-Preconditions, sign-offs, owner list.
-
-## Post-Cutover Survey (Draft)
-3–5 quick questions to capture satisfaction and gaps.
-"@ },
-    @{ path = '/Cutover-Timeline'; content = @"
-# Cutover & Rollback Plan (Overview)
-
-1) Freeze window → Final verification → Go/No-Go
-2) Cutover execution → Validation
-3) Rollback path documented (if needed)
-"@ },
-    @{ path = '/Post-Cutover-Summary'; content = @"
-# Post-Cutover Summary
-
-To be updated after code push:
-- Default branch name
-- Branch policies applied
-- Branches/tags counts
-"@ }
+        @{ path = '/Business-Welcome'; content = Get-WikiTemplate "Business/BusinessWelcome" },
+    @{ path = '/Decision-Log'; content = Get-WikiTemplate "Business/DecisionLog" },
+    @{ path = '/Risks-Issues'; content = Get-WikiTemplate "Business/RisksIssues" },
+    @{ path = '/Glossary'; content = Get-WikiTemplate "Business/Glossary" },
+    @{ path = '/Ways-of-Working'; content = Get-WikiTemplate "Business/WaysOfWorking" },
+    @{ path = '/KPIs-and-Success'; content = Get-WikiTemplate "Business/KPIsAndSuccess" },
+    @{ path = '/Training-Quick-Start'; content = Get-WikiTemplate "Business/TrainingQuickStart" },
+    @{ path = '/Communication-Templates'; content = Get-WikiTemplate "Business/CommunicationTemplates" },
+    @{ path = '/Cutover-Timeline'; content = Get-WikiTemplate "Business/CutoverTimeline" },
+    @{ path = '/Post-Cutover-Summary'; content = Get-WikiTemplate "Business/PostCutoverSummary" }
     )
 
     foreach ($p in $pages) {
