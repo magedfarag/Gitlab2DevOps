@@ -1,0 +1,6 @@
+SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [System.CreatedDate]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND [System.Tags] CONTAINS 'blocked'
+  AND [System.State] IN ('New', 'Active')
+ORDER BY [System.CreatedDate] ASC

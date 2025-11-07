@@ -835,16 +835,12 @@ function New-MigrationHtmlReport {
     )
     
     try {
-        # Load template
-        $templatePath = Join-Path $PSScriptRoot "templates\migration-status.html"
-        if (-not (Test-Path $templatePath)) {
-            Write-Warning "[New-MigrationHtmlReport] Template not found: $templatePath"
-            return $null
-        }
-        
-        $template = Get-Content -Path $templatePath -Raw
-        
-        # Load migration config
+    # Load template using Templates module
+    $template = Get-HtmlTemplate -TemplateName "project-status"
+    if (-not $template) {
+        Write-Warning "[New-MigrationHtmlReport] Template not found: project-status.html"
+        return $null
+    }        # Load migration config
         $configFile = Join-Path $ProjectPath "migration-config.json"
         if (-not (Test-Path $configFile)) {
             Write-Warning "[New-MigrationHtmlReport] Config not found: $configFile"
@@ -1115,14 +1111,12 @@ function New-MigrationsOverviewReport {
             $OutputPath = Join-Path $MigrationsPath "index.html"
         }
         
-        # Load template
-        $templatePath = Join-Path $PSScriptRoot "templates\migration-status.html"
-        if (-not (Test-Path $templatePath)) {
-            Write-Warning "[New-MigrationsOverviewReport] Template not found: $templatePath"
+        # Load template using Templates module
+        $template = Get-HtmlTemplate -TemplateName "overview-dashboard"
+        if (-not $template) {
+            Write-Warning "[New-MigrationsOverviewReport] Template not found: overview-dashboard.html"
             return $null
         }
-        
-        $template = Get-Content -Path $templatePath -Raw
         
         # Collect all migration projects
         $allProjects = @()

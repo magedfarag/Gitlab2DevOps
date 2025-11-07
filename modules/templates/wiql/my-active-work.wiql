@@ -1,0 +1,7 @@
+SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [Microsoft.VSTS.Scheduling.StoryPoints]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND [System.AssignedTo] = @Me
+  AND [System.State] <> 'Closed'
+  AND [System.State] <> 'Removed'
+ORDER BY [System.ChangedDate] DESC

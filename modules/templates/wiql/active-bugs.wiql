@@ -1,0 +1,6 @@
+SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [System.CreatedDate], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity]
+FROM WorkItems
+WHERE [System.TeamProject] = @project
+  AND [System.WorkItemType] = 'Bug'
+  AND [System.State] IN ('New', 'Active', 'Approved')
+ORDER BY [Microsoft.VSTS.Common.Priority] ASC, [System.CreatedDate] DESC
