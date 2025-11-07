@@ -805,14 +805,67 @@ function Ensure-AdoCommonTags {
     
     Write-Host "[INFO] Creating tag guidelines wiki page..." -ForegroundColor Cyan
     
-    # Load tag guidelines template
+    # Load tag guidelines template with fallback
+    $tagGuidelinesContent = $null
     $templatePath = Join-Path $PSScriptRoot "..\templates\TagGuidelines.md"
-    if (-not (Test-Path $templatePath)) {
-        Write-Error "[Ensure-AdoCommonTags] Template file not found: $templatePath"
-        return $null
+    
+    if (Test-Path $templatePath) {
+        try {
+            $tagGuidelinesTemplate = Get-Content -Path $templatePath -Raw -Encoding UTF8
+            $tagGuidelinesContent = $tagGuidelinesTemplate -replace '{{CURRENT_DATE}}', (Get-Date -Format 'yyyy-MM-dd')
+            Write-Verbose "[Ensure-AdoCommonTags] Loaded template from: $templatePath"
+        }
+        catch {
+            Write-Warning "Failed to load template from '$templatePath': $_"
+        }
     }
-    $tagGuidelinesTemplate = Get-Content -Path $templatePath -Raw -Encoding UTF8
-    $tagGuidelinesContent = $tagGuidelinesTemplate -replace '{{CURRENT_DATE}}', (Get-Date -Format 'yyyy-MM-dd')
+    
+    # Fallback to embedded template if file not found or failed to load
+    if (-not $tagGuidelinesContent) {
+        Write-Verbose "[Ensure-AdoCommonTags] Using embedded fallback template"
+        $currentDate = Get-Date -Format 'yyyy-MM-dd'
+        $tagGuidelinesContent = @"
+# Tag Guidelines
+
+Generated: $currentDate
+
+## Standard Tags
+
+Use these tags to categorize work items effectively:
+
+### Status Tags
+- **blocked**: Work is blocked by external dependencies
+- **urgent**: Requires immediate attention
+- **breaking-change**: Changes that break backward compatibility
+- **needs-review**: Ready for code/design review
+- **needs-testing**: Requires QA validation
+
+### Technical Tags
+- **frontend**: UI/UX changes
+- **backend**: Server-side logic
+- **database**: Database schema or queries
+- **api**: REST/GraphQL API changes
+- **infrastructure**: DevOps, CI/CD, deployment
+
+### Quality Tags
+- **technical-debt**: Code that needs refactoring
+- **performance**: Performance optimization needed
+- **security**: Security-related changes
+
+## Best Practices
+
+1. **Consistency**: Use standard tags across all work items
+2. **Clarity**: Choose tags that clearly describe the work
+3. **Review**: Update tags during sprint planning and retrospectives
+4. **Search**: Leverage tags for filtering and reporting
+
+## Usage Examples
+
+- User Story with tags: 'frontend', 'needs-review'
+- Bug with tags: 'backend', 'urgent', 'security'
+- Task with tags: 'infrastructure', 'technical-debt'
+"@
+    }
 
     try {
         # Check if page exists

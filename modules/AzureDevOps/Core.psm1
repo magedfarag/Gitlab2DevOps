@@ -47,12 +47,49 @@ function Get-WikiTemplate {
     # WikiTemplates are in the same directory as this module (AzureDevOps/WikiTemplates)
     $templatePath = Join-Path $PSScriptRoot "WikiTemplates\$TemplateName.md"
     
-    if (-not (Test-Path $templatePath)) {
-        throw "[Get-WikiTemplate] Template not found: $templatePath"
+    if (Test-Path $templatePath) {
+        try {
+            Write-Verbose "[Get-WikiTemplate] Loading template: $TemplateName from $templatePath"
+            return (Get-Content -Path $templatePath -Raw -Encoding UTF8)
+        }
+        catch {
+            Write-Warning "[Get-WikiTemplate] Failed to load template from '$templatePath': $_"
+        }
+    }
+    else {
+        Write-Verbose "[Get-WikiTemplate] Template not found: $templatePath"
     }
     
-    Write-Verbose "[Get-WikiTemplate] Loading template: $TemplateName"
-    return (Get-Content -Path $templatePath -Raw -Encoding UTF8)
+    # Fallback: Return basic template structure
+    Write-Warning "[Get-WikiTemplate] Using fallback template for: $TemplateName"
+    $templateTitle = $TemplateName.Replace('/', ' - ')
+    $currentDate = Get-Date -Format 'yyyy-MM-dd'
+    return @"
+# $templateTitle
+
+**Note**: This page was created with a fallback template. Please update with your organization's specific content.
+
+## Overview
+
+This section should contain an overview of the topic.
+
+## Details
+
+Add detailed information here.
+
+## Best Practices
+
+- Best practice 1
+- Best practice 2
+- Best practice 3
+
+## References
+
+- [Azure DevOps Documentation](https://learn.microsoft.com/azure/devops/)
+
+---
+*Last updated: $currentDate*
+"@
 }
 
 <#
