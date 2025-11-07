@@ -54,8 +54,34 @@
 .PARAMETER PageSize
   Page size for paged endpoints (default 100).
 
+.PARAMETER ApiVersion
+  GitLab API version to use (default 'v4'). Future-proofing for v5.
+
+.PARAMETER ApiVersion
+  GitLab API version to use. Defaults to 'v4'. Future-proofing for v5.
+
+.PARAMETER Profile
+  Export profile preset: 'Minimal' (users/groups only), 'Standard' (adds projects), 'Complete' (adds memberships/roles). 
+  Defaults to 'Complete'. Use Minimal for faster exports when only identity data is needed.
+
+.PARAMETER Since
+  Export only resources modified since this date (ISO format: 2024-01-01 or full ISO-8601).
+  Useful for incremental/differential exports to keep ADO in sync with GitLab.
+
 .PARAMETER IncludeMemberRoles
   When specified, export custom member roles using /api/v4/member_roles.
+
+.PARAMETER Resume
+  When specified, checks for existing export files and skips phases that have already completed.
+  Useful for recovering from script failures without re-exporting everything.
+
+.PARAMETER DryRun
+  When specified, queries only resource counts without exporting data. Shows estimated API calls,
+  time, and rate limit consumption. Useful for previewing export scope before execution.
+
+.PARAMETER ShowStatistics
+  When specified, displays export statistics summary at the end including top groups by member count,
+  largest projects, and permission distribution.
 
 .NOTES
   - Pure PowerShell (Invoke-WebRequest / Invoke-RestMethod) to stay compatible with Windows PowerShell 5.1.
@@ -85,7 +111,24 @@ param(
     [ValidateRange(1,1000)]
     [int]$PageSize = 100,
 
-    [switch]$IncludeMemberRoles
+    [Parameter(Mandatory=$false)]
+    [ValidateSet('v4','v5')]
+    [string]$ApiVersion = 'v4',
+
+    [Parameter(Mandatory=$false)]
+    [ValidateSet('Minimal','Standard','Complete')]
+    [string]$Profile = 'Complete',
+
+    [Parameter(Mandatory=$false)]
+    [datetime]$Since,
+
+    [switch]$IncludeMemberRoles,
+
+    [switch]$Resume,
+
+    [switch]$DryRun,
+
+    [switch]$ShowStatistics
 )
 
 # ---------------------------
@@ -93,6 +136,7 @@ param(
 # ---------------------------
 $Script:ScriptVersion = '1.0.0'
 $Script:StartedAtUtc = (Get-Date).ToUniversalTime()
+$Script:StartedAtUtcIso = $Script:StartedAtUtc.ToString('o')  # Cache formatted date
 $ErrorActionPreference = 'Stop'
 $PSDefaultParameterValues['Invoke-WebRequest:ErrorAction'] = 'Stop'
 $PSDefaultParameterValues['Invoke-RestMethod:ErrorAction'] = 'Stop'
@@ -141,6 +185,30 @@ $memberRolesFile        = Join-Path $OutDirectory 'member-roles.json'
 $metadataFile           = Join-Path $OutDirectory 'metadata.json'
 $logFile                = Join-Path $OutDirectory 'export.log'
 
+# Resume detection - check for existing completed exports
+$resumeFlags = @{
+    users              = (Test-Path $usersFile)
+    groups             = (Test-Path $groupsFile)
+    projects           = (Test-Path $projectsFile)
+    group_memberships  = (Test-Path $groupMembershipsFile)
+    project_memberships = (Test-Path $projectMembershipsFile)
+    member_roles       = (Test-Path $memberRolesFile)
+}
+
+if ($Resume.IsPresent) {
+    $resumeCount = ($resumeFlags.Values | Where-Object { $_ }).Count
+    if ($resumeCount -gt 0) {
+        Write-Host "[RESUME] Found $resumeCount existing export file(s) in $OutDirectory" -ForegroundColor Yellow
+        Write-Host "[RESUME] Will skip already-exported phases" -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "[RESUME] No existing exports found, performing full export" -ForegroundColor Yellow
+    }
+}
+elseif (($resumeFlags.Values | Where-Object { $_ }).Count -gt 0) {
+    Write-Host "[WARN] Export directory already contains files. Use -Resume to skip completed phases or delete directory for fresh export." -ForegroundColor Yellow
+}
+
 # ---------------------------
 # Logging helpers
 # ---------------------------
@@ -180,7 +248,7 @@ function Invoke-GitLabRest {
         [int]$MaxRetries = 3
     )
 
-    $uriBuilder = New-Object System.UriBuilder("$GitLabBaseUrl/api/v4$Endpoint")
+    $uriBuilder = New-Object System.UriBuilder("$GitLabBaseUrl/api/$ApiVersion$Endpoint")
     if ($Query -and $Query.Count -gt 0) {
         # Build query string safely
         $nv = New-Object System.Collections.Specialized.NameValueCollection
@@ -358,9 +426,12 @@ function Invoke-GitLabPagedRequest {
 # ---------------------------
 $metadata = [ordered]@{
     script_version         = $Script:ScriptVersion
-    started_utc            = $Script:StartedAtUtc.ToString('o')
+    started_utc            = $Script:StartedAtUtcIso
     completed_utc          = $null
     gitlab_base_url        = $GitLabBaseUrl
+    gitlab_api_version     = $ApiVersion
+    export_profile         = $Profile
+    since_date             = if ($Since) { $Since.ToString('o') } else { $null }
     token_user             = $null
     page_size              = $PageSize
     counts                 = [ordered]@{ users = 0; groups = 0; projects = 0; group_memberships = 0; project_memberships = 0; member_roles = 0 }
@@ -370,6 +441,8 @@ $metadata = [ordered]@{
 }
 
 Write-Log "Export started. Output directory: $OutDirectory"
+Write-Log "Export profile: $Profile"
+if ($Since) { Write-Log "Differential export since: $($Since.ToString('o'))" }
 
 # Identify token user
 try {
@@ -384,154 +457,289 @@ catch {
 }
 
 # ---------------------------
+# DRY-RUN MODE: Estimate counts and exit
+# ---------------------------
+if ($DryRun.IsPresent) {
+    Write-Host "`n=== DRY-RUN MODE ===" -ForegroundColor Cyan
+    Write-Host "Querying resource counts (no data exported)...`n" -ForegroundColor Yellow
+    
+    # Helper to get count from X-Total header
+    function Get-ResourceCount {
+        param([string]$Endpoint, [hashtable]$Query = @{})
+        try {
+            $query1 = $Query.Clone()
+            $query1.per_page = 1
+            $resp = Invoke-GitLabRest -Method GET -Endpoint $Endpoint -Query $query1
+            $total = $resp.Headers['X-Total']
+            if ($total) { return [int]$total }
+            return 0
+        }
+        catch { return 0 }
+    }
+    
+    # Query counts
+    $dryRunCounts = [ordered]@{
+        users              = Get-ResourceCount '/users'
+        groups             = Get-ResourceCount '/groups' @{ all_available = 'true' }
+        projects           = Get-ResourceCount '/projects' @{ membership = 'true'; archived = 'false' }
+    }
+    
+    # Estimate API calls per resource
+    $avgGroupMembers = 20        # Average members per group
+    $avgProjectMembers = 10      # Average members per project
+    $membershipsPerPage = $PageSize
+    
+    $estimatedCalls = @{
+        users_pages        = [Math]::Ceiling($dryRunCounts.users / $PageSize)
+        groups_pages       = [Math]::Ceiling($dryRunCounts.groups / $PageSize)
+        projects_pages     = [Math]::Ceiling($dryRunCounts.projects / $PageSize)
+        group_members_all  = $dryRunCounts.groups * [Math]::Ceiling($avgGroupMembers / $membershipsPerPage)
+        group_members_dir  = $dryRunCounts.groups * [Math]::Ceiling($avgGroupMembers / $membershipsPerPage)
+        project_members_all = $dryRunCounts.projects * [Math]::Ceiling($avgProjectMembers / $membershipsPerPage)
+        project_members_dir = $dryRunCounts.projects * [Math]::Ceiling($avgProjectMembers / $membershipsPerPage)
+    }
+    
+    $totalCalls = ($estimatedCalls.Values | Measure-Object -Sum).Sum
+    $avgTimePerCall = 0.5  # seconds (conservative estimate)
+    $estimatedMinutes = [Math]::Ceiling(($totalCalls * $avgTimePerCall) / 60)
+    
+    # Display results
+    Write-Host "Resource Counts:" -ForegroundColor Green
+    Write-Host "  Users:    $($dryRunCounts.users)" -ForegroundColor White
+    Write-Host "  Groups:   $($dryRunCounts.groups)" -ForegroundColor White
+    Write-Host "  Projects: $($dryRunCounts.projects)" -ForegroundColor White
+    Write-Host "`nEstimated API Calls:" -ForegroundColor Green
+    Write-Host "  User pages:              $($estimatedCalls.users_pages)" -ForegroundColor White
+    Write-Host "  Group pages:             $($estimatedCalls.groups_pages)" -ForegroundColor White
+    Write-Host "  Project pages:           $($estimatedCalls.projects_pages)" -ForegroundColor White
+    Write-Host "  Group memberships:       $($estimatedCalls.group_members_all + $estimatedCalls.group_members_dir) (all + direct)" -ForegroundColor White
+    Write-Host "  Project memberships:     $($estimatedCalls.project_members_all + $estimatedCalls.project_members_dir) (all + direct)" -ForegroundColor White
+    Write-Host "  ----------------------------------------" -ForegroundColor DarkGray
+    Write-Host "  TOTAL:                   $totalCalls calls" -ForegroundColor Cyan
+    Write-Host "`nEstimated Time: ~$estimatedMinutes minutes (at $avgTimePerCall sec/call avg)" -ForegroundColor Yellow
+    Write-Host "`nNOTE: Actual time depends on instance size, rate limits, and network latency." -ForegroundColor DarkGray
+    Write-Host "      Membership estimates assume avg $avgGroupMembers members/group, $avgProjectMembers members/project." -ForegroundColor DarkGray
+    Write-Host "`n=== DRY-RUN COMPLETE (no data exported) ===" -ForegroundColor Cyan
+    return
+}
+
+# ---------------------------
 # 1) Export Users (GET /users - paged)
 # ---------------------------
-Write-Log 'Fetching users (GET /api/v4/users)...'
-$usersResp = Invoke-GitLabPagedRequest -Endpoint '/users'
-if ($usersResp.Denied) {
-    Write-Log 'Access denied to /users. Continuing without users.' 'ERROR'
-    $users = @()
+if ($Resume.IsPresent -and $resumeFlags.users) {
+    Write-Log "[RESUME] Skipping users export - $usersFile already exists"
+    $users = Get-Content -LiteralPath $usersFile -Raw | ConvertFrom-Json
+    $metadata.counts.users = $users.Count
 }
 else {
-    $usersRaw = $usersResp.Items
-    $users = foreach ($u in $usersRaw) {
-        # Validate critical fields - skip users with missing id/username
-        if (-not $u.id -or [string]::IsNullOrWhiteSpace($u.username)) {
-            Write-Log "SKIP: User missing critical fields: id=$($u.id) username='$($u.username)' name='$($u.name)'" 'WARN'
-            $metadata.skipped.users += [pscustomobject]@{ 
-                id = $u.id
-                username = $u.username
-                name = $u.name
-                reason = 'Missing id or username'
+    Write-Log 'Fetching users (GET /api/v4/users)...'
+    Write-Progress -Activity "Exporting GitLab Identity" -Status "Fetching users..." -PercentComplete 10
+    $usersResp = Invoke-GitLabPagedRequest -Endpoint '/users'
+    if ($usersResp.Denied) {
+        Write-Log 'Access denied to /users. Continuing without users.' 'ERROR'
+        $users = @()
+    }
+    else {
+        $usersRaw = $usersResp.Items
+        $userIndex = 0
+        $users = foreach ($u in $usersRaw) {
+            $userIndex++
+            if ($userIndex % 100 -eq 0) {
+                $pct = [Math]::Min(15, 10 + (($userIndex / $usersRaw.Count) * 5))
+                Write-Progress -Activity "Exporting GitLab Identity" -Status "Processing users ($userIndex/$($usersRaw.Count))..." -PercentComplete $pct
             }
-            continue
-        }
-        [pscustomobject]@{
-            id          = $u.id
-            username    = $u.username
-            name        = $u.name
-            state       = $u.state
-            email       = ($u.email, $u.public_email | Where-Object { $_ } | Select-Object -First 1)
-            external    = $u.external
-            created_at  = $u.created_at
+            # Validate critical fields - skip users with missing id/username
+            if (-not $u.id -or [string]::IsNullOrWhiteSpace($u.username)) {
+                Write-Log "SKIP: User missing critical fields: id=$($u.id) username='$($u.username)' name='$($u.name)'" 'WARN'
+                $metadata.skipped.users += [pscustomobject]@{ 
+                    id = $u.id
+                    username = $u.username
+                    name = $u.name
+                    reason = 'Missing id or username'
+                }
+                continue
+            }
+            # Apply Since filter if specified
+            if ($Since -and $u.created_at) {
+                $createdDate = [datetime]::Parse($u.created_at)
+                if ($createdDate -lt $Since) { continue }
+            }
+            [pscustomobject]@{
+                id          = $u.id
+                username    = $u.username
+                name        = $u.name
+                state       = $u.state
+                email       = ($u.email, $u.public_email | Where-Object { $_ } | Select-Object -First 1)
+                external    = $u.external
+                created_at  = $u.created_at
+            }
         }
     }
+    $metadata.counts.users = $users.Count
+    Save-Json -Path $usersFile -Data $users
+    Write-Log "Users exported: $($users.Count) -> $usersFile"
+    Write-Progress -Activity "Exporting GitLab Identity" -Status "Users complete" -PercentComplete 15
+    # Write metadata checkpoint after users phase
+    Save-Json -Path $metadataFile -Data $metadata
 }
-$metadata.counts.users = $users.Count
-Save-Json -Path $usersFile -Data $users
-Write-Log "Users exported: $($users.Count) -> $usersFile"
-# Write metadata checkpoint after users phase
-Save-Json -Path $metadataFile -Data $metadata
 
 # ---------------------------
 # 2) Export Groups (GET /groups - paged)
 # ---------------------------
-Write-Log 'Fetching groups (GET /api/v4/groups)...'
-$groupsResp = Invoke-GitLabPagedRequest -Endpoint '/groups' -Query @{ all_available = 'true' }
-if ($groupsResp.Denied) {
-    Write-Log 'Access denied to /groups. Continuing without groups.' 'ERROR'
-    $groups = @()
+if ($Resume.IsPresent -and $resumeFlags.groups) {
+    Write-Log "[RESUME] Skipping groups export - $groupsFile already exists"
+    $groups = Get-Content -LiteralPath $groupsFile -Raw | ConvertFrom-Json
+    $metadata.counts.groups = $groups.Count
 }
 else {
-    $groupsRaw = $groupsResp.Items
-    # Build parent lookup for hierarchy computation
-    $groupLookup = @{}
-    foreach ($g in $groupsRaw) { $groupLookup[[string]$g.id] = $g }
-    
-    $groups = foreach ($g in $groupsRaw) {
-        # Validate critical fields
-        if (-not $g.id -or [string]::IsNullOrWhiteSpace($g.full_path)) {
-            Write-Log "SKIP: Group missing critical fields: id=$($g.id) full_path='$($g.full_path)'" 'WARN'
-            $metadata.skipped.groups += [pscustomobject]@{
-                id = $g.id
-                full_path = $g.full_path
-                reason = 'Missing id or full_path'
+    Write-Log 'Fetching groups (GET /api/v4/groups)...'
+    Write-Progress -Activity "Exporting GitLab Identity" -Status "Fetching groups..." -PercentComplete 20
+    $groupsResp = Invoke-GitLabPagedRequest -Endpoint '/groups' -Query @{ all_available = 'true' }
+    if ($groupsResp.Denied) {
+        Write-Log 'Access denied to /groups. Continuing without groups.' 'ERROR'
+        $groups = @()
+    }
+    else {
+        $groupsRaw = $groupsResp.Items
+        # Build parent lookup for hierarchy computation
+        $groupLookup = @{}
+        foreach ($g in $groupsRaw) { $groupLookup[[string]$g.id] = $g }
+        
+        $groupIndex = 0
+        $groups = foreach ($g in $groupsRaw) {
+            $groupIndex++
+            if ($groupIndex % 50 -eq 0) {
+                $pct = [Math]::Min(30, 20 + (($groupIndex / $groupsRaw.Count) * 10))
+                Write-Progress -Activity "Exporting GitLab Identity" -Status "Processing groups ($groupIndex/$($groupsRaw.Count))..." -PercentComplete $pct
             }
-            continue
-        }
-        
-        # Compute parent chain and depth for hierarchy reconstruction
-        $parentChain = @()
-        $depth = 0
-        $currentId = $g.parent_id
-        while ($currentId -and $groupLookup.ContainsKey([string]$currentId)) {
-            $parent = $groupLookup[[string]$currentId]
-            $parentChain += [pscustomobject]@{ id = $parent.id; full_path = $parent.full_path }
-            $depth++
-            $currentId = $parent.parent_id
-            if ($depth -gt 20) { break } # Prevent infinite loops
-        }
-        [Collections.Array]::Reverse($parentChain) # Root first
-        
-        $adoName = ($g.full_path -replace '/', '-')
-        [pscustomobject]@{
-            id                 = $g.id
-            name               = $g.name
-            path               = $g.path
-            full_path          = $g.full_path
-            parent_id          = $g.parent_id
-            parent_chain       = $parentChain
-            depth              = $depth
-            visibility         = $g.visibility
-            description        = $g.description
-            web_url            = $g.web_url
-            created_at         = $g.created_at
-            proposed_ado_name  = $adoName  # Target shape for later ADO group creation
+            # Validate critical fields
+            if (-not $g.id -or [string]::IsNullOrWhiteSpace($g.full_path)) {
+                Write-Log "SKIP: Group missing critical fields: id=$($g.id) full_path='$($g.full_path)'" 'WARN'
+                $metadata.skipped.groups += [pscustomobject]@{
+                    id = $g.id
+                    full_path = $g.full_path
+                    reason = 'Missing id or full_path'
+                }
+                continue
+            }
+            
+            # Apply Since filter if specified
+            if ($Since -and $g.created_at) {
+                $createdDate = [datetime]::Parse($g.created_at)
+                if ($createdDate -lt $Since) { continue }
+            }
+            
+            # Compute parent chain and depth for hierarchy reconstruction
+            $parentChain = @()
+            $depth = 0
+            $currentId = $g.parent_id
+            while ($currentId -and $groupLookup.ContainsKey([string]$currentId)) {
+                $parent = $groupLookup[[string]$currentId]
+                $parentChain += [pscustomobject]@{ id = $parent.id; full_path = $parent.full_path }
+                $depth++
+                $currentId = $parent.parent_id
+                if ($depth -gt 20) { break } # Prevent infinite loops
+            }
+            [Collections.Array]::Reverse($parentChain) # Root first
+            
+            $adoName = ($g.full_path -replace '/', '-')
+            [pscustomobject]@{
+                id                 = $g.id
+                name               = $g.name
+                path               = $g.path
+                full_path          = $g.full_path
+                parent_id          = $g.parent_id
+                parent_chain       = $parentChain
+                depth              = $depth
+                visibility         = $g.visibility
+                description        = $g.description
+                web_url            = $g.web_url
+                created_at         = $g.created_at
+                proposed_ado_name  = $adoName  # Target shape for later ADO group creation
+            }
         }
     }
+    $metadata.counts.groups = $groups.Count
+    Save-Json -Path $groupsFile -Data $groups
+    Write-Log "Groups exported: $($groups.Count) -> $groupsFile"
+    Write-Progress -Activity "Exporting GitLab Identity" -Status "Groups complete" -PercentComplete 30
+    # Write metadata checkpoint after groups phase
+    Save-Json -Path $metadataFile -Data $metadata
 }
-$metadata.counts.groups = $groups.Count
-Save-Json -Path $groupsFile -Data $groups
-Write-Log "Groups exported: $($groups.Count) -> $groupsFile"
-# Write metadata checkpoint after groups phase
-Save-Json -Path $metadataFile -Data $metadata
 
 # ---------------------------
 # 3) Export Projects (GET /projects - paged)
 # ---------------------------
-Write-Log 'Fetching projects (GET /api/v4/projects)...'
-# membership=true limits to projects the token can access; with_shared=false avoids N+1 later
-# NOTE: We do NOT use simple=true because we need shared_with_groups data to avoid N+1 query pattern
-$projectsResp = Invoke-GitLabPagedRequest -Endpoint '/projects' -Query @{ membership='true'; archived='false'; with_shared='true' }
-if ($projectsResp.Denied) {
-    Write-Log 'Access denied to /projects. Continuing without projects.' 'ERROR'
+if ($Profile -eq 'Minimal') {
+    Write-Log "[PROFILE] Skipping projects export - Profile is set to 'Minimal'"
     $projects = @()
+    $metadata.counts.projects = 0
+}
+elseif ($Resume.IsPresent -and $resumeFlags.projects) {
+    Write-Log "[RESUME] Skipping projects export - $projectsFile already exists"
+    $projects = Get-Content -LiteralPath $projectsFile -Raw | ConvertFrom-Json
+    $metadata.counts.projects = $projects.Count
 }
 else {
-    $projectsRaw = $projectsResp.Items
-    $projects = foreach ($p in $projectsRaw) {
-        # Validate critical fields
-        if (-not $p.id -or [string]::IsNullOrWhiteSpace($p.path_with_namespace)) {
-            Write-Log "SKIP: Project missing critical fields: id=$($p.id) path='$($p.path_with_namespace)'" 'WARN'
-            $metadata.skipped.projects += [pscustomobject]@{
-                id = $p.id
-                path_with_namespace = $p.path_with_namespace
-                reason = 'Missing id or path_with_namespace'
+    Write-Log 'Fetching projects (GET /api/v4/projects)...'
+    Write-Progress -Activity "Exporting GitLab Identity" -Status "Fetching projects..." -PercentComplete 35
+    # membership=true limits to projects the token can access; with_shared=false avoids N+1 later
+    # NOTE: We do NOT use simple=true because we need shared_with_groups data to avoid N+1 query pattern
+    $projectsResp = Invoke-GitLabPagedRequest -Endpoint '/projects' -Query @{ membership='true'; archived='false'; with_shared='true' }
+    if ($projectsResp.Denied) {
+        Write-Log 'Access denied to /projects. Continuing without projects.' 'ERROR'
+        $projects = @()
+    }
+    else {
+        $projectsRaw = $projectsResp.Items
+        $projectIndex = 0
+        $projects = foreach ($p in $projectsRaw) {
+            $projectIndex++
+            if ($projectIndex % 50 -eq 0) {
+                $pct = [Math]::Min(50, 35 + (($projectIndex / $projectsRaw.Count) * 15))
+                Write-Progress -Activity "Exporting GitLab Identity" -Status "Processing projects ($projectIndex/$($projectsRaw.Count))..." -PercentComplete $pct
             }
-            continue
-        }
-        $adoRepoName = $p.path  # project path without namespace
-        # Namespace info is nested under .namespace
-        $ns = $p.namespace
-        [pscustomobject]@{
-            id                    = $p.id
-            name                  = $p.name
-            path                  = $p.path
-            path_with_namespace   = $p.path_with_namespace
-            visibility            = $p.visibility
-            default_branch        = $p.default_branch
-            namespace             = if ($ns) { [pscustomobject]@{ id=$ns.id; full_path=$ns.full_path; kind=$ns.kind } } else { $null }
-            proposed_ado_repo_name = $adoRepoName # Target shape for later ADO repo name
-            shared_with_groups    = $p.shared_with_groups  # Preserve for membership export
+            # Validate critical fields
+            if (-not $p.id -or [string]::IsNullOrWhiteSpace($p.path_with_namespace)) {
+                Write-Log "SKIP: Project missing critical fields: id=$($p.id) path='$($p.path_with_namespace)'" 'WARN'
+                $metadata.skipped.projects += [pscustomobject]@{
+                    id = $p.id
+                    path_with_namespace = $p.path_with_namespace
+                    reason = 'Missing id or path_with_namespace'
+                }
+                continue
+            }
+            # Apply Since filter if specified
+            if ($Since -and $p.created_at) {
+                $createdDate = [datetime]::Parse($p.created_at)
+                if ($createdDate -lt $Since) { continue }
+            }
+            $adoRepoName = $p.path  # project path without namespace
+            # Namespace info is nested under .namespace
+            $ns = $p.namespace
+            [pscustomobject]@{
+                id                    = $p.id
+                name                  = $p.name
+                path                  = $p.path
+                path_with_namespace   = $p.path_with_namespace
+                visibility            = $p.visibility
+                default_branch        = $p.default_branch
+                namespace             = if ($ns) { [pscustomobject]@{ id=$ns.id; full_path=$ns.full_path; kind=$ns.kind } } else { $null }
+                proposed_ado_repo_name = $adoRepoName # Target shape for later ADO repo name
+                shared_with_groups    = $p.shared_with_groups  # Preserve for membership export
+            }
         }
     }
+    $metadata.counts.projects = $projects.Count
+    Save-Json -Path $projectsFile -Data $projects
+    Write-Log "Projects exported: $($projects.Count) -> $projectsFile"
+    Write-Progress -Activity "Exporting GitLab Identity" -Status "Projects complete" -PercentComplete 50
+    # Write metadata checkpoint after projects phase
+    Save-Json -Path $metadataFile -Data $metadata
 }
-$metadata.counts.projects = $projects.Count
-Save-Json -Path $projectsFile -Data $projects
-Write-Log "Projects exported: $($projects.Count) -> $projectsFile"
-# Write metadata checkpoint after projects phase
-Save-Json -Path $metadataFile -Data $metadata
 
+# ---------------------------
+# Helper: compute member inherited flag (all vs direct)
 # ---------------------------
 # Helper: compute member inherited flag (all vs direct)
 # ---------------------------
@@ -571,176 +779,230 @@ function Get-AccessLevelName {
 # ---------------------------
 # 4) Export Group Memberships (users + group links)
 # ---------------------------
-Write-Log 'Exporting group memberships...'
-$groupMemberships = @()
-foreach ($g in $groups) {
-    $gid = $g.id
-    $gpath = $g.full_path
+if ($Profile -eq 'Minimal' -or $Profile -eq 'Standard') {
+    Write-Log "[PROFILE] Skipping group memberships export - Profile is set to '$Profile'"
+    $groupMemberships = @()
+    $metadata.counts.group_memberships = 0
+    $metadata.counts.group_membership_entries = 0
+}
+elseif ($Resume.IsPresent -and $resumeFlags.group_memberships) {
+    Write-Log "[RESUME] Skipping group memberships export - $groupMembershipsFile already exists"
+    $groupMemberships = Get-Content -LiteralPath $groupMembershipsFile -Raw | ConvertFrom-Json
+    $metadata.counts.group_memberships = $groupMemberships.Count
+    $totalGroupMemberEntries = 0
+    foreach ($gm in $groupMemberships) { $totalGroupMemberEntries += ($gm.members | Measure-Object).Count }
+    $metadata.counts.group_membership_entries = $totalGroupMemberEntries
+}
+else {
+    Write-Log 'Exporting group memberships...'
+    Write-Progress -Activity "Exporting GitLab Identity" -Status "Exporting group memberships..." -PercentComplete 55
+    $groupMemberships = @()
+    $groupIdx = 0
+    foreach ($g in $groups) {
+        $groupIdx++
+        if ($groupIdx % 20 -eq 0) {
+            $pct = [Math]::Min(70, 55 + (($groupIdx / $groups.Count) * 15))
+            Write-Progress -Activity "Exporting GitLab Identity" -Status "Group memberships ($groupIdx/$($groups.Count))..." -PercentComplete $pct
+        }
+        $gid = $g.id
+        $gpath = $g.full_path
 
-    # Users: all vs direct
-    $gmAllResp = Invoke-GitLabPagedRequest -Endpoint "/groups/$gid/members/all"
-    $gmDirectResp = Invoke-GitLabPagedRequest -Endpoint "/groups/$gid/members"
+        # Users: all vs direct
+        $gmAllResp = Invoke-GitLabPagedRequest -Endpoint "/groups/$gid/members/all"
+        $gmDirectResp = Invoke-GitLabPagedRequest -Endpoint "/groups/$gid/members"
 
-    $allDenied = $gmAllResp.Denied
-    $dirDenied = $gmDirectResp.Denied
+        $allDenied = $gmAllResp.Denied
+        $dirDenied = $gmDirectResp.Denied
 
-    $gmAll = @(); $gmDirect = @()
-    if (-not $allDenied) { $gmAll = $gmAllResp.Items } else { $metadata.fallbacks.groups_members_all_denied += $gid }
-    if (-not $dirDenied) { $gmDirect = $gmDirectResp.Items }
+        $gmAll = @(); $gmDirect = @()
+        if (-not $allDenied) { $gmAll = $gmAllResp.Items } else { $metadata.fallbacks.groups_members_all_denied += $gid }
+        if (-not $dirDenied) { $gmDirect = $gmDirectResp.Items }
 
-    if ($allDenied -and -not $dirDenied) {
-        # No /all; use direct only and mark inherited=false
-        foreach ($m in $gmDirect) { $m | Add-Member -NotePropertyName inherited -NotePropertyValue $false -Force }
-        $usersMembers = $gmDirect
-    }
-    elseif (-not $allDenied -and -not $dirDenied) {
-        $usersMembers = Add-InheritedFlag -AllMembers $gmAll -DirectMembers $gmDirect
-    }
-    else {
-        # Both denied
-        $usersMembers = @()
-    }
+        if ($allDenied -and -not $dirDenied) {
+            # No /all; use direct only and mark inherited=false
+            foreach ($m in $gmDirect) { $m | Add-Member -NotePropertyName inherited -NotePropertyValue $false -Force }
+            $usersMembers = $gmDirect
+        }
+        elseif (-not $allDenied -and -not $dirDenied) {
+            $usersMembers = Add-InheritedFlag -AllMembers $gmAll -DirectMembers $gmDirect
+        }
+        else {
+            # Both denied
+            $usersMembers = @()
+        }
 
-    # Group links (groups shared to this group)
-    $sharedGroupsResp = Invoke-GitLabPagedRequest -Endpoint "/groups/$gid/shared_groups"
-    $groupLinks = @()
-    if (-not $sharedGroupsResp.Denied) {
-        foreach ($sg in $sharedGroupsResp.Items) {
-            $groupLinks += [pscustomobject]@{
-                type               = 'group'
-                id                 = $sg.group_id
-                full_path          = $sg.group_full_path
-                access_level       = $sg.group_access_level
-                expires_at         = $sg.expires_at
-                inherited          = $false
+        # Group links (groups shared to this group)
+        $sharedGroupsResp = Invoke-GitLabPagedRequest -Endpoint "/groups/$gid/shared_groups"
+        $groupLinks = @()
+        if (-not $sharedGroupsResp.Denied) {
+            foreach ($sg in $sharedGroupsResp.Items) {
+                $groupLinks += [pscustomobject]@{
+                    type               = 'group'
+                    id                 = $sg.group_id
+                    full_path          = $sg.group_full_path
+                    access_level       = $sg.group_access_level
+                    expires_at         = $sg.expires_at
+                    inherited          = $false
+                }
             }
         }
-    }
 
-    # Normalize user member objects to a common shape
-    $userMembersNormalized = foreach ($m in $usersMembers) {
-        [pscustomobject]@{
-            type              = 'user'
-            id                = $m.id
-            username          = $m.username
-            name              = $m.name
-            state             = $m.state
-            access_level      = $m.access_level
-            access_level_name = (Get-AccessLevelName $m.access_level)
-            expires_at        = $m.expires_at
-            inherited         = $m.inherited
+        # Normalize user member objects to a common shape
+        $userMembersNormalized = foreach ($m in $usersMembers) {
+            [pscustomobject]@{
+                type              = 'user'
+                id                = $m.id
+                username          = $m.username
+                name              = $m.name
+                state             = $m.state
+                access_level      = $m.access_level
+                access_level_name = (Get-AccessLevelName $m.access_level)
+                expires_at        = $m.expires_at
+                inherited         = $m.inherited
+            }
+        }
+
+        $groupMemberships += [pscustomobject]@{
+            group_id        = $gid
+            group_full_path = $gpath
+            members         = @($userMembersNormalized + $groupLinks)
         }
     }
-
-    $groupMemberships += [pscustomobject]@{
-        group_id        = $gid
-        group_full_path = $gpath
-        members         = @($userMembersNormalized + $groupLinks)
-    }
+    $metadata.counts.group_memberships = $groupMemberships.Count
+    # Also track total individual member entries (users + group links)
+    $totalGroupMemberEntries = 0
+    foreach ($gm in $groupMemberships) { $totalGroupMemberEntries += ($gm.members | Measure-Object).Count }
+    $metadata.counts.group_membership_entries = $totalGroupMemberEntries
+    Save-Json -Path $groupMembershipsFile -Data $groupMemberships
+    Write-Log "Group memberships exported: groups=$($groupMemberships.Count) entries=$totalGroupMemberEntries -> $groupMembershipsFile"
+    Write-Progress -Activity "Exporting GitLab Identity" -Status "Group memberships complete" -PercentComplete 70
+    # Write metadata checkpoint after group memberships phase
+    Save-Json -Path $metadataFile -Data $metadata
 }
-$metadata.counts.group_memberships = $groupMemberships.Count
-# Also track total individual member entries (users + group links)
-$totalGroupMemberEntries = 0
-foreach ($gm in $groupMemberships) { $totalGroupMemberEntries += ($gm.members | Measure-Object).Count }
-$metadata.counts.group_membership_entries = $totalGroupMemberEntries
-Save-Json -Path $groupMembershipsFile -Data $groupMemberships
-Write-Log "Group memberships exported: groups=$($groupMemberships.Count) entries=$totalGroupMemberEntries -> $groupMembershipsFile"
-# Write metadata checkpoint after group memberships phase
-Save-Json -Path $metadataFile -Data $metadata
 
 # ---------------------------
 # 5) Export Project Memberships (users + group shares)
 # ---------------------------
-Write-Log 'Exporting project memberships...'
-$projectMemberships = @()
-foreach ($p in $projects) {
-    $pid = $p.id
-    $ppath = $p.path_with_namespace
+if ($Profile -eq 'Minimal' -or $Profile -eq 'Standard') {
+    Write-Log "[PROFILE] Skipping project memberships export - Profile is set to '$Profile'"
+    $projectMemberships = @()
+    $metadata.counts.project_memberships = 0
+    $metadata.counts.project_membership_entries = 0
+}
+elseif ($Resume.IsPresent -and $resumeFlags.project_memberships) {
+    Write-Log "[RESUME] Skipping project memberships export - $projectMembershipsFile already exists"
+    $projectMemberships = Get-Content -LiteralPath $projectMembershipsFile -Raw | ConvertFrom-Json
+    $metadata.counts.project_memberships = $projectMemberships.Count
+    $totalProjectMemberEntries = 0
+    foreach ($pm in $projectMemberships) { $totalProjectMemberEntries += ($pm.members | Measure-Object).Count }
+    $metadata.counts.project_membership_entries = $totalProjectMemberEntries
+}
+else {
+    Write-Log 'Exporting project memberships...'
+    Write-Progress -Activity "Exporting GitLab Identity" -Status "Exporting project memberships..." -PercentComplete 75
+    $projectMemberships = @()
+    $projIdx = 0
+    foreach ($p in $projects) {
+        $projIdx++
+        if ($projIdx % 20 -eq 0) {
+            $pct = [Math]::Min(90, 75 + (($projIdx / $projects.Count) * 15))
+            Write-Progress -Activity "Exporting GitLab Identity" -Status "Project memberships ($projIdx/$($projects.Count))..." -PercentComplete $pct
+        }
+        $pid = $p.id
+        $ppath = $p.path_with_namespace
 
-    # Users: all vs direct
-    $pmAllResp = Invoke-GitLabPagedRequest -Endpoint "/projects/$pid/members/all"
-    $pmDirectResp = Invoke-GitLabPagedRequest -Endpoint "/projects/$pid/members"
+        # Users: all vs direct
+        $pmAllResp = Invoke-GitLabPagedRequest -Endpoint "/projects/$pid/members/all"
+        $pmDirectResp = Invoke-GitLabPagedRequest -Endpoint "/projects/$pid/members"
 
-    $allDenied = $pmAllResp.Denied
-    $dirDenied = $pmDirectResp.Denied
+        $allDenied = $pmAllResp.Denied
+        $dirDenied = $pmDirectResp.Denied
 
-    $pmAll = @(); $pmDirect = @()
-    if (-not $allDenied) { $pmAll = $pmAllResp.Items } else { $metadata.fallbacks.projects_members_all_denied += $pid }
-    if (-not $dirDenied) { $pmDirect = $pmDirectResp.Items }
+        $pmAll = @(); $pmDirect = @()
+        if (-not $allDenied) { $pmAll = $pmAllResp.Items } else { $metadata.fallbacks.projects_members_all_denied += $pid }
+        if (-not $dirDenied) { $pmDirect = $pmDirectResp.Items }
 
-    if ($allDenied -and -not $dirDenied) {
-        foreach ($m in $pmDirect) { $m | Add-Member -NotePropertyName inherited -NotePropertyValue $false -Force }
-        $usersMembers = $pmDirect
-    }
-    elseif (-not $allDenied -and -not $dirDenied) {
-        $usersMembers = Add-InheritedFlag -AllMembers $pmAll -DirectMembers $pmDirect
-    }
-    else {
-        $usersMembers = @()
-    }
+        if ($allDenied -and -not $dirDenied) {
+            foreach ($m in $pmDirect) { $m | Add-Member -NotePropertyName inherited -NotePropertyValue $false -Force }
+            $usersMembers = $pmDirect
+        }
+        elseif (-not $allDenied -and -not $dirDenied) {
+            $usersMembers = Add-InheritedFlag -AllMembers $pmAll -DirectMembers $pmDirect
+        }
+        else {
+            $usersMembers = @()
+        }
 
-    # Group shares on project: already fetched in initial /projects call with ?with_shared=true
-    # This eliminates N+1 query pattern (was fetching /projects/:id for EVERY project)
-    $groupShares = @()
-    if ($p.shared_with_groups) {
-        foreach ($gshare in $p.shared_with_groups) {
-            $groupShares += [pscustomobject]@{
-                type               = 'group'
-                id                 = $gshare.group_id
-                full_path          = $gshare.group_full_path
-                access_level       = $gshare.group_access_level
-                expires_at         = $gshare.expires_at
-                inherited          = $false
+        # Group shares on project: already fetched in initial /projects call with ?with_shared=true
+        # This eliminates N+1 query pattern (was fetching /projects/:id for EVERY project)
+        $groupShares = @()
+        if ($p.shared_with_groups) {
+            foreach ($gshare in $p.shared_with_groups) {
+                $groupShares += [pscustomobject]@{
+                    type               = 'group'
+                    id                 = $gshare.group_id
+                    full_path          = $gshare.group_full_path
+                    access_level       = $gshare.group_access_level
+                    expires_at         = $gshare.expires_at
+                    inherited          = $false
+                }
             }
         }
-    }
 
-    # Normalize user member objects
-    $userMembersNormalized = foreach ($m in $usersMembers) {
-        [pscustomobject]@{
-            type              = 'user'
-            id                = $m.id
-            username          = $m.username
-            name              = $m.name
-            state             = $m.state
-            access_level      = $m.access_level
-            access_level_name = (Get-AccessLevelName $m.access_level)
-            expires_at        = $m.expires_at
-            inherited         = $m.inherited
+        # Normalize user member objects
+        $userMembersNormalized = foreach ($m in $usersMembers) {
+            [pscustomobject]@{
+                type              = 'user'
+                id                = $m.id
+                username          = $m.username
+                name              = $m.name
+                state             = $m.state
+                access_level      = $m.access_level
+                access_level_name = (Get-AccessLevelName $m.access_level)
+                expires_at        = $m.expires_at
+                inherited         = $m.inherited
+            }
+        }
+
+        $projectMemberships += [pscustomobject]@{
+            project_id            = $pid
+            path_with_namespace   = $ppath
+            members               = @($userMembersNormalized + $groupShares)
         }
     }
-
-    $projectMemberships += [pscustomobject]@{
-        project_id            = $pid
-        path_with_namespace   = $ppath
-        members               = @($userMembersNormalized + $groupShares)
-    }
+    $metadata.counts.project_memberships = $projectMemberships.Count
+    $totalProjectMemberEntries = 0
+    foreach ($pm in $projectMemberships) { $totalProjectMemberEntries += ($pm.members | Measure-Object).Count }
+    $metadata.counts.project_membership_entries = $totalProjectMemberEntries
+    Save-Json -Path $projectMembershipsFile -Data $projectMemberships
+    Write-Log "Project memberships exported: projects=$($projectMemberships.Count) entries=$totalProjectMemberEntries -> $projectMembershipsFile"
+    # Write metadata checkpoint after project memberships phase
+    Save-Json -Path $metadataFile -Data $metadata
 }
-$metadata.counts.project_memberships = $projectMemberships.Count
-$totalProjectMemberEntries = 0
-foreach ($pm in $projectMemberships) { $totalProjectMemberEntries += ($pm.members | Measure-Object).Count }
-$metadata.counts.project_membership_entries = $totalProjectMemberEntries
-Save-Json -Path $projectMembershipsFile -Data $projectMemberships
-Write-Log "Project memberships exported: projects=$($projectMemberships.Count) entries=$totalProjectMemberEntries -> $projectMembershipsFile"
-# Write metadata checkpoint after project memberships phase
-Save-Json -Path $metadataFile -Data $metadata
 
 # ---------------------------
 # 6) Export Custom Member Roles (optional)
 # ---------------------------
 if ($IncludeMemberRoles.IsPresent) {
-    Write-Log 'Exporting custom member roles (GET /api/v4/member_roles)...'
-    $rolesResp = Invoke-GitLabPagedRequest -Endpoint '/member_roles'
-    if ($rolesResp.Denied) {
-        Write-Log 'Access denied to /member_roles. Skipping member roles export.' 'WARN'
-        $roles = @()
+    if ($Resume.IsPresent -and $resumeFlags.member_roles) {
+        Write-Log "[RESUME] Skipping member roles export - $memberRolesFile already exists"
+        $roles = Get-Content -LiteralPath $memberRolesFile -Raw | ConvertFrom-Json
+        $metadata.counts.member_roles = $roles.Count
     }
     else {
-        $roles = $rolesResp.Items
+        Write-Log 'Exporting custom member roles (GET /api/v4/member_roles)...'
+        $rolesResp = Invoke-GitLabPagedRequest -Endpoint '/member_roles'
+        if ($rolesResp.Denied) {
+            Write-Log 'Access denied to /member_roles. Skipping member roles export.' 'WARN'
+            $roles = @()
+        }
+        else {
+            $roles = $rolesResp.Items
+        }
+        $metadata.counts.member_roles = $roles.Count
+        Save-Json -Path $memberRolesFile -Data $roles
+        Write-Log "Member roles exported: $($roles.Count) -> $memberRolesFile"
     }
-    $metadata.counts.member_roles = $roles.Count
-    Save-Json -Path $memberRolesFile -Data $roles
-    Write-Log "Member roles exported: $($roles.Count) -> $memberRolesFile"
 }
 else {
     Write-Log 'Skipping custom member roles (not requested).'
@@ -749,6 +1011,7 @@ else {
 # ---------------------------
 # 7) Write metadata.json and finalize
 # ---------------------------
+Write-Progress -Activity "Exporting GitLab Identity" -Status "Finalizing export..." -PercentComplete 95
 $metadata.completed_utc = (Get-Date).ToUniversalTime().ToString('o')
 $summaryNote = "Exported users=$($metadata.counts.users), groups=$($metadata.counts.groups), projects=$($metadata.counts.projects), group_memberships=$($metadata.counts.group_memberships), project_memberships=$($metadata.counts.project_memberships)."
 $summaryNote2 = "Membership entry totals: group_entries=$($metadata.counts.group_membership_entries), project_entries=$($metadata.counts.project_membership_entries)."
@@ -756,6 +1019,57 @@ $metadata.notes += $summaryNote
 $metadata.notes += $summaryNote2
 Save-Json -Path $metadataFile -Data $metadata
 Write-Log "Metadata saved -> $metadataFile"
+
+Write-Progress -Activity "Exporting GitLab Identity" -Status "Complete" -PercentComplete 100 -Completed
+
+# ---------------------------
+# 8) Display Statistics (if requested)
+# ---------------------------
+if ($ShowStatistics.IsPresent) {
+    Write-Host "`n========== EXPORT STATISTICS ==========" -ForegroundColor Cyan
+    Write-Host "`nResource Counts:" -ForegroundColor Green
+    Write-Host "  Users:                 $($metadata.counts.users)" -ForegroundColor White
+    Write-Host "  Groups:                $($metadata.counts.groups)" -ForegroundColor White
+    Write-Host "  Projects:              $($metadata.counts.projects)" -ForegroundColor White
+    Write-Host "  Group Memberships:     $($metadata.counts.group_memberships)" -ForegroundColor White
+    Write-Host "  Project Memberships:   $($metadata.counts.project_memberships)" -ForegroundColor White
+    
+    # Top 10 groups by member count
+    if ($groupMemberships.Count -gt 0) {
+        $topGroups = $groupMemberships | Sort-Object { ($_.members | Measure-Object).Count } -Descending | Select-Object -First 10
+        Write-Host "`nTop 10 Groups by Member Count:" -ForegroundColor Green
+        foreach ($g in $topGroups) {
+            $memberCount = ($g.members | Measure-Object).Count
+            Write-Host "  $($g.group_full_path): $memberCount members" -ForegroundColor White
+        }
+    }
+    
+    # Access level distribution across all memberships
+    $allMembers = @()
+    foreach ($gm in $groupMemberships) { $allMembers += $gm.members | Where-Object { $_.type -eq 'user' } }
+    foreach ($pm in $projectMemberships) { $allMembers += $pm.members | Where-Object { $_.type -eq 'user' } }
+    
+    if ($allMembers.Count -gt 0) {
+        $levelCounts = $allMembers | Group-Object access_level_name | Sort-Object Count -Descending
+        Write-Host "`nAccess Level Distribution (All Memberships):" -ForegroundColor Green
+        foreach ($lc in $levelCounts) {
+            $pct = [Math]::Round(($lc.Count / $allMembers.Count) * 100, 1)
+            Write-Host "  $($lc.Name): $($lc.Count) ($pct%)" -ForegroundColor White
+        }
+    }
+    
+    # Largest projects (by member count from project memberships)
+    if ($projectMemberships.Count -gt 0) {
+        $topProjects = $projectMemberships | Sort-Object { ($_.members | Measure-Object).Count } -Descending | Select-Object -First 10
+        Write-Host "`nTop 10 Projects by Member Count:" -ForegroundColor Green
+        foreach ($p in $topProjects) {
+            $memberCount = ($p.members | Measure-Object).Count
+            Write-Host "  $($p.path_with_namespace): $memberCount members" -ForegroundColor White
+        }
+    }
+    
+    Write-Host "`n=======================================" -ForegroundColor Cyan
+}
 
 Write-Log 'Export completed successfully.'
 
