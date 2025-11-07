@@ -252,24 +252,23 @@ function Show-MigrationMenu {
     $script:SonarStatusContext = $SonarStatusContext
     
     Write-Host ""
-    Write-Host "===============================================" -ForegroundColor Cyan
-    Write-Host "   GitLab → Azure DevOps Migration Tool" -ForegroundColor Cyan
-    Write-Host "===============================================" -ForegroundColor Cyan
+    Write-Host "╔═══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "║     GitLab → Azure DevOps Migration Tool v2.1.0          ║" -ForegroundColor Cyan
+    Write-Host "╚═══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Select action:"
-    Write-Host "  1) Download & analyze single GitLab project (prepare for migration)"
-    Write-Host "  2) Create & setup Azure DevOps project with policies"
-    Write-Host "  3) Migrate single GitLab project to Azure DevOps (requires Option 1 first)"
-    Write-Host "  4) Download & analyze multiple GitLab projects (bulk preparation)"
-    Write-Host "  5) Review & update bulk migration template"
-    Write-Host "  6) Execute bulk migration from prepared template (requires Option 4 first)"
-    Write-Host "  7) Provision Business Initialization Pack (wiki, queries, sprints, dashboard)"
-    Write-Host "  8) Provision Development Initialization Pack (dev wiki, queries, repo files)"
-    Write-Host "  9) Provision Security Initialization Pack (security wiki, queries, dashboard, security files)"
-    Write-Host " 10) Provision Management Initialization Pack (PMO wiki, queries, dashboard)"
+    Write-Host "  1) Prepare Single           " -ForegroundColor White -NoNewline
+    Write-Host "│ Download & analyze single GitLab project" -ForegroundColor Gray
+    Write-Host "  2) Prepare Bulk             " -ForegroundColor White -NoNewline
+    Write-Host "│ Download & analyze multiple projects" -ForegroundColor Gray
+    Write-Host "  3) Create DevOps Project    " -ForegroundColor White -NoNewline
+    Write-Host "│ Initialize project + team packs" -ForegroundColor Gray
+    Write-Host "  4) Start Planned Migration  " -ForegroundColor White -NoNewline
+    Write-Host "│ Execute prepared migration (single/bulk)" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  5) Exit" -ForegroundColor Yellow
     Write-Host ""
     
-    $choice = Read-Host "Enter 1, 2, 3, 4, 5, 6, 7, 8, 9, or 10"
+    $choice = Read-Host "Select option (1-5)"
     
     switch ($choice) {
         '1' {
@@ -337,12 +336,15 @@ function Show-MigrationMenu {
             }
         }
         '2' {
-            # Show prepared projects
+            Invoke-BulkPreparationWorkflow
+        }
+        '3' {
+            # Show prepared projects and create DevOps project (with team packs)
             $preparedProjects = Get-PreparedProjects
             
             if ($preparedProjects.Count -eq 0) {
                 Write-Host ""
-                Write-Host "No prepared projects found. Please run Option 1 or 4 first to prepare projects." -ForegroundColor Yellow
+                Write-Host "No prepared projects found. Please run Option 1 or 2 first to prepare projects." -ForegroundColor Yellow
                 Write-Host ""
                 $createNew = Read-Host "Do you want to create a new independent Azure DevOps project? (y/N)"
                 if ($createNew -match '^[Yy]') {
@@ -350,6 +352,9 @@ function Show-MigrationMenu {
                     $RepoName = Read-Host "Enter initial repository name (e.g., my-repo)"
                     if (-not [string]::IsNullOrWhiteSpace($DestProjectName) -and -not [string]::IsNullOrWhiteSpace($RepoName)) {
                         Initialize-AdoProject -DestProject $DestProjectName -RepoName $RepoName -BuildDefinitionId $script:BuildDefinitionId -SonarStatusContext $script:SonarStatusContext
+                        
+                        # Offer team initialization packs after successful project creation
+                        Invoke-TeamPackMenu -ProjectName $DestProjectName
                     }
                     else {
                         Write-Host "[ERROR] Project name and repository name cannot be empty." -ForegroundColor Red
@@ -370,7 +375,7 @@ function Show-MigrationMenu {
             
             if ($availableProjects.Count -eq 0) {
                 Write-Host "[INFO] All prepared projects have already been created in Azure DevOps." -ForegroundColor Yellow
-                Write-Host "[INFO] Use Option 3 (Migrate) or Option 6 (Bulk Migrate) to sync repositories." -ForegroundColor Yellow
+                Write-Host "[INFO] Use Option 4 (Start Migration) to sync repositories." -ForegroundColor Yellow
                 Write-Host ""
                 
                 # Still allow creating new independent project
@@ -385,6 +390,9 @@ function Show-MigrationMenu {
                     $RepoName = Read-Host "Enter initial repository name (e.g., my-repo)"
                     if (-not [string]::IsNullOrWhiteSpace($DestProjectName) -and -not [string]::IsNullOrWhiteSpace($RepoName)) {
                         Initialize-AdoProject -DestProject $DestProjectName -RepoName $RepoName -BuildDefinitionId $script:BuildDefinitionId -SonarStatusContext $script:SonarStatusContext
+                        
+                        # Offer team initialization packs after successful project creation
+                        Invoke-TeamPackMenu -ProjectName $DestProjectName
                     }
                     else {
                         Write-Host "[ERROR] Project name and repository name cannot be empty." -ForegroundColor Red
@@ -446,6 +454,9 @@ function Show-MigrationMenu {
                     $RepoName = Read-Host "Enter initial repository name (e.g., my-repo)"
                     if (-not [string]::IsNullOrWhiteSpace($DestProjectName) -and -not [string]::IsNullOrWhiteSpace($RepoName)) {
                         Initialize-AdoProject -DestProject $DestProjectName -RepoName $RepoName -BuildDefinitionId $script:BuildDefinitionId -SonarStatusContext $script:SonarStatusContext
+                        
+                        # Offer team initialization packs after successful project creation
+                        Invoke-TeamPackMenu -ProjectName $DestProjectName
                     }
                     else {
                         Write-Host "[ERROR] Project name and repository name cannot be empty." -ForegroundColor Red
@@ -465,6 +476,9 @@ function Show-MigrationMenu {
                         Write-Host ""
                         Write-Host "Initializing Azure DevOps project '$DestProjectName' with repository '$RepoName'..." -ForegroundColor Cyan
                         Initialize-AdoProject -DestProject $DestProjectName -RepoName $RepoName -BuildDefinitionId $script:BuildDefinitionId -SonarStatusContext $script:SonarStatusContext
+                        
+                        # Offer team initialization packs after successful project creation
+                        Invoke-TeamPackMenu -ProjectName $DestProjectName
                     }
                     elseif ($selectedProject.Type -eq "Bulk") {
                         $DestProjectName = Read-Host "Enter Azure DevOps project name (press Enter for '$($selectedProject.ProjectName)')"
@@ -474,11 +488,14 @@ function Show-MigrationMenu {
                         
                         Write-Host ""
                         Write-Host "Initializing Azure DevOps project '$DestProjectName' for bulk migration..." -ForegroundColor Cyan
-                        Write-Host "[INFO] This will create the project. Use Option 6 to migrate the repositories." -ForegroundColor Yellow
+                        Write-Host "[INFO] This will create the project. Use Option 4 to migrate the repositories." -ForegroundColor Yellow
                         
                         # For bulk, create project without repository (repositories will be added during migration)
                         $tempRepoName = "initial-repo"
                         Initialize-AdoProject -DestProject $DestProjectName -RepoName $tempRepoName -BuildDefinitionId $script:BuildDefinitionId -SonarStatusContext $script:SonarStatusContext
+                        
+                        # Offer team initialization packs after successful project creation
+                        Invoke-TeamPackMenu -ProjectName $DestProjectName
                     }
                 }
             }
@@ -486,102 +503,171 @@ function Show-MigrationMenu {
                 Write-Host "[ERROR] Invalid selection." -ForegroundColor Red
             }
         }
-        '3' {
-            $SourceProjectPath = Read-Host "Enter Source GitLab project path (e.g., group/my-project)"
-            $DestProjectName = Read-Host "Enter Destination Azure DevOps project name (e.g., MyProject)"
+        '4' {
+            # Combined migration workflow - handles both single and bulk
+            Write-Host ""
+            Write-Host "=== START PLANNED MIGRATION ===" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "Select migration type:" -ForegroundColor Cyan
+            Write-Host "  1) Single Project Migration" -ForegroundColor White
+            Write-Host "  2) Bulk Migration" -ForegroundColor White
+            Write-Host ""
             
-            if ([string]::IsNullOrWhiteSpace($SourceProjectPath) -or [string]::IsNullOrWhiteSpace($DestProjectName)) {
-                Write-Host "[ERROR] Project path and name cannot be empty." -ForegroundColor Red
-                return
-            }
+            $migrationChoice = Read-Host "Select option (1-2)"
             
-            # Check if project and repository already exist
-            $projectExists = Test-AdoProjectExists -ProjectName $DestProjectName
-            $repoExists = $false
-            $repoName = ($SourceProjectPath -split '/')[-1]
-            
-            if ($projectExists) {
-                Write-Host "[INFO] Project '$DestProjectName' exists in Azure DevOps" -ForegroundColor Cyan
-                $repos = Get-AdoProjectRepositories -ProjectName $DestProjectName
-                $repoExists = $null -ne ($repos | Where-Object { $_.name -eq $repoName })
-                
-                if ($repoExists) {
-                    Write-Host "[INFO] Repository '$repoName' already migrated in project '$DestProjectName'" -ForegroundColor Yellow
-                    Write-Host ""
-                    Write-Host "Options:" -ForegroundColor Cyan
-                    Write-Host "  1) SYNC - Pull latest from GitLab and push to Azure DevOps (recommended)" -ForegroundColor Green
-                    Write-Host "  2) SKIP - Do nothing" -ForegroundColor Yellow
-                    Write-Host "  3) FORCE - Replace existing repository (destructive)" -ForegroundColor Red
-                    Write-Host ""
-                    $choice = Read-Host "Select option (1-3)"
+            switch ($migrationChoice) {
+                '1' {
+                    # Single project migration (old option 3)
+                    $SourceProjectPath = Read-Host "Enter Source GitLab project path (e.g., group/my-project)"
+                    $DestProjectName = Read-Host "Enter Destination Azure DevOps project name (e.g., MyProject)"
                     
-                    switch ($choice) {
-                        '1' {
-                            Write-Host "[INFO] Starting SYNC operation..." -ForegroundColor Green
-                            Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName -AllowSync
-                        }
-                        '2' {
-                            Write-Host "[INFO] Skipping migration" -ForegroundColor Yellow
-                        }
-                        '3' {
-                            Write-Host "[WARN] This will REPLACE the existing repository!" -ForegroundColor Red
-                            $confirm = Read-Host "Are you sure? Type 'REPLACE' to confirm"
-                            if ($confirm -eq 'REPLACE') {
-                                Write-Host "[INFO] Starting FORCE migration..." -ForegroundColor Red
-                                Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName -Replace -Force
+                    if ([string]::IsNullOrWhiteSpace($SourceProjectPath) -or [string]::IsNullOrWhiteSpace($DestProjectName)) {
+                        Write-Host "[ERROR] Project path and name cannot be empty." -ForegroundColor Red
+                        return
+                    }
+                    
+                    # Check if project and repository already exist
+                    $projectExists = Test-AdoProjectExists -ProjectName $DestProjectName
+                    $repoExists = $false
+                    $repoName = ($SourceProjectPath -split '/')[-1]
+                    
+                    if ($projectExists) {
+                        Write-Host "[INFO] Project '$DestProjectName' exists in Azure DevOps" -ForegroundColor Cyan
+                        $repos = Get-AdoProjectRepositories -ProjectName $DestProjectName
+                        $repoExists = $null -ne ($repos | Where-Object { $_.name -eq $repoName })
+                        
+                        if ($repoExists) {
+                            Write-Host "[INFO] Repository '$repoName' already migrated in project '$DestProjectName'" -ForegroundColor Yellow
+                            Write-Host ""
+                            Write-Host "Options:" -ForegroundColor Cyan
+                            Write-Host "  1) SYNC - Pull latest from GitLab and push to Azure DevOps (recommended)" -ForegroundColor Green
+                            Write-Host "  2) SKIP - Do nothing" -ForegroundColor Yellow
+                            Write-Host "  3) FORCE - Replace existing repository (destructive)" -ForegroundColor Red
+                            Write-Host ""
+                            $syncChoice = Read-Host "Select option (1-3)"
+                            
+                            switch ($syncChoice) {
+                                '1' {
+                                    Write-Host "[INFO] Starting SYNC operation..." -ForegroundColor Green
+                                    Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName -AllowSync
+                                }
+                                '2' {
+                                    Write-Host "[INFO] Skipping migration" -ForegroundColor Yellow
+                                }
+                                '3' {
+                                    Write-Host "[WARN] This will REPLACE the existing repository!" -ForegroundColor Red
+                                    $confirm = Read-Host "Are you sure? Type 'REPLACE' to confirm"
+                                    if ($confirm -eq 'REPLACE') {
+                                        Write-Host "[INFO] Starting FORCE migration..." -ForegroundColor Red
+                                        Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName -Replace -Force
+                                    }
+                                    else {
+                                        Write-Host "[INFO] Cancelling operation" -ForegroundColor Yellow
+                                    }
+                                }
+                                default {
+                                    Write-Host "[ERROR] Invalid selection" -ForegroundColor Red
+                                }
                             }
-                            else {
-                                Write-Host "[INFO] Cancelling operation" -ForegroundColor Yellow
-                            }
                         }
-                        default {
-                            Write-Host "[ERROR] Invalid selection" -ForegroundColor Red
+                        else {
+                            # Project exists but repo doesn't - normal migration
+                            Write-Host "[INFO] Repository '$repoName' not found in project - starting migration" -ForegroundColor Cyan
+                            Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName
                         }
                     }
+                    else {
+                        # Project doesn't exist - normal migration
+                        Write-Host "[INFO] Project '$DestProjectName' not found - will create new project" -ForegroundColor Cyan
+                        Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName
+                    }
                 }
-                else {
-                    # Project exists but repo doesn't - normal migration
-                    Write-Host "[INFO] Repository '$repoName' not found in project - starting migration" -ForegroundColor Cyan
-                    Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName
+                '2' {
+                    # Bulk migration (old option 6)
+                    Invoke-BulkMigrationWorkflow
+                }
+                default {
+                    Write-Host "[ERROR] Invalid selection" -ForegroundColor Red
                 }
             }
-            else {
-                # Project doesn't exist - normal migration
-                Write-Host "[INFO] Project '$DestProjectName' not found - will create new project" -ForegroundColor Cyan
-                Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName
-            }
-        }
-        '4' {
-            Invoke-BulkPreparationWorkflow
         }
         '5' {
-            Invoke-TemplateManagerWorkflow
+            Write-Host ""
+            Write-Host "Thank you for using GitLab → Azure DevOps Migration Tool" -ForegroundColor Cyan
+            Write-Host "Goodbye! 👋" -ForegroundColor Green
+            Write-Host ""
+            return
         }
-        '6' {
-            Invoke-BulkMigrationWorkflow
+        default {
+            Write-Host ""
+            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 5." -ForegroundColor Red
+            Write-Host ""
         }
-        '7' {
-            $DestProjectName = Read-Host "Enter Azure DevOps project name (e.g., MyProject)"
-            if ([string]::IsNullOrWhiteSpace($DestProjectName)) {
-                Write-Host "[ERROR] Project name cannot be empty." -ForegroundColor Red
-                return
-            }
+    }
+}
+
+<#
+.SYNOPSIS
+    Presents team initialization pack options after project creation.
+
+.DESCRIPTION
+    Interactive sub-menu for selecting optional team initialization packs
+    (Business, Development, Security, Management) to enhance a newly created
+    Azure DevOps project.
+
+.PARAMETER ProjectName
+    Azure DevOps project name to apply team packs to.
+
+.EXAMPLE
+    Invoke-TeamPackMenu -ProjectName "MyProject"
+#>
+function Invoke-TeamPackMenu {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ProjectName
+    )
+    
+    Write-Host ""
+    Write-Host "┌─────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
+    Write-Host "│  OPTIONAL: Enhance with Team Initialization Packs      │" -ForegroundColor Yellow
+    Write-Host "└─────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Would you like to add specialized team resources?" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  1) Business Team Pack       " -ForegroundColor White -NoNewline
+    Write-Host "│ Stakeholder wiki, KPIs, roadmap" -ForegroundColor Gray
+    Write-Host "  2) Development Team Pack    " -ForegroundColor White -NoNewline
+    Write-Host "│ Dev wiki, architecture docs, repo files" -ForegroundColor Gray
+    Write-Host "  3) Security Team Pack       " -ForegroundColor White -NoNewline
+    Write-Host "│ Security policies, threat model, scanning" -ForegroundColor Gray
+    Write-Host "  4) Management Team Pack     " -ForegroundColor White -NoNewline
+    Write-Host "│ PMO wiki, RAID log, sprint planning" -ForegroundColor Gray
+    Write-Host "  5) All Team Packs           " -ForegroundColor White -NoNewline
+    Write-Host "│ Install all 4 packs" -ForegroundColor Gray
+    Write-Host "  6) Skip                     " -ForegroundColor White -NoNewline
+    Write-Host "│ Continue without team packs" -ForegroundColor Gray
+    Write-Host ""
+    
+    $packChoice = Read-Host "Select option (1-6, default: 6)"
+    
+    if ([string]::IsNullOrWhiteSpace($packChoice)) {
+        $packChoice = '6'
+    }
+    
+    switch ($packChoice) {
+        '1' {
             try {
-                Write-Host "[INFO] Provisioning Business Initialization Pack for '$DestProjectName'..." -ForegroundColor Cyan
-                Initialize-BusinessInit -DestProject $DestProjectName
-                Write-Host "[SUCCESS] Business Initialization Pack completed" -ForegroundColor Green
+                Write-Host ""
+                Write-Host "[INFO] Provisioning Business Team Pack..." -ForegroundColor Cyan
+                Initialize-BusinessInit -DestProject $ProjectName
+                Write-Host "[SUCCESS] Business Team Pack completed" -ForegroundColor Green
             }
             catch {
                 Write-Host "[ERROR] Business Initialization failed: $_" -ForegroundColor Red
             }
         }
-        '8' {
-            $DestProjectName = Read-Host "Enter Azure DevOps project name (e.g., MyProject)"
-            if ([string]::IsNullOrWhiteSpace($DestProjectName)) {
-                Write-Host "[ERROR] Project name cannot be empty." -ForegroundColor Red
-                return
-            }
-            
+        '2' {
             Write-Host ""
             Write-Host "Select project type for .gitignore template:"
             Write-Host "  1) .NET"
@@ -600,48 +686,70 @@ function Show-MigrationMenu {
             }
             
             try {
-                Write-Host "[INFO] Provisioning Development Initialization Pack for '$DestProjectName'..." -ForegroundColor Cyan
-                Initialize-DevInit -DestProject $DestProjectName -ProjectType $projectType
-                Write-Host "[SUCCESS] Development Initialization Pack completed" -ForegroundColor Green
+                Write-Host ""
+                Write-Host "[INFO] Provisioning Development Team Pack..." -ForegroundColor Cyan
+                Initialize-DevInit -DestProject $ProjectName -ProjectType $projectType
+                Write-Host "[SUCCESS] Development Team Pack completed" -ForegroundColor Green
             }
             catch {
                 Write-Host "[ERROR] Development Initialization failed: $_" -ForegroundColor Red
             }
         }
-        '9' {
-            $DestProjectName = Read-Host "Enter Azure DevOps project name"
-            if ([string]::IsNullOrWhiteSpace($DestProjectName)) {
-                Write-Host "[ERROR] Project name cannot be empty." -ForegroundColor Red
-                return
-            }
-            
+        '3' {
             try {
-                Write-Host "[INFO] Provisioning Security Initialization Pack for '$DestProjectName'..." -ForegroundColor Cyan
-                Initialize-SecurityInit -DestProject $DestProjectName
-                Write-Host "[SUCCESS] Security Initialization Pack completed" -ForegroundColor Green
+                Write-Host ""
+                Write-Host "[INFO] Provisioning Security Team Pack..." -ForegroundColor Cyan
+                Initialize-SecurityInit -DestProject $ProjectName
+                Write-Host "[SUCCESS] Security Team Pack completed" -ForegroundColor Green
             }
             catch {
                 Write-Host "[ERROR] Security Initialization failed: $_" -ForegroundColor Red
             }
         }
-        '10' {
-            $DestProjectName = Read-Host "Enter Azure DevOps project name"
-            if ([string]::IsNullOrWhiteSpace($DestProjectName)) {
-                Write-Host "[ERROR] Project name cannot be empty." -ForegroundColor Red
-                return
-            }
-            
+        '4' {
             try {
-                Write-Host "[INFO] Provisioning Management Initialization Pack for '$DestProjectName'..." -ForegroundColor Cyan
-                Initialize-ManagementInit -DestProject $DestProjectName
-                Write-Host "[SUCCESS] Management Initialization Pack completed" -ForegroundColor Green
+                Write-Host ""
+                Write-Host "[INFO] Provisioning Management Team Pack..." -ForegroundColor Cyan
+                Initialize-ManagementInit -DestProject $ProjectName
+                Write-Host "[SUCCESS] Management Team Pack completed" -ForegroundColor Green
             }
             catch {
                 Write-Host "[ERROR] Management Initialization failed: $_" -ForegroundColor Red
             }
         }
+        '5' {
+            try {
+                Write-Host ""
+                Write-Host "[INFO] Provisioning ALL Team Packs..." -ForegroundColor Cyan
+                Write-Host "[INFO] This may take a few minutes..." -ForegroundColor Gray
+                
+                Write-Host "[INFO] 1/4: Business Team Pack..." -ForegroundColor Cyan
+                Initialize-BusinessInit -DestProject $ProjectName
+                
+                Write-Host "[INFO] 2/4: Development Team Pack..." -ForegroundColor Cyan
+                Initialize-DevInit -DestProject $ProjectName -ProjectType 'all'
+                
+                Write-Host "[INFO] 3/4: Security Team Pack..." -ForegroundColor Cyan
+                Initialize-SecurityInit -DestProject $ProjectName
+                
+                Write-Host "[INFO] 4/4: Management Team Pack..." -ForegroundColor Cyan
+                Initialize-ManagementInit -DestProject $ProjectName
+                
+                Write-Host ""
+                Write-Host "[SUCCESS] All Team Packs completed! 🎉" -ForegroundColor Green
+                Write-Host "[INFO] Your project now has comprehensive resources for all teams" -ForegroundColor Cyan
+            }
+            catch {
+                Write-Host "[ERROR] Team pack installation failed: $_" -ForegroundColor Red
+            }
+        }
+        '6' {
+            Write-Host ""
+            Write-Host "[INFO] Skipping team packs. You can add them later if needed." -ForegroundColor Gray
+        }
         default {
-            Write-Host "Invalid choice." -ForegroundColor Red
+            Write-Host ""
+            Write-Host "[INFO] Invalid selection. Skipping team packs." -ForegroundColor Yellow
         }
     }
 }
@@ -689,29 +797,13 @@ function Initialize-AdoProject {
     # Create/ensure project
     $proj = Ensure-AdoProject $DestProject
     $projId = $proj.id
-    $desc = Get-AdoProjectDescriptor $projId
     
-    # Only configure RBAC if Graph API is available
-    if ($desc) {
-        Write-Verbose "[Initialize-AdoProject] Configuring RBAC groups..."
-        
-        # Get built-in groups
-        $descContrib = Get-AdoBuiltInGroupDescriptor $desc "Contributors"
-        $descProjAdm = Get-AdoBuiltInGroupDescriptor $desc "Project Administrators"
-        
-        # Create custom groups
-        $grpDev = Ensure-AdoGroup $desc "Dev"
-        $grpQA = Ensure-AdoGroup $desc "QA"
-        $grpBA = Ensure-AdoGroup $desc "BA"
-        
-        # Configure group memberships
-        Ensure-AdoMembership $descContrib $grpDev.descriptor
-        Ensure-AdoMembership $descContrib $grpQA.descriptor
-        Ensure-AdoMembership $descContrib $grpBA.descriptor
-    }
-    else {
-        Write-Warning "Graph API unavailable - skipping RBAC group configuration"
-    }
+    # Note: RBAC group configuration removed - Graph API is unreliable for on-premise servers
+    # Users should configure security groups manually via Azure DevOps UI:
+    # Project Settings > Permissions > Add security groups and members
+    # For more info: https://learn.microsoft.com/azure/devops/organizations/security/add-users-team-project
+    
+    Write-Verbose "[Initialize-AdoProject] Skipping RBAC configuration (configure manually via UI if needed)"
     
     # Create work item areas (404 errors are normal - just checking if areas exist)
     Write-Host "[INFO] Setting up work item areas..." -ForegroundColor Cyan

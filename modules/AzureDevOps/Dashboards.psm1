@@ -145,6 +145,8 @@ function Ensure-AdoDashboard {
         $dashboardBody = @{
             name = $dashboardName
             description = "Auto-generated team overview dashboard with key metrics and insights"
+            dashboardScope = if ($teamId) { "project_Team" } else { "project" }
+            groupId = if ($teamId) { $teamId } else { $null }
             widgets = @(
                 # Row 1: Sprint Burndown + Velocity
                 @{
@@ -239,7 +241,17 @@ function Ensure-AdoDashboard {
         return $dashboard
     }
     catch {
-        Write-Warning "Failed to create dashboard: $_"
+        # Dashboard API is often not available on on-premise Azure DevOps Server
+        if ($_ -match "404|Not Found") {
+            Write-Host ""
+            Write-Host "ℹ️  [INFO] Dashboard API not available (common on on-premise servers)" -ForegroundColor Cyan
+            Write-Host "    Dashboards must be created manually in Azure DevOps UI" -ForegroundColor DarkCyan
+            Write-Host "    Navigate to: Overview → Dashboards → New Dashboard" -ForegroundColor DarkCyan
+            Write-Host ""
+        }
+        else {
+            Write-Warning "Failed to create dashboard: $_"
+        }
         Write-Verbose "[Ensure-AdoDashboard] Error details: $($_.Exception.Message)"
         return $null
     }
@@ -295,6 +307,8 @@ function Ensure-AdoQADashboard {
         $dashboardBody = @{
             name = $dashboardName
             description = "QA metrics dashboard with test execution, bug tracking, and quality indicators"
+            dashboardScope = if ($teamId) { "project_Team" } else { "project" }
+            groupId = if ($teamId) { $teamId } else { $null }
             widgets = @(
                 # Row 1: Test Execution Status (2x2) + Bugs by Severity (2x2)
                 @{
@@ -392,7 +406,16 @@ function Ensure-AdoQADashboard {
         return $dashboard
     }
     catch {
-        Write-Warning "Failed to create QA dashboard: $_"
+        # Dashboard API is often not available on on-premise Azure DevOps Server
+        if ($_ -match "404|Not Found") {
+            Write-Host ""
+            Write-Host "ℹ️  [INFO] QA Dashboard API not available (common on on-premise servers)" -ForegroundColor Cyan
+            Write-Host "    Dashboards must be created manually in Azure DevOps UI" -ForegroundColor DarkCyan
+            Write-Host ""
+        }
+        else {
+            Write-Warning "Failed to create QA dashboard: $_"
+        }
         Write-Verbose "[Ensure-AdoQADashboard] Error details: $($_.Exception.Message)"
         return $null
     }
@@ -425,6 +448,7 @@ function Ensure-AdoDevDashboard {
         $dashboardConfig = @{
             name = "Development Metrics"
             description = "Track PR velocity, code quality, and team productivity"
+            dashboardScope = "project"
             widgets = @(
                 # Pull Request Overview
                 @{
@@ -486,8 +510,14 @@ function Ensure-AdoDevDashboard {
         Write-Host "[SUCCESS] Development dashboard created" -ForegroundColor Green
     }
     catch {
-        Write-Warning "Failed to create development dashboard: $_"
-        Write-Host "[INFO] Note: Dashboard creation requires appropriate permissions" -ForegroundColor DarkYellow
+        # Dashboard API is often not available on on-premise Azure DevOps Server
+        if ($_ -match "404|Not Found") {
+            Write-Host "ℹ️  [INFO] Development Dashboard API not available (common on on-premise servers)" -ForegroundColor Cyan
+        }
+        else {
+            Write-Warning "Failed to create development dashboard: $_"
+        }
+        Write-Verbose "[Ensure-AdoDevDashboard] Error details: $($_.Exception.Message)"
     }
 }
 
@@ -504,6 +534,7 @@ function Ensure-AdoSecurityDashboard {
         $dashboardConfig = @{
             name = "Security Metrics"
             description = "Security vulnerability tracking, compliance status, and threat intelligence"
+            dashboardScope = "project"
             widgets = @(
                 @{
                     name = "Security Overview"
@@ -531,8 +562,14 @@ function Ensure-AdoSecurityDashboard {
         Write-Host "[SUCCESS] Security dashboard created" -ForegroundColor Green
     }
     catch {
-        Write-Warning "Failed to create security dashboard: $_"
-        Write-Host "[INFO] Note: Dashboard creation requires appropriate permissions" -ForegroundColor DarkYellow
+        # Dashboard API is often not available on on-premise Azure DevOps Server
+        if ($_ -match "404|Not Found") {
+            Write-Host "ℹ️  [INFO] Security Dashboard API not available (common on on-premise servers)" -ForegroundColor Cyan
+        }
+        else {
+            Write-Warning "Failed to create security dashboard: $_"
+        }
+        Write-Verbose "[Ensure-AdoSecurityDashboard] Error details: $($_.Exception.Message)"
     }
 }
 
@@ -549,6 +586,7 @@ function Ensure-AdoManagementDashboard {
         $dashboardConfig = @{
             name = "Program Management"
             description = "Executive overview with program health, sprint progress, risks, and KPIs"
+            dashboardScope = "project"
             widgets = @(
                 @{
                     name = "Program Health"
@@ -594,8 +632,14 @@ function Ensure-AdoManagementDashboard {
         Write-Host "[SUCCESS] Management dashboard created" -ForegroundColor Green
     }
     catch {
-        Write-Warning "Failed to create management dashboard: $_"
-        Write-Host "[INFO] Note: Dashboard creation requires appropriate permissions" -ForegroundColor DarkYellow
+        # Dashboard API is often not available on on-premise Azure DevOps Server
+        if ($_ -match "404|Not Found") {
+            Write-Host "ℹ️  [INFO] Management Dashboard API not available (common on on-premise servers)" -ForegroundColor Cyan
+        }
+        else {
+            Write-Warning "Failed to create management dashboard: $_"
+        }
+        Write-Verbose "[Ensure-AdoManagementDashboard] Error details: $($_.Exception.Message)"
     }
 }
 

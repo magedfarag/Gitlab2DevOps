@@ -57,59 +57,41 @@ function Upsert-AdoWikiPage {
     $enc = [uri]::EscapeDataString($Path)
     $projEnc = [uri]::EscapeDataString($Project)
     
-    # Check if page exists (GET returns 404 if not found)
+    # Azure DevOps Wiki API behavior:
+    # - PUT: Create new page (fails if page exists)
+    # - PATCH: Update existing page (fails if page doesn't exist with 405)
+    # Strategy: Try PUT first, if it fails with "already exists", use PATCH
+    
     try {
-        $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc"
-        
-        # Page exists - use PATCH to update
-        # Extract eTag from response headers or gitItemPath (API uses different properties)
-        # For wiki pages, we need the version/eTag from the page object
-        $eTag = if ($existing.PSObject.Properties['eTag']) { 
-            $existing.eTag 
-        } elseif ($existing.PSObject.Properties['gitItemPath']) {
-            # Use gitItemPath as version identifier
-            $null  # PATCH without eTag for idempotent update
-        } else {
-            $null  # No version control needed
-        }
-        
-        Write-Verbose "[Wikis] Updating existing wiki page: $Path"
-        
-        $patchBody = @{ content = $Markdown }
-        if ($eTag) { $patchBody.eTag = $eTag }
-        
-        Invoke-AdoRest PATCH "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body $patchBody | Out-Null
+        # Try PUT first to create new page
+        Write-Verbose "[Wikis] Creating wiki page: $Path"
+        Invoke-AdoRest PUT "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{
+            content = $Markdown
+        } | Out-Null
+        Write-Verbose "[Wikis] Successfully created wiki page: $Path"
     }
     catch {
-        # Check if it's a 404 (page doesn't exist) or WikiPageAlreadyExistsException
         $errorMsg = $_.Exception.Message
         
-        if ($errorMsg -match '404|Not Found|does not exist') {
-            # Page doesn't exist - use PUT to create
-            Write-Verbose "[Wikis] Creating new wiki page: $Path"
-            Invoke-AdoRest PUT "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{
-                content = $Markdown
-            } | Out-Null
-        }
-        elseif ($errorMsg -match 'WikiPageAlreadyExistsException|already exists') {
-            # Page exists but GET failed - likely a timing issue
-            # Try PATCH without eTag (handles race condition)
-            Write-Warning "[Wikis] Page $Path exists but couldn't retrieve version. Attempting update..."
+        # If page already exists, try to update it with PATCH
+        if ($errorMsg -match 'WikiPageAlreadyExistsException|already exists|409') {
+            Write-Verbose "[Wikis] Page $Path already exists, updating..."
             try {
-                # Retry GET to get fresh page object
-                Start-Sleep -Seconds 1
+                # Get existing page to retrieve eTag
                 $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc"
                 
+                # Build PATCH body with eTag if available
                 $patchBody = @{ content = $Markdown }
-                if ($existing.PSObject.Properties['eTag']) {
+                if ($existing.PSObject.Properties['eTag'] -and $existing.eTag) {
                     $patchBody.eTag = $existing.eTag
                 }
                 
                 Invoke-AdoRest PATCH "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body $patchBody | Out-Null
+                Write-Verbose "[Wikis] Successfully updated wiki page: $Path"
             }
             catch {
+                # If PATCH also fails, log warning but don't fail (page might be locked)
                 Write-Warning "[Wikis] Could not update page $Path : $_"
-                # Silently continue - page exists, that's good enough for idempotency
             }
         }
         else {

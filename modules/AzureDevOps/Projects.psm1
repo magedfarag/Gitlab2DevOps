@@ -188,37 +188,8 @@ function Ensure-AdoProject {
     }
 }
 
-#>
-function Get-AdoProjectDescriptor {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$ProjectId
-    )
-    
-    try {
-        # Suppress 404 errors since Graph API may not be available
-        $ErrorActionPreference = 'Stop'
-        $result = Invoke-AdoRest GET "/_apis/graph/descriptors/$ProjectId"
-        Write-Verbose "[Get-AdoProjectDescriptor] Successfully retrieved descriptor for project $ProjectId"
-        return $result.value
-    }
-    catch {
-        # Graph API may not be available (404) or may require different permissions
-        $statusCode = $_.Exception.Response.StatusCode.value__
-        
-        if ($statusCode -eq 404) {
-            Write-Verbose "[Get-AdoProjectDescriptor] Graph API not available (HTTP 404) - this is normal for some on-premise installations"
-            Write-Warning "Graph API not accessible. Some features (RBAC groups, security) may not work."
-        }
-        else {
-            Write-Verbose "[Get-AdoProjectDescriptor] Graph API error for project $ProjectId : $_"
-            Write-Warning "Graph API error (HTTP $statusCode). Some features (RBAC groups, security) may not work."
-        }
-        
-        return $null
-    }
-}
+# Removed Get-AdoProjectDescriptor - Graph API is unreliable for on-premise servers
+# Use Core Teams REST API functions in Security.psm1 instead
 
 #>
 function Get-AdoProjectProcessTemplate {
@@ -471,7 +442,6 @@ function Ensure-AdoIterations {
 Export-ModuleMember -Function @(
     'Get-AdoProjectRepositories',
     'Ensure-AdoProject',
-    'Get-AdoProjectDescriptor',
     'Get-AdoProjectProcessTemplate',
     'Get-AdoWorkItemTypes',
     'Ensure-AdoArea',

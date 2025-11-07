@@ -150,12 +150,6 @@ function Ensure-AdoTeamTemplates {
         }
     }
     
-    # Note: Setting templates as defaults via API is not supported
-    # Templates can be set as default manually through Azure DevOps UI
-    # The templates are still created and usable - they just won't auto-populate
-    Write-Verbose "[Ensure-AdoTeamTemplates] Templates created successfully"
-    Write-Verbose "[Ensure-AdoTeamTemplates] Note: Setting templates as default requires manual configuration in Azure DevOps UI"
-    
     # Summary with actionable guidance
     Write-Host ""
     Write-Host "[INFO] Work item template configuration summary:" -ForegroundColor Cyan
@@ -166,6 +160,9 @@ function Ensure-AdoTeamTemplates {
     Write-Host "  📋 Available work item types: $($availableTypes -join ', ')" -ForegroundColor Gray
     Write-Host ""
     Write-Host "[INFO] ✨ Templates are ready to use!" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "⚠️  [ACTION REQUIRED] Templates must be set as default manually:" -ForegroundColor Yellow
+    Write-Host "    (Azure DevOps API does not support setting templates as default)" -ForegroundColor DarkYellow
     Write-Host ""
     Write-Host "[NEXT STEPS] To make templates auto-populate when creating work items:" -ForegroundColor Cyan
     try {
@@ -227,7 +224,7 @@ function Ensure-AdoSharedQueries {
     # Check existing queries
     $existingQueries = @{}
     try {
-        $response = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?``$depth=1"
+        $response = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=1"
         if ($response -and $response.children) {
             $response.children | ForEach-Object { $existingQueries[$_.name] = $_ }
         }
@@ -500,7 +497,7 @@ function Ensure-AdoQAQueries {
     
     try {
         # Check if QA folder already exists
-        $sharedQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?``$depth=2"
+        $sharedQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=2"
         
         if ($sharedQueries -and $sharedQueries.children) {
             $qaFolder = $sharedQueries.children | Where-Object { $_.name -eq "QA" -and $_.isFolder -eq $true }
@@ -532,7 +529,7 @@ function Ensure-AdoQAQueries {
     $existingQueries = @{}
     try {
         if ($qaFolderId) {
-            $folderQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$qaFolderId?``$depth=1"
+            $folderQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$qaFolderId?`$depth=1"
             if ($folderQueries -and $folderQueries.children) {
                 $folderQueries.children | ForEach-Object { $existingQueries[$_.name] = $_ }
             }
@@ -863,7 +860,7 @@ function Ensure-AdoBusinessQueries {
     # Read existing queries under Shared Queries
     $existing = @{}
     try {
-        $resp = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?``$depth=1"
+        $resp = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=1"
         if ($resp -and $resp.children) { $resp.children | ForEach-Object { $existing[$_.name] = $_ } }
     }
     catch {

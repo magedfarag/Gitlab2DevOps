@@ -1,5 +1,37 @@
 # Copilot Instructions for Gitlab2DevOps
 
+## 🚨 CRITICAL: Always Consult Microsoft Learn First
+
+**BEFORE implementing ANY Azure DevOps feature or API call**, you MUST:
+
+1. **Search official docs**: Use `microsoft_docs_search` to find relevant Azure DevOps documentation
+2. **Fetch complete pages**: Use `microsoft_docs_fetch` for detailed API specifications
+3. **Find code samples**: Use `microsoft_code_sample_search` for PowerShell examples
+
+**Why this is critical**:
+- ⚠️ **Graph API is deprecated/unreliable** for on-premise servers (returns 404)
+- ⚠️ **Many APIs differ** between Azure DevOps Cloud and on-premise installations
+- ⚠️ **Incorrect assumptions** lead to features that fail in production
+- ✅ **Microsoft docs show the correct, supported approach** for both environments
+
+**Real example from this project**:
+- ❌ Assumed Graph API (`/_apis/graph/descriptors/`) would work → Failed with 404 everywhere
+- ✅ Consulted Microsoft docs → Found Core Teams API (`/_apis/projects/{project}/teams`) works universally
+
+**Process for new features**:
+```
+1. User requests feature → DON'T code immediately
+2. Search Microsoft Learn docs for official approach
+3. Review API documentation and examples
+4. Verify compatibility with on-premise servers
+5. Implement using documented, supported APIs
+6. Test on both cloud and on-premise (if possible)
+```
+
+**Never skip this step** - it saves hours of debugging and rewrites.
+
+---
+
 ## Architecture Overview
 
 This is an **enterprise-grade GitLab-to-Azure DevOps migration toolkit** for on-premise Azure DevOps Server with SSL/TLS challenges. The codebase uses **modular PowerShell architecture** with strict separation of concerns:
@@ -32,13 +64,33 @@ When PowerShell fails with SSL errors, the code **automatically falls back to cu
 ### Expected 404 Errors
 Some 404 errors are **normal and expected** during idempotent operations:
 - **Area checks**: `GET /areas/{name}` returns 404 if area doesn't exist yet (expected)
-- **Graph API**: Returns 404 on some on-premise servers (feature not available)
+- **Graph API**: Returns 404 on some on-premise servers (feature not available - **DO NOT USE**)
 - **Repository checks**: Returns 404 for new repositories
 
 These are handled gracefully by try-catch blocks:
 - 404 errors on GET requests are shown in **DarkYellow** (not Red)
 - No "Request failed permanently" message for expected 404s
 - Users are notified at the start that 404s are normal: `[NOTE] You may see some 404 errors - these are normal when checking if resources already exist`
+
+### Graph API Deprecation (CRITICAL)
+
+**NEVER use Graph API** (`/_apis/graph/*`) for Azure DevOps operations:
+
+**Why Graph API fails**:
+- Returns 404 on on-premise servers (not available)
+- Unreliable even on Azure DevOps Cloud
+- Microsoft docs confirm limited support
+- No CLI equivalent (az devops) available
+
+**Replacement APIs**:
+| Old (Graph API) | New (Core Teams/Security API) | Status |
+|----------------|-------------------------------|--------|
+| `GET /_apis/graph/descriptors/{projectId}` | N/A - Not needed | ❌ Removed |
+| `GET /_apis/graph/groups?scopeDescriptor=...` | `GET /_apis/projects/{project}/teams` | ✅ Use this |
+| `POST /_apis/graph/groups` | Manual via UI | ✅ Use UI |
+| `PUT /_apis/graph/memberships/{member}/{container}` | `POST /_apis/teams/{teamId}/members` | ✅ Use this |
+
+**Reference**: [Microsoft Docs - Add users to team or project](https://learn.microsoft.com/azure/devops/organizations/security/add-users-team-project)
 
 ## Work Item Type Detection and Process Templates
 
@@ -64,6 +116,35 @@ Ensure-AdoProject -Name "MyProject" -ProcessTemplate "Agile"  # Function resolve
 
 Wait **10 seconds** after project creation before querying work item types to allow initialization.
 
+## Wiki API Patterns (CRITICAL)
+
+Azure DevOps Wiki API has **specific behavior** for create vs update operations:
+
+**Correct idempotent pattern**:
+```powershell
+try {
+    # Try PUT first (create new page)
+    Invoke-AdoRest PUT "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{
+        content = $Markdown
+    }
+}
+catch {
+    if ($errorMsg -match 'WikiPageAlreadyExistsException|already exists|409') {
+        # Page exists - use PATCH to update
+        $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc"
+        $patchBody = @{ content = $Markdown }
+        if ($existing.eTag) { $patchBody.eTag = $existing.eTag }
+        Invoke-AdoRest PATCH "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body $patchBody
+    }
+}
+```
+
+**Why this pattern**:
+- PUT = Create new page (fails if exists with 409)
+- PATCH = Update existing page (fails if doesn't exist with 405 Method Not Allowed)
+- ❌ **WRONG**: Check with GET first (unreliable - GET can succeed for non-existent pages)
+- ✅ **CORRECT**: Try PUT, catch 409, then PATCH
+
 ## Migration Workflow Separation
 
 **Option 2 (Create Project)**: Creates empty Azure DevOps project structure:
@@ -84,6 +165,27 @@ Wait **10 seconds** after project creation before querying work item types to al
 **Never apply branch policies to empty repositories** - check for `$defaultRef` existence first.
 
 ## REST API Patterns
+
+### CRITICAL: Always Consult Microsoft Docs First
+
+**Before implementing ANY Azure DevOps API feature**, use the Microsoft Learn MCP tools to:
+1. Search official documentation: `microsoft_docs_search`
+2. Fetch complete pages for details: `microsoft_docs_fetch`
+3. Find code samples: `microsoft_code_sample_search`
+
+**Why this matters**:
+- Graph API (`/_apis/graph/`) is **unreliable** on on-premise servers (returns 404)
+- Microsoft docs explicitly state Graph API has limitations
+- Many APIs have on-premise vs cloud differences
+- Official docs show the **correct, supported approach**
+
+**Example - RBAC/Security Groups**:
+- ❌ **WRONG**: Using Graph API (`/_apis/graph/descriptors/`, `/_apis/graph/groups`)
+  - Returns 404 on on-premise servers
+  - Unreliable even on cloud
+- ✅ **CORRECT**: Using Core Teams API (`/_apis/projects/{project}/teams`)
+  - Works on both cloud and on-premise
+  - Officially documented and supported
 
 ### Azure DevOps API
 ```powershell
@@ -144,6 +246,38 @@ Mock Invoke-RestMethod {
 $maskedUrl = Hide-Secret -Text $url -Secret $token
 Write-Host "Cloning from: $maskedUrl"
 ```
+
+## RBAC and Security Groups (CRITICAL CHANGE)
+
+**v2.1.0+ does NOT configure RBAC automatically** due to Graph API unreliability:
+
+**What was removed**:
+- ❌ `Get-AdoProjectDescriptor` (Graph API - 404 on on-premise)
+- ❌ `Get-AdoBuiltInGroupDescriptor` (Graph API - unreliable)
+- ❌ `Ensure-AdoGroup` (Graph API - not available on-premise)
+- ❌ `Ensure-AdoMembership` (Graph API - fails)
+- ❌ Automatic Dev/QA/BA group creation
+
+**What replaced it**:
+- ✅ `Get-AdoSecurityGroups` (Core Teams API - `/_apis/projects/{project}/teams`)
+- ✅ `Get-AdoTeamMembers` (Core Teams API - works everywhere)
+- ✅ `Add-AdoTeamMember` (Core Teams API - reliable)
+- ✅ Manual configuration via Azure DevOps UI (more flexible)
+
+**User instructions**:
+```
+Security groups should be configured manually via Azure DevOps UI:
+1. Project Settings > Permissions
+2. Add security groups (Dev, QA, BA, etc.)
+3. Add members to groups
+Reference: https://learn.microsoft.com/azure/devops/organizations/security/add-users-team-project
+```
+
+**Benefits of manual RBAC**:
+- Works on all server types (cloud and on-premise)
+- Better integration with Active Directory
+- More flexible naming and structure
+- No Graph API dependency
 
 ## Common Patterns
 
