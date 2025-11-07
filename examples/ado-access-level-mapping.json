@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "GitLab to Azure DevOps Access Level Mapping",
+  "description": "Reference mapping between GitLab access levels and suggested Azure DevOps security group permissions. This is a guide for the import script; actual ADO permissions may need customization based on organizational policies.",
+  "version": "1.0.0",
+  "mappings": [
+    {
+      "gitlab_level": 10,
+      "gitlab_name": "Guest",
+      "ado_suggested_group": "Readers",
+      "ado_permissions": ["Read"],
+      "notes": "Read-only access. Can view code, issues, wikis. Cannot contribute."
+    },
+    {
+      "gitlab_level": 20,
+      "gitlab_name": "Reporter",
+      "ado_suggested_group": "Readers",
+      "ado_permissions": ["Read"],
+      "notes": "GitLab Reporter has limited write access (issues/comments). ADO Readers is closest match. Consider custom group for issue management if needed."
+    },
+    {
+      "gitlab_level": 30,
+      "gitlab_name": "Developer",
+      "ado_suggested_group": "Contributors",
+      "ado_permissions": ["Read", "Contribute", "Create Branch", "Contribute to Pull Requests"],
+      "notes": "Can push code, create branches, create merge/pull requests. Maps to ADO Contributors."
+    },
+    {
+      "gitlab_level": 40,
+      "gitlab_name": "Maintainer",
+      "ado_suggested_group": "Contributors",
+      "ado_permissions": ["Read", "Contribute", "Create Branch", "Contribute to Pull Requests", "Manage Pull Requests", "Force Push (with caution)"],
+      "notes": "Can approve merge requests, manage repository settings. ADO doesn't have exact equivalent; use Contributors + branch policies for MR approval requirements. Consider Project Administrators for full maintainer access."
+    },
+    {
+      "gitlab_level": 50,
+      "gitlab_name": "Owner",
+      "ado_suggested_group": "Project Administrators",
+      "ado_permissions": ["All project permissions including security, settings, deletion"],
+      "notes": "Full project control. Maps to ADO Project Administrators. Use cautiously - ADO admins can delete projects."
+    }
+  ],
+  "implementation_notes": [
+    "Azure DevOps uses group-based permissions (Readers, Contributors, Project Administrators) instead of individual access levels.",
+    "GitLab's Maintainer role has more granular permissions than ADO's built-in groups. Consider using branch policies and PR approval requirements to enforce similar workflows.",
+    "For fine-grained control, use ADO Security Namespaces and custom security groups (beyond built-in groups).",
+    "GitLab group-level access inheritance maps to ADO project-level group membership.",
+    "External users (GitLab 'external' flag) should be mapped to ADO guest users or restricted groups.",
+    "Custom member roles (GitLab Ultimate/Premium) require manual mapping to ADO custom groups or policies."
+  ],
+  "ado_built_in_groups": {
+    "project_valid_users": "All authenticated users in the project.",
+    "readers": "Read-only access to repositories, work items, builds, releases.",
+    "contributors": "Can contribute code and work items. Cannot manage project settings.",
+    "build_administrators": "Can manage build pipelines and definitions.",
+    "project_administrators": "Full control over project including security and deletion."
+  },
+  "references": {
+    "gitlab_permissions": "https://docs.gitlab.com/ee/user/permissions.html",
+    "ado_permissions": "https://learn.microsoft.com/en-us/azure/devops/organizations/security/permissions?view=azure-devops",
+    "ado_security_groups": "https://learn.microsoft.com/en-us/azure/devops/organizations/security/permissions?view=azure-devops#project-level-groups"
+  }
+}
