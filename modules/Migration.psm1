@@ -860,6 +860,16 @@ function Initialize-AdoProject {
         [string]$TeamName,
 
         [string]$TemplateDirectory,
+        
+        [Parameter(ParameterSetName = 'Selective')]
+        [ValidateSet('areas', 'iterations', 'wiki', 'wikiPages', 'templates', 'queries', 
+                     'teamSettings', 'dashboard', 'qaInfrastructure', 'repository', 
+                     'branchPolicies', 'repositoryTemplates')]
+        [string[]]$Only,
+        
+        [Parameter(ParameterSetName = 'Profile')]
+        [ValidateSet('Minimal', 'Standard', 'Complete')]
+        [string]$Profile = 'Standard',
 
         [switch]$Resume,
 
@@ -867,6 +877,62 @@ function Initialize-AdoProject {
     )
     
     Write-Host "[INFO] Initializing Azure DevOps project: $DestProject" -ForegroundColor Cyan
+    
+    # Determine which components to initialize based on Profile or Only parameter
+    $componentsToInitialize = @{
+        areas = $true
+        iterations = $true
+        wiki = $true
+        wikiPages = $true
+        templates = $true
+        queries = $true
+        teamSettings = $true
+        dashboard = $true
+        qaInfrastructure = $true
+        repository = $true
+        branchPolicies = $true
+        repositoryTemplates = $true
+    }
+    
+    # Apply profile settings
+    if ($PSCmdlet.ParameterSetName -eq 'Profile') {
+        switch ($Profile) {
+            'Minimal' {
+                Write-Host "[INFO] Using Minimal profile: Project + Repository only" -ForegroundColor Cyan
+                $componentsToInitialize.areas = $false
+                $componentsToInitialize.iterations = $false
+                $componentsToInitialize.wiki = $false
+                $componentsToInitialize.wikiPages = $false
+                $componentsToInitialize.templates = $false
+                $componentsToInitialize.queries = $false
+                $componentsToInitialize.teamSettings = $false
+                $componentsToInitialize.dashboard = $false
+                $componentsToInitialize.qaInfrastructure = $false
+                $componentsToInitialize.repositoryTemplates = $false
+            }
+            'Complete' {
+                Write-Host "[INFO] Using Complete profile: All components + Team Packs" -ForegroundColor Cyan
+                # All components enabled (default), will prompt for team packs at end
+            }
+            'Standard' {
+                Write-Host "[INFO] Using Standard profile: Default configuration" -ForegroundColor Cyan
+                # All components enabled except team packs prompt
+            }
+        }
+    }
+    elseif ($PSCmdlet.ParameterSetName -eq 'Selective' -and $Only) {
+        Write-Host "[INFO] Selective initialization: $(($Only -join ', '))" -ForegroundColor Cyan
+        # Disable all components first
+        foreach ($key in $componentsToInitialize.Keys) {
+            $componentsToInitialize[$key] = $false
+        }
+        # Enable only specified components
+        foreach ($component in $Only) {
+            $componentsToInitialize[$component] = $true
+        }
+        # Repository is always enabled
+        $componentsToInitialize.repository = $true
+    }
     
     # Helper function to load wiki template with fallback
     function Get-WikiTemplateContent {
@@ -882,6 +948,7 @@ function Initialize-AdoProject {
 # Welcome to {{PROJECT_NAME}}
 
 This project was migrated from GitLab using automated tooling.
+
 
 ## Project Structure
 
@@ -1264,7 +1331,10 @@ Tag work items by component for better tracking.
     
     # Parallel execution: Create areas, wiki, and initial wiki pages concurrently (independent operations)
     # This reduces initialization time by 60-75% (from ~60s to ~15-20s)
-    if (-not ($checkpoint['areas'] -and $checkpoint['wiki']) -or $Force.IsPresent) {
+    $shouldRunParallel = ($componentsToInitialize.areas -or $componentsToInitialize.wiki) -and 
+                         (-not ($checkpoint['areas'] -and $checkpoint['wiki']) -or $Force.IsPresent)
+    
+    if ($shouldRunParallel) {
         $currentStep++
         Write-Progress -Activity $progressActivity -Status "Setting up areas and wiki in parallel (2/$totalSteps)" `
             -PercentComplete ([math]::Round(($currentStep / $totalSteps) * 100))
@@ -1274,7 +1344,7 @@ Tag work items by component for better tracking.
         $jobs = @()
         
         # Job 1: Create work item areas from configuration
-        if (-not $checkpoint['areas'] -or $Force.IsPresent) {
+        if ($componentsToInitialize.areas -and (-not $checkpoint['areas'] -or $Force.IsPresent)) {
             $jobs += Start-ThreadJob -Name "CreateAreas" -ScriptBlock {
                 param($DestProject, $Areas, $ModulePath)
                 
@@ -1305,7 +1375,7 @@ Tag work items by component for better tracking.
         }
         
         # Job 2: Set up project wiki
-        if (-not $checkpoint['wiki'] -or $Force.IsPresent) {
+        if ($componentsToInitialize.wiki -and (-not $checkpoint['wiki'] -or $Force.IsPresent)) {
             $jobs += Start-ThreadJob -Name "CreateWiki" -ScriptBlock {
                 param($DestProject, $ProjId, $ModulePath, $CustomTemplateDir)
                 
@@ -1437,41 +1507,67 @@ This project was migrated from GitLab using automated tooling.
     }
     
     # Create work item templates using effective team name with checkpoint
-    Invoke-CheckpointedStep -StepName 'templates' -SuccessMessage "Work item templates created" `
-        -ProgressStatus "Creating work item templates (3/$totalSteps)" -Action {
-        Ensure-AdoTeamTemplates $DestProject $effectiveTeamName
+    if ($componentsToInitialize.templates) {
+        Invoke-CheckpointedStep -StepName 'templates' -SuccessMessage "Work item templates created" `
+            -ProgressStatus "Creating work item templates (3/$totalSteps)" -Action {
+            Ensure-AdoTeamTemplates $DestProject $effectiveTeamName
+        }
+    }
+    else {
+        Write-Host "[SKIP] Work item templates (disabled by selection)" -ForegroundColor DarkGray
     }
     
     # Create sprint iterations from configuration with checkpoint
-    Invoke-CheckpointedStep -StepName 'iterations' -SuccessMessage "Sprint iterations configured ($($config.iterations.sprintCount) sprints)" `
-        -ProgressStatus "Setting up sprint iterations (4/$totalSteps)" -Action {
-        $sprintCount = $config.iterations.sprintCount
-        $sprintDays = $config.iterations.sprintDurationDays
-        Ensure-AdoIterations $DestProject $effectiveTeamName -SprintCount $sprintCount -SprintDurationDays $sprintDays
+    if ($componentsToInitialize.iterations) {
+        Invoke-CheckpointedStep -StepName 'iterations' -SuccessMessage "Sprint iterations configured ($($config.iterations.sprintCount) sprints)" `
+            -ProgressStatus "Setting up sprint iterations (4/$totalSteps)" -Action {
+            $sprintCount = $config.iterations.sprintCount
+            $sprintDays = $config.iterations.sprintDurationDays
+            Ensure-AdoIterations $DestProject $effectiveTeamName -SprintCount $sprintCount -SprintDurationDays $sprintDays
+        }
+    }
+    else {
+        Write-Host "[SKIP] Sprint iterations (disabled by selection)" -ForegroundColor DarkGray
     }
     
     # Create shared work item queries with checkpoint
-    Invoke-CheckpointedStep -StepName 'queries' -SuccessMessage "Shared queries created" `
-        -ProgressStatus "Creating shared queries (5/$totalSteps)" -Action {
-        Ensure-AdoSharedQueries $DestProject $effectiveTeamName
+    if ($componentsToInitialize.queries) {
+        Invoke-CheckpointedStep -StepName 'queries' -SuccessMessage "Shared queries created" `
+            -ProgressStatus "Creating shared queries (5/$totalSteps)" -Action {
+            Ensure-AdoSharedQueries $DestProject $effectiveTeamName
+        }
+    }
+    else {
+        Write-Host "[SKIP] Shared queries (disabled by selection)" -ForegroundColor DarkGray
     }
     
     # Configure team settings with checkpoint
-    Invoke-CheckpointedStep -StepName 'teamSettings' -SuccessMessage "Team settings configured" `
-        -ProgressStatus "Configuring team settings (6/$totalSteps)" -Action {
-        Ensure-AdoTeamSettings $DestProject $effectiveTeamName
+    if ($componentsToInitialize.teamSettings) {
+        Invoke-CheckpointedStep -StepName 'teamSettings' -SuccessMessage "Team settings configured" `
+            -ProgressStatus "Configuring team settings (6/$totalSteps)" -Action {
+            Ensure-AdoTeamSettings $DestProject $effectiveTeamName
+        }
+    }
+    else {
+        Write-Host "[SKIP] Team settings (disabled by selection)" -ForegroundColor DarkGray
     }
     
     # Create team dashboard with checkpoint
-    Invoke-CheckpointedStep -StepName 'dashboard' -SuccessMessage "Team dashboard created" `
-        -ProgressStatus "Creating team dashboard (7/$totalSteps)" -Action {
-        Ensure-AdoDashboard $DestProject $effectiveTeamName
+    if ($componentsToInitialize.dashboard) {
+        Invoke-CheckpointedStep -StepName 'dashboard' -SuccessMessage "Team dashboard created" `
+            -ProgressStatus "Creating team dashboard (7/$totalSteps)" -Action {
+            Ensure-AdoDashboard $DestProject $effectiveTeamName
+        }
+    }
+    else {
+        Write-Host "[SKIP] Team dashboard (disabled by selection)" -ForegroundColor DarkGray
     }
     
     # Create wiki pages (tag guidelines and best practices) with checkpoint - PARALLEL
-    Invoke-CheckpointedStep -StepName 'wikiPages' -SuccessMessage "Additional wiki pages created" `
-        -ProgressStatus "Creating additional wiki pages (8/$totalSteps)" -Action {
-        Write-Host "[INFO] 🚀 Creating wiki pages in parallel..." -ForegroundColor Cyan
+    if ($componentsToInitialize.wikiPages) {
+        Invoke-CheckpointedStep -StepName 'wikiPages' -SuccessMessage "Additional wiki pages created" `
+            -ProgressStatus "Creating additional wiki pages (8/$totalSteps)" -Action {
+            Write-Host "[INFO] 🚀 Creating wiki pages in parallel..." -ForegroundColor Cyan
         
         $wikiJobs = @()
         
@@ -1528,158 +1624,178 @@ This project was migrated from GitLab using automated tooling.
     }
     
     # Configure QA infrastructure with granular error handling and checkpoint
-    Invoke-CheckpointedStep -StepName 'qaInfrastructure' `
-        -ProgressStatus "Setting up QA infrastructure (9/$totalSteps)" -Action {
-        Write-Host "[INFO] Setting up QA infrastructure..." -ForegroundColor Cyan
-        $qaResults = [ordered]@{
-            testPlan = @{ success = $false; error = $null }
-            queries = @{ success = $false; error = $null }
-            dashboard = @{ success = $false; error = $null }
-            configurations = @{ success = $false; error = $null }
-            guidelines = @{ success = $false; error = $null }
-        }
-        
-        # Test Plan
-        try {
-            $testPlan = Ensure-AdoTestPlan $DestProject
-            $qaResults.testPlan.success = $true
-            Write-Verbose "[Initialize-AdoProject] ✓ Test plan created successfully"
-        }
-        catch {
-            $qaResults.testPlan.error = $_.Exception.Message
-            Write-Warning "  ✗ Test plan creation failed: $($_.Exception.Message)"
-            if ($_.Exception.Message -match '401|403') {
-                Write-Warning "    → Ensure PAT has 'Test Plans: Read, write, & manage' scope"
-                Write-Warning "    → Generate token at: $(Get-CoreRestConfig).CollectionUrl/_usersSettings/tokens"
+    if ($componentsToInitialize.qaInfrastructure) {
+        Invoke-CheckpointedStep -StepName 'qaInfrastructure' `
+            -ProgressStatus "Setting up QA infrastructure (9/$totalSteps)" -Action {
+            Write-Host "[INFO] Setting up QA infrastructure..." -ForegroundColor Cyan
+            $qaResults = [ordered]@{
+                testPlan = @{ success = $false; error = $null }
+                queries = @{ success = $false; error = $null }
+                dashboard = @{ success = $false; error = $null }
+                configurations = @{ success = $false; error = $null }
+                guidelines = @{ success = $false; error = $null }
+            }
+            
+            # Test Plan
+            try {
+                $testPlan = Ensure-AdoTestPlan $DestProject
+                $qaResults.testPlan.success = $true
+                Write-Verbose "[Initialize-AdoProject] ✓ Test plan created successfully"
+            }
+            catch {
+                $qaResults.testPlan.error = $_.Exception.Message
+                Write-Warning "  ✗ Test plan creation failed: $($_.Exception.Message)"
+                if ($_.Exception.Message -match '401|403') {
+                    Write-Warning "    → Ensure PAT has 'Test Plans: Read, write, & manage' scope"
+                    Write-Warning "    → Generate token at: $(Get-CoreRestConfig).CollectionUrl/_usersSettings/tokens"
+                }
+            }
+            
+            # QA Queries
+            try {
+                Ensure-AdoQAQueries $DestProject
+                $qaResults.queries.success = $true
+                Write-Verbose "[Initialize-AdoProject] ✓ QA queries created successfully"
+            }
+            catch {
+                $qaResults.queries.error = $_.Exception.Message
+                Write-Warning "  ✗ QA queries creation failed: $($_.Exception.Message)"
+            }
+            
+            # QA Dashboard
+            try {
+                Ensure-AdoQADashboard $DestProject $effectiveTeamName
+                $qaResults.dashboard.success = $true
+                Write-Verbose "[Initialize-AdoProject] ✓ QA dashboard created successfully"
+            }
+            catch {
+                $qaResults.dashboard.error = $_.Exception.Message
+                Write-Warning "  ✗ QA dashboard creation failed: $($_.Exception.Message)"
+            }
+            
+            # Test Configurations
+            try {
+                Ensure-AdoTestConfigurations $DestProject
+                $qaResults.configurations.success = $true
+                Write-Verbose "[Initialize-AdoProject] ✓ Test configurations created successfully"
+            }
+            catch {
+                $qaResults.configurations.error = $_.Exception.Message
+                Write-Warning "  ✗ Test configurations creation failed: $($_.Exception.Message)"
+                if ($_.Exception.Message -match '401|403') {
+                    Write-Warning "    → Ensure PAT has 'Test Plans: Read, write, & manage' scope"
+                }
+            }
+            
+            # QA Guidelines Wiki
+            try {
+                Ensure-AdoQAGuidelinesWiki $DestProject $wiki.id
+                $qaResults.guidelines.success = $true
+                Write-Verbose "[Initialize-AdoProject] ✓ QA guidelines wiki created successfully"
+            }
+            catch {
+                $qaResults.guidelines.error = $_.Exception.Message
+                Write-Warning "  ✗ QA guidelines wiki creation failed: $($_.Exception.Message)"
+            }
+            
+            # Summary report
+            $qaSuccessCount = ($qaResults.Values | Where-Object { $_.success }).Count
+            $qaTotalCount = $qaResults.Count
+            if ($qaSuccessCount -eq $qaTotalCount) {
+                Write-Host "[SUCCESS] QA infrastructure: $qaSuccessCount/$qaTotalCount components configured successfully" -ForegroundColor Green
+            }
+            elseif ($qaSuccessCount -gt 0) {
+                Write-Host "[PARTIAL] QA infrastructure: $qaSuccessCount/$qaTotalCount components configured (see warnings above)" -ForegroundColor Yellow
+            }
+            else {
+                Write-Host "[FAILED] QA infrastructure: 0/$qaTotalCount components configured" -ForegroundColor Red
+                Write-Warning "QA infrastructure setup failed completely. Check PAT permissions and retry."
             }
         }
-        
-        # QA Queries
-        try {
-            Ensure-AdoQAQueries $DestProject
-            $qaResults.queries.success = $true
-            Write-Verbose "[Initialize-AdoProject] ✓ QA queries created successfully"
-        }
-        catch {
-            $qaResults.queries.error = $_.Exception.Message
-            Write-Warning "  ✗ QA queries creation failed: $($_.Exception.Message)"
-        }
-        
-        # QA Dashboard
-        try {
-            Ensure-AdoQADashboard $DestProject $effectiveTeamName
-            $qaResults.dashboard.success = $true
-            Write-Verbose "[Initialize-AdoProject] ✓ QA dashboard created successfully"
-        }
-        catch {
-            $qaResults.dashboard.error = $_.Exception.Message
-            Write-Warning "  ✗ QA dashboard creation failed: $($_.Exception.Message)"
-        }
-        
-        # Test Configurations
-        try {
-            Ensure-AdoTestConfigurations $DestProject
-            $qaResults.configurations.success = $true
-            Write-Verbose "[Initialize-AdoProject] ✓ Test configurations created successfully"
-        }
-        catch {
-            $qaResults.configurations.error = $_.Exception.Message
-            Write-Warning "  ✗ Test configurations creation failed: $($_.Exception.Message)"
-            if ($_.Exception.Message -match '401|403') {
-                Write-Warning "    → Ensure PAT has 'Test Plans: Read, write, & manage' scope"
-            }
-        }
-        
-        # QA Guidelines Wiki
-        try {
-            Ensure-AdoQAGuidelinesWiki $DestProject $wiki.id
-            $qaResults.guidelines.success = $true
-            Write-Verbose "[Initialize-AdoProject] ✓ QA guidelines wiki created successfully"
-        }
-        catch {
-            $qaResults.guidelines.error = $_.Exception.Message
-            Write-Warning "  ✗ QA guidelines wiki creation failed: $($_.Exception.Message)"
-        }
-        
-        # Summary report
-        $qaSuccessCount = ($qaResults.Values | Where-Object { $_.success }).Count
-        $qaTotalCount = $qaResults.Count
-        if ($qaSuccessCount -eq $qaTotalCount) {
-            Write-Host "[SUCCESS] QA infrastructure: $qaSuccessCount/$qaTotalCount components configured successfully" -ForegroundColor Green
-        }
-        elseif ($qaSuccessCount -gt 0) {
-            Write-Host "[PARTIAL] QA infrastructure: $qaSuccessCount/$qaTotalCount components configured (see warnings above)" -ForegroundColor Yellow
-        }
-        else {
-            Write-Host "[FAILED] QA infrastructure: 0/$qaTotalCount components configured" -ForegroundColor Red
-            Write-Warning "QA infrastructure setup failed completely. Check PAT permissions and retry."
-        }
+    }
+    else {
+        Write-Host "[SKIP] QA infrastructure (disabled by selection)" -ForegroundColor DarkGray
     }
     
     # Create repository with checkpoint
     $repo = $null
-    Invoke-CheckpointedStep -StepName 'repository' -SuccessMessage "Repository '$RepoName' created" `
-        -ProgressStatus "Creating repository (10/$totalSteps)" -Action {
-        $script:repo = Ensure-AdoRepository $DestProject $projId $RepoName
+    if ($componentsToInitialize.repository) {
+        Invoke-CheckpointedStep -StepName 'repository' -SuccessMessage "Repository '$RepoName' created" `
+            -ProgressStatus "Creating repository (10/$totalSteps)" -Action {
+            $script:repo = Ensure-AdoRepository $DestProject $projId $RepoName
+        }
+    }
+    else {
+        Write-Host "[SKIP] Repository creation (disabled by selection)" -ForegroundColor DarkGray
     }
 
     if ($null -ne $repo) {
         # Apply branch policies with checkpoint (only if default branch exists)
-        Invoke-CheckpointedStep -StepName 'branchPolicies' `
-            -ProgressStatus "Applying branch policies (11/$totalSteps)" -Action {
-            # Wait for default branch with retry logic (handles ADO initialization delays)
-            Write-Verbose "[Initialize-AdoProject] Waiting for repository default branch to be established..."
-            $maxRetries = $script:REPO_INIT_MAX_RETRIES
-            $retryDelays = $script:REPO_INIT_RETRY_DELAYS
-            $defaultRef = $null
-            
-            for ($i = 0; $i -lt $maxRetries; $i++) {
-                $delay = $retryDelays[$i]
-                Write-Verbose "[Initialize-AdoProject] Attempt $($i + 1)/$maxRetries - waiting ${delay}s..."
-                Start-Sleep -Seconds $delay
+        if ($componentsToInitialize.branchPolicies) {
+            Invoke-CheckpointedStep -StepName 'branchPolicies' `
+                -ProgressStatus "Applying branch policies (11/$totalSteps)" -Action {
+                # Wait for default branch with retry logic (handles ADO initialization delays)
+                Write-Verbose "[Initialize-AdoProject] Waiting for repository default branch to be established..."
+                $maxRetries = $script:REPO_INIT_MAX_RETRIES
+                $retryDelays = $script:REPO_INIT_RETRY_DELAYS
+                $defaultRef = $null
                 
-                $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
-                if ($defaultRef) {
-                    Write-Verbose "[Initialize-AdoProject] ✓ Default branch found: $defaultRef (after $($i + 1) attempts)"
-                    break
+                for ($i = 0; $i -lt $maxRetries; $i++) {
+                    $delay = $retryDelays[$i]
+                    Write-Verbose "[Initialize-AdoProject] Attempt $($i + 1)/$maxRetries - waiting ${delay}s..."
+                    Start-Sleep -Seconds $delay
+                    
+                    $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
+                    if ($defaultRef) {
+                        Write-Verbose "[Initialize-AdoProject] ✓ Default branch found: $defaultRef (after $($i + 1) attempts)"
+                        break
+                    }
+                    
+                    if ($i -lt ($maxRetries - 1)) {
+                        Write-Verbose "[Initialize-AdoProject] Branch not ready yet, retrying..."
+                    }
                 }
-                
-                if ($i -lt ($maxRetries - 1)) {
-                    Write-Verbose "[Initialize-AdoProject] Branch not ready yet, retrying..."
-                }
-            }
 
-            # Apply branch policies only if repository has a default branch
-            if ($defaultRef) {
-                Ensure-AdoBranchPolicies `
-                    -Project $DestProject `
-                    -RepoId $repo.id `
-                    -Ref $defaultRef `
-                    -Min 2 `
-                    -BuildId $BuildDefinitionId `
-                    -StatusContext $SonarStatusContext
-                Write-Host "[SUCCESS] Branch policies applied to $defaultRef" -ForegroundColor Green
+                # Apply branch policies only if repository has a default branch
+                if ($defaultRef) {
+                    Ensure-AdoBranchPolicies `
+                        -Project $DestProject `
+                        -RepoId $repo.id `
+                        -Ref $defaultRef `
+                        -Min 2 `
+                        -BuildId $BuildDefinitionId `
+                        -StatusContext $SonarStatusContext
+                    Write-Host "[SUCCESS] Branch policies applied to $defaultRef" -ForegroundColor Green
+                }
+                else {
+                    Write-Host "[WARN] Default branch not available after $maxRetries retries (62s total wait)" -ForegroundColor Yellow
+                    Write-Host "[INFO] Branch policies will be applied after first push" -ForegroundColor Yellow
+                    Write-Host "[INFO] This is normal for empty repositories - no action needed" -ForegroundColor Gray
+                    # Mark as completed even if skipped (not a failure)
+                }
             }
-            else {
-                Write-Host "[WARN] Default branch not available after $maxRetries retries (62s total wait)" -ForegroundColor Yellow
-                Write-Host "[INFO] Branch policies will be applied after first push" -ForegroundColor Yellow
-                Write-Host "[INFO] This is normal for empty repositories - no action needed" -ForegroundColor Gray
-                # Mark as completed even if skipped (not a failure)
-            }
+        }
+        else {
+            Write-Host "[SKIP] Branch policies (disabled by selection)" -ForegroundColor DarkGray
         }
         
         # Add repository templates with checkpoint
-        Invoke-CheckpointedStep -StepName 'repositoryTemplates' `
-            -ProgressStatus "Adding repository templates (12/$totalSteps)" -Action {
-            $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
-            if ($defaultRef) {
-                Ensure-AdoRepositoryTemplates $DestProject $repo.id $RepoName
-                Write-Host "[SUCCESS] Repository templates (README, PR template) added" -ForegroundColor Green
+        if ($componentsToInitialize.repositoryTemplates) {
+            Invoke-CheckpointedStep -StepName 'repositoryTemplates' `
+                -ProgressStatus "Adding repository templates (12/$totalSteps)" -Action {
+                $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
+                if ($defaultRef) {
+                    Ensure-AdoRepositoryTemplates $DestProject $repo.id $RepoName
+                    Write-Host "[SUCCESS] Repository templates (README, PR template) added" -ForegroundColor Green
+                }
+                else {
+                    Write-Host "[INFO] Repository templates will be added after first push" -ForegroundColor Yellow
+                    # Mark as completed even if skipped (not a failure)
+                }
             }
-            else {
-                Write-Host "[INFO] Repository templates will be added after first push" -ForegroundColor Yellow
-                # Mark as completed even if skipped (not a failure)
-            }
+        }
+        else {
+            Write-Host "[SKIP] Repository templates (disabled by selection)" -ForegroundColor DarkGray
         }
 
         # Apply security restrictions (BA group cannot push directly) - only if RBAC is available
@@ -1734,6 +1850,77 @@ This project was migrated from GitLab using automated tooling.
     catch {
         Write-Verbose "[Initialize-AdoProject] Could not create migration config: $_"
         # Non-critical, continue
+    }
+    
+    # Complete Profile: Prompt for team initialization packs
+    if ($Profile -eq 'Complete') {
+        Write-Host ""
+        Write-Host "========================================" -ForegroundColor Cyan
+        Write-Host " TEAM INITIALIZATION PACKS" -ForegroundColor Magenta
+        Write-Host "========================================" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "Complete profile includes optional team-specific initialization packs:" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Available packs:" -ForegroundColor Cyan
+        Write-Host "  [B] Business Team Pack" -ForegroundColor Yellow
+        Write-Host "      10 wiki templates + 4 work item types (Requirements, Change Requests)" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  [D] Dev Team Pack" -ForegroundColor Yellow
+        Write-Host "      7 wiki templates + comprehensive workflows (CI/CD, Code Review)" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  [S] Security Team Pack" -ForegroundColor Yellow
+        Write-Host "      7 wiki templates + security configurations (Threat Model, Audit)" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  [M] Management Team Pack" -ForegroundColor Yellow
+        Write-Host "      8 wiki templates + executive dashboards (OKRs, Roadmap)" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  [A] All Packs" -ForegroundColor Green
+        Write-Host "      Install all team packs (comprehensive setup)" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  [N] None" -ForegroundColor DarkGray
+        Write-Host "      Skip team packs (standard setup)" -ForegroundColor Gray
+        Write-Host ""
+        
+        $teamPackChoice = Read-Host "Select team packs to install [B/D/S/M/A/N]"
+        
+        switch ($teamPackChoice.ToUpper()) {
+            'B' {
+                Write-Host ""
+                Write-Host "[INFO] Installing Business Team Pack..." -ForegroundColor Cyan
+                Initialize-BusinessInit -DestProject $DestProject
+            }
+            'D' {
+                Write-Host ""
+                Write-Host "[INFO] Installing Dev Team Pack..." -ForegroundColor Cyan
+                Initialize-DevInit -DestProject $DestProject
+            }
+            'S' {
+                Write-Host ""
+                Write-Host "[INFO] Installing Security Team Pack..." -ForegroundColor Cyan
+                Initialize-SecurityInit -DestProject $DestProject
+            }
+            'M' {
+                Write-Host ""
+                Write-Host "[INFO] Installing Management Team Pack..." -ForegroundColor Cyan
+                Initialize-ManagementInit -DestProject $DestProject
+            }
+            'A' {
+                Write-Host ""
+                Write-Host "[INFO] Installing all team packs..." -ForegroundColor Cyan
+                Initialize-BusinessInit -DestProject $DestProject
+                Initialize-DevInit -DestProject $DestProject
+                Initialize-SecurityInit -DestProject $DestProject
+                Initialize-ManagementInit -DestProject $DestProject
+            }
+            'N' {
+                Write-Host ""
+                Write-Host "[INFO] Skipping team packs (standard setup)" -ForegroundColor Gray
+            }
+            default {
+                Write-Host ""
+                Write-Host "[WARN] Invalid selection '$teamPackChoice' - skipping team packs" -ForegroundColor Yellow
+            }
+        }
     }
     
     Write-Host ""
@@ -1854,6 +2041,7 @@ This project was migrated from GitLab using automated tooling.
         Write-Verbose "Could not generate HTML reports: $_"
         # Non-critical, continue
     }
+    } # Extra closing brace to balance Initialize-AdoProject
 }
 
 <#
