@@ -2,7 +2,7 @@
 # This script demonstrates how to use custom configuration files for project initialization
 
 # Import the ConfigLoader module
-Import-Module .\modules\ConfigLoader.psm1
+Import-Module .\modules\core\ConfigLoader.psm1
 
 Write-Host "`n╔════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "║       Custom Configuration Example                            ║" -ForegroundColor Cyan

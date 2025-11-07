@@ -1,6 +1,6 @@
 # Release Notes - Gitlab2DevOps v2.1.0
 
-**Release Date**: TBD  
+**Release Date**: November 7, 2025  
 **Release Type**: Major Feature Release with Breaking Changes
 
 ---
@@ -11,6 +11,7 @@ Version 2.1.0 represents a significant milestone in the evolution of Gitlab2DevO
 
 ### Key Highlights
 
+- 👥 **NEW**: User Identity Migration - Export GitLab users/groups, import to Azure DevOps Server
 - ⚠️ **Breaking Change**: Self-contained folder structures for all migrations
 - 📦 **Module Restructuring**: 51.6% size reduction (10,763 → 5,174 lines)
 - 📚 **43 Wiki Templates**: ~18,000 lines of production-ready documentation
@@ -75,9 +76,34 @@ migrations/
 
 ---
 
-## ✨ What's New
+## 🚀 What's New
 
-### 1. Self-Contained Migration Structures
+### 1. User Identity Migration ⭐ **NEW FEATURE**
+
+Complete GitLab-to-Azure DevOps identity workflow for on-premise Azure DevOps Server:
+
+**Export User Information** (Menu Option 5):
+- Export GitLab users, groups, and memberships to JSON files
+- Three export profiles: Minimal (users/groups), Standard (+projects), Complete (+memberships)
+- Offline operation (no Azure DevOps connection required)
+- Creates timestamped export directories with structured JSON files
+- Integrates with existing `examples/export-gitlab-identity.ps1`
+
+**Import User Information** (Menu Option 6):
+- Import exported JSON data into Azure DevOps Server
+- Two modes: Dry Run (preview) and Execute (actual import)
+- File validation with clear error messages
+- User resolution (requires Active Directory integration)
+- Integrates with existing `Import-GitLabIdentityToAdo.ps1`
+
+**Menu Integration**:
+- Updated interactive menu from 5 to 7 options
+- Robust path resolution from module location to project root
+- Exit option moved to Option 7
+
+**Documentation**: Comprehensive guide in `docs/USER_EXPORT_IMPORT.md`
+
+### 2. Self-Contained Migration Structures
 
 **New Configuration Files**:
 - `migration-config.json` (single projects) - Stores project metadata

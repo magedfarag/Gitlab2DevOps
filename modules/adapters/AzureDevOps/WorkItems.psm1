@@ -757,15 +757,8 @@ function Ensure-AdoTestConfigurations {
                     $matchingEntry = $allowedEntries | Where-Object { $_.name -eq $varValue } | Select-Object -First 1
 
                     $configEntry = @{
-                        variable = @{
-                            id = $variable.id
-                            name = $variable.name
-                        }
+                        name = $varName
                         value = $varValue
-                    }
-
-                    if ($matchingEntry -and $matchingEntry.id) {
-                        $configEntry.valueId = $matchingEntry.id
                     }
 
                     $configValues += $configEntry

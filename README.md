@@ -2,7 +2,7 @@
 
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://github.com/PowerShell/PowerShell)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.1.0--dev-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-2.1.0-green.svg)](CHANGELOG.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 > **Enterprise-grade migration toolkit for seamless GitLab to Azure DevOps transitions**
@@ -129,6 +129,7 @@ Optional: Provision team-specific initialization packs in an existing ADO projec
 
 - **Idempotent Operations**: Safe to re-run with `-Force` and `-Replace` flags
 - **CLI Automation**: 10 modes (Preflight, Initialize, Migrate, BulkPrepare, BulkMigrate, BusinessInit, DevInit, SecurityInit, ManagementInit, MenuMode)
+- **User Identity Migration**: ⭐ **NEW** Export GitLab users/groups to JSON, import to Azure DevOps Server
 - **Progress Tracking**: Visual progress bars with ETA for long-running operations
 - **Telemetry Analytics**: Opt-in metrics collection for performance analysis (local only)
 - **Dry-Run Preview**: Generate HTML/JSON reports before migration with size estimates

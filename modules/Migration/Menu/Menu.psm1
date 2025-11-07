@@ -101,10 +101,15 @@ function Show-MigrationMenu {
     Write-Host "  4) Start Planned Migration  " -ForegroundColor White -NoNewline
     Write-Host "│ Execute prepared migration (single/bulk)" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  5) Exit" -ForegroundColor Yellow
+    Write-Host "  5) Export User Information  " -ForegroundColor White -NoNewline
+    Write-Host "│ Export GitLab users/groups to JSON" -ForegroundColor Gray
+    Write-Host "  6) Import User Information  " -ForegroundColor White -NoNewline
+    Write-Host "│ Import JSON data to Azure DevOps" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  7) Exit" -ForegroundColor Yellow
     Write-Host ""
     
-    $choice = Read-Host "Select option (1-5)"
+    $choice = Read-Host "Select option (1-7)"
     
     switch ($choice) {
         '1' {
@@ -427,6 +432,128 @@ function Show-MigrationMenu {
             }
         }
         '5' {
+            # Export User Information
+            Write-Host ""
+            Write-Host "=== EXPORT USER INFORMATION ===" -ForegroundColor Cyan
+            Write-Host "Export GitLab users, groups, and memberships to JSON files for later import into Azure DevOps."
+            Write-Host ""
+            
+            $exportDir = Read-Host "Enter output directory for export (press Enter for 'exports')"
+            if ([string]::IsNullOrWhiteSpace($exportDir)) {
+                $exportDir = "exports"
+            }
+            
+            # Ensure the exports directory exists
+            if (-not (Test-Path $exportDir)) {
+                New-Item -Path $exportDir -ItemType Directory -Force | Out-Null
+                Write-Host "[INFO] Created export directory: $exportDir" -ForegroundColor Green
+            }
+            
+            Write-Host ""
+            Write-Host "Export Profile Options:" -ForegroundColor Cyan
+            Write-Host "  1) Minimal   - Users and groups only" -ForegroundColor White
+            Write-Host "  2) Standard  - Users, groups, and projects" -ForegroundColor White  
+            Write-Host "  3) Complete  - Users, groups, projects, and all memberships" -ForegroundColor White
+            Write-Host ""
+            
+            $profileChoice = Read-Host "Select export profile (1-3)"
+            $profile = switch ($profileChoice) {
+                '1' { 'Minimal' }
+                '2' { 'Standard' }
+                '3' { 'Complete' }
+                default { 'Standard' }
+            }
+            
+            Write-Host "[INFO] Starting export with profile: $profile" -ForegroundColor Green
+            
+            try {
+                # Call the export script - navigate from module location to project root
+                # From modules/Migration/Menu/ go up 3 levels to get to project root
+                $projectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
+                $exportScript = Join-Path $projectRoot "examples\export-gitlab-identity.ps1"
+                
+                if (-not (Test-Path $exportScript)) {
+                    throw "Export script not found at: $exportScript"
+                }
+                
+                & $exportScript -GitLabBaseUrl $script:GitLabBaseUrl -GitLabToken $script:GitLabToken -OutDirectory $exportDir -Profile $profile
+                
+                Write-Host ""
+                Write-Host "[SUCCESS] Export completed! Files saved to: $exportDir" -ForegroundColor Green
+                Write-Host "[INFO] You can now use Option 6 to import this data into Azure DevOps" -ForegroundColor Cyan
+            }
+            catch {
+                Write-Host "[ERROR] Export failed: $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        '6' {
+            # Import User Information
+            Write-Host ""
+            Write-Host "=== IMPORT USER INFORMATION ===" -ForegroundColor Cyan
+            Write-Host "Import previously exported GitLab identity data into Azure DevOps Server."
+            Write-Host ""
+            
+            $importDir = Read-Host "Enter directory containing exported JSON files (press Enter for 'exports')"
+            if ([string]::IsNullOrWhiteSpace($importDir)) {
+                $importDir = "exports"
+            }
+            
+            # Verify the directory exists and has required files
+            if (-not (Test-Path $importDir)) {
+                Write-Host "[ERROR] Import directory not found: $importDir" -ForegroundColor Red
+                Write-Host "[INFO] Use Option 5 to export GitLab data first" -ForegroundColor Yellow
+                return
+            }
+            
+            $usersFile = Join-Path $importDir "users.json"
+            $groupsFile = Join-Path $importDir "groups.json"
+            
+            if (-not (Test-Path $usersFile) -or -not (Test-Path $groupsFile)) {
+                Write-Host "[ERROR] Required files not found in $importDir" -ForegroundColor Red
+                Write-Host "Expected files: users.json, groups.json" -ForegroundColor Yellow
+                return
+            }
+            
+            Write-Host "[INFO] Found export files in: $importDir" -ForegroundColor Green
+            Write-Host ""
+            Write-Host "Import Options:" -ForegroundColor Cyan
+            Write-Host "  1) Dry Run    - Preview what would be imported (recommended first)" -ForegroundColor Yellow
+            Write-Host "  2) Execute    - Perform actual import to Azure DevOps" -ForegroundColor White
+            Write-Host ""
+            
+            $importChoice = Read-Host "Select import mode (1-2)"
+            $dryRun = ($importChoice -eq '1')
+            
+            Write-Host "[INFO] Starting import in $(if ($dryRun) { 'DRY RUN' } else { 'EXECUTE' }) mode..." -ForegroundColor Green
+            
+            try {
+                # Call the import script - navigate from module location to project root
+                # From modules/Migration/Menu/ go up 3 levels to get to project root
+                $projectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
+                $importScript = Join-Path $projectRoot "Import-GitLabIdentityToAdo.ps1"
+                
+                if (-not (Test-Path $importScript)) {
+                    throw "Import script not found at: $importScript"
+                }
+                
+                if ($dryRun) {
+                    & $importScript -CollectionUrl $script:CollectionUrl -AdoPat $script:AdoPat -ExportFolder $importDir -WhatIf
+                }
+                else {
+                    & $importScript -CollectionUrl $script:CollectionUrl -AdoPat $script:AdoPat -ExportFolder $importDir
+                }
+                
+                Write-Host ""
+                Write-Host "[SUCCESS] Import completed!" -ForegroundColor Green
+                if ($dryRun) {
+                    Write-Host "[INFO] This was a dry run. Use Execute mode to perform actual import." -ForegroundColor Cyan
+                }
+            }
+            catch {
+                Write-Host "[ERROR] Import failed: $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        '7' {
             Write-Host ""
             Write-Host "Thank you for using GitLab → Azure DevOps Migration Tool" -ForegroundColor Cyan
             Write-Host "Goodbye! 👋" -ForegroundColor Green
@@ -435,7 +562,7 @@ function Show-MigrationMenu {
         }
         default {
             Write-Host ""
-            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 5." -ForegroundColor Red
+            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 7." -ForegroundColor Red
             Write-Host ""
         }
     }

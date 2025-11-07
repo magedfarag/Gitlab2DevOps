@@ -11,8 +11,8 @@
 BeforeAll {
     $projectRoot = Split-Path -Parent $PSScriptRoot
     $moduleRoot = Join-Path $projectRoot 'modules'
-    Import-Module (Join-Path $moduleRoot 'Migration.psm1') -Force
-    Import-Module (Join-Path $moduleRoot 'AzureDevOps.psm1') -Force
+    Import-Module (Join-Path $moduleRoot 'Migration\Migration.psm1') -Force
+    Import-Module (Join-Path $moduleRoot 'adapters\AzureDevOps.psm1') -Force
 }
 
 Describe "BusinessInit CLI Mode" {

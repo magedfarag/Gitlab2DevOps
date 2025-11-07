@@ -65,7 +65,7 @@ function Test-Requirement {
 Write-Host "`n=== ENV LOADER MODULE ===" -ForegroundColor Cyan
 
 Test-Requirement "EnvLoader module exports all required functions" {
-    Import-Module (Join-Path $moduleRoot "core\EnvLoader.psm1") -Force
+        Import-Module (Join-Path $moduleRoot "core\EnvLoader.psm1") -Force
     
     $requiredFunctions = @(
         'Import-DotEnvFile',

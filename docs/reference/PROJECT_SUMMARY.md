@@ -44,9 +44,10 @@ modules/
 #### Migration Modes
 - **Individual Migration**: Single repository with full validation
 - **Bulk Migration**: Multiple repositories from JSON template
+- **User Identity Migration**: ⭐ **NEW** Export GitLab users/groups to JSON, import to Azure DevOps
 - **Sync Mode**: Update existing repositories with latest changes
 - **CLI Mode**: Automation-friendly command-line interface
-- **Interactive Mode**: Menu-driven interface for manual operations
+- **Interactive Mode**: Menu-driven interface for manual operations (7 options including user export/import)
 
 ## Security Model
 

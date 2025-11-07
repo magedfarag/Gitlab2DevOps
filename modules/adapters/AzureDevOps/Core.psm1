@@ -196,7 +196,12 @@ function Test-AdoProjectExists {
     
     try {
         $projects = Get-AdoProjectList
-        $project = $projects | Where-Object { $_.name -eq $ProjectName }
+        $project = $projects | Where-Object { $_.name -eq $ProjectName } | Select-Object -First 1
+        if ($project) { return $true }
+
+        # If not found, refresh the cache once in case the project was just created
+        $projects = Get-AdoProjectList -RefreshCache
+        $project = $projects | Where-Object { $_.name -eq $ProjectName } | Select-Object -First 1
         return $null -ne $project
     }
     catch {

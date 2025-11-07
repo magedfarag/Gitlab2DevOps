@@ -14,6 +14,7 @@ Start here if you're new to the tool:
 Step-by-step guides for common workflows:
 - [Team Productivity Guide](guides/TEAM_PRODUCTIVITY_GUIDE.md) - ⭐ All auto-configured productivity features (includes QA infrastructure!)
 - [Best Practices Alignment](BEST_PRACTICES_ALIGNMENT.md) - 🏆 How our configurations follow industry standards
+- [User Export/Import Guide](USER_EXPORT_IMPORT.md) - ⭐ **NEW** Export GitLab users/groups, import to Azure DevOps
 - [Sync Mode Guide](guides/SYNC_MODE_GUIDE.md) - Re-running migrations and keeping repositories in sync
 - [Bulk Migration Configuration](guides/BULK_MIGRATION_CONFIG.md) - Migrating multiple repositories at once
 - [Work Item Templates](WORK_ITEM_TEMPLATES.md) - Using standardized work item templates
@@ -51,6 +52,7 @@ For contributors and maintainers:
 - **Understanding productivity features**: See [Team Productivity Guide](guides/TEAM_PRODUCTIVITY_GUIDE.md) ⭐
 - **Setting up QA infrastructure**: See [Team Productivity Guide](guides/TEAM_PRODUCTIVITY_GUIDE.md) → QA Infrastructure section 🧪
 - **Verifying best practices**: See [Best Practices Alignment](BEST_PRACTICES_ALIGNMENT.md) 🏆
+- **User identity migration**: See [User Export/Import Guide](USER_EXPORT_IMPORT.md) ⭐ **NEW**
 - **Single repository migration**: See [README.md](../README.md) → Single Project Migration
 - **Bulk migration**: See [Bulk Migration Configuration](guides/BULK_MIGRATION_CONFIG.md)
 - **Re-running migrations**: See [Sync Mode Guide](guides/SYNC_MODE_GUIDE.md)
@@ -79,5 +81,5 @@ For contributors and maintainers:
 
 ---
 
-**Version**: 2.0.0  
-**Last Updated**: November 5, 2025
+**Version**: 2.1.0  
+**Last Updated**: November 7, 2025

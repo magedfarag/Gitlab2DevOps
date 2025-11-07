@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - v2.1.0 Development
 
-### 🎉 Major Enhancements - Modular Architecture & Self-Contained Migrations
+### 🎉 Major Enhancements - User Identity Migration & Self-Contained Migrations
 
-This release focuses on code quality, maintainability, and providing production-ready documentation templates for all team roles. **⚠️ BREAKING CHANGE**: Folder structure has been redesigned to use self-contained directories.
+This release adds comprehensive user identity migration capabilities and focuses on code quality, maintainability, and providing production-ready documentation templates for all team roles. **⚠️ BREAKING CHANGE**: Folder structure has been redesigned to use self-contained directories.
 
 ### ⚠️ BREAKING CHANGES
 
@@ -55,6 +55,19 @@ migrations/
 - ✅ Support for multiple GitLab projects per DevOps project (future)
 
 ### Added (Post-v2.0.0)
+- **User Identity Migration** ⭐ **NEW**: Complete GitLab-to-Azure DevOps identity workflow:
+  - **Export User Information** (Menu Option 5): Export GitLab users, groups, and memberships to JSON files
+    - Three export profiles: Minimal (users/groups), Standard (+projects), Complete (+memberships)
+    - Offline operation (no Azure DevOps connection required)
+    - Creates timestamped export directories with structured JSON files
+    - Integrates with existing `examples/export-gitlab-identity.ps1` script
+  - **Import User Information** (Menu Option 6): Import exported JSON data into Azure DevOps Server
+    - Two import modes: Dry Run (preview) and Execute (actual import)
+    - File validation and clear error messages
+    - User resolution (requires Active Directory integration)
+    - Integrates with existing `Import-GitLabIdentityToAdo.ps1` script
+  - **Menu Integration**: Updated interactive menu from 5 to 7 options with robust path resolution
+  - **Documentation**: Comprehensive guide in `docs/USER_EXPORT_IMPORT.md`
 - **Self-Contained Migration Structures**: ⚠️ Breaking change - redesigned folder hierarchy:
   - Single migrations: `migrations/{AdoProject}/{GitLabProject}/` with parent-child relationship
   - Bulk migrations: `migrations/{AdoProject}/{Project1,Project2,...}/` with all repos as children

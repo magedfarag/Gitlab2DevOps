@@ -9,7 +9,7 @@
 
 BeforeAll {
     # Import modules
-    Import-Module "$PSScriptRoot\..\modules\Logging.psm1" -Force
+    Import-Module "$PSScriptRoot\..\modules\core\Logging.psm1" -Force
     
     # Create test migrations folder structure
     $script:TestMigrationsDir = Join-Path ([System.IO.Path]::GetTempPath()) "html-test-$(Get-Date -Format 'yyyyMMddHHmmss')"

@@ -75,6 +75,29 @@ cp bulk-migration-config.template.json bulk-migration-config.json
 - ✅ Non-destructive (keeps existing ADO configuration)
 - ⚠️ Overwrites repository content with GitLab source
 
+### User Identity Migration ⭐ NEW
+```powershell
+# Interactive mode (recommended)
+.Gitlab2DevOps.ps1
+# Choose Option 5 (Export) or Option 6 (Import)
+
+# Export GitLab users/groups to JSON (offline from Azure DevOps)
+# Note: Use when GitLab is accessible, creates timestamped export files
+
+# Import JSON data to Azure DevOps (offline from GitLab)
+# Note: Users must exist in Active Directory integrated with Azure DevOps
+```
+
+**Export Workflow:**
+1. Run while GitLab is accessible
+2. Choose export profile (Minimal/Standard/Complete)
+3. Data saved to `exports/` directory as JSON files
+
+**Import Workflow:**  
+1. Run after migration when Azure DevOps is ready
+2. Use Dry Run mode first for validation
+3. Execute actual import when ready
+
 ### Advanced Options
 ```powershell
 # Older Azure DevOps Server
@@ -127,7 +150,7 @@ migrations/
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `-Mode` | String | (required) | `preflight`, `migrate`, or `bulkMigrate` |
+| `-Mode` | String | (required) | `preflight`, `migrate`, `bulkMigrate` (user identity via interactive menu only) |
 | `-GitLabProject` | String | (required) | GitLab project path (e.g., `org/repo`) |
 | `-AdoProject` | String | (required) | Azure DevOps project name |
 | `-ConfigFile` | String | - | Path to bulk migration config JSON |
