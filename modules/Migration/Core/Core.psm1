@@ -16,7 +16,7 @@
 Set-StrictMode -Version Latest
 
 # Import required modules
-Import-Module (Join-Path $PSScriptRoot "..\ConfigLoader.psm1") -Force -Global
+Import-Module (Join-Path $PSScriptRoot "..\..\core\ConfigLoader.psm1") -Force -Global
 
 # Module-level constants for configuration defaults
 $script:DEFAULT_SPRINT_COUNT = 6
@@ -333,7 +333,7 @@ Tag work items by component for better tracking.
     
     # Try default templates directory
     if (-not $content) {
-        $defaultPath = Join-Path $PSScriptRoot "..\templates\$TemplateName.md"
+        $defaultPath = Join-Path $PSScriptRoot "..\..\templates\$TemplateName.md"
         if (Test-Path $defaultPath) {
             try {
                 $content = Get-Content -Path $defaultPath -Raw -Encoding UTF8

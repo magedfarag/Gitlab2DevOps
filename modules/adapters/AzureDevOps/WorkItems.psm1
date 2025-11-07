@@ -94,7 +94,7 @@ function Ensure-AdoTeamTemplates {
     }
     
     # Define comprehensive work item templates for all Agile types - load from JSON
-    $templateJsonPath = Join-Path $PSScriptRoot "..\templates\WorkItemTemplates.json"
+    $templateJsonPath = Join-Path $PSScriptRoot "..\..\templates\WorkItemTemplates.json"
     if (-not (Test-Path $templateJsonPath)) {
         Write-Error "[Ensure-AdoTeamTemplates] Template JSON file not found: $templateJsonPath"
         return
@@ -732,21 +732,43 @@ function Ensure-AdoTestConfigurations {
                 # Find the variable ID from created variables
                 $variable = $createdVariables | Where-Object { $_.name -eq $varName } | Select-Object -First 1
                 if ($variable) {
-                    # Validate that the chosen value exists in variable.values; if not, skip this variable for the config
-                    $allowed = @()
-                    if ($variable.PSObject.Properties['values']) { $allowed = @($variable.values) }
-                    if ($allowed -and ($varValue -notin $allowed)) {
+                    # Normalize allowed values to their string representation + IDs
+                    $allowedEntries = @()
+                    if ($variable.PSObject.Properties['values']) {
+                        foreach ($valueEntry in $variable.values) {
+                            if ($valueEntry -is [string]) {
+                                $allowedEntries += [pscustomobject]@{ name = $valueEntry; id = $null }
+                            }
+                            elseif ($valueEntry.PSObject.Properties['value']) {
+                                $allowedEntries += [pscustomobject]@{
+                                    name = $valueEntry.value
+                                    id   = if ($valueEntry.PSObject.Properties['id']) { $valueEntry.id } else { $null }
+                                }
+                            }
+                        }
+                    }
+
+                    $allowedNames = $allowedEntries | ForEach-Object { $_.name }
+                    if ($allowedNames -and ($varValue -notin $allowedNames)) {
                         Write-Verbose "[Ensure-AdoTestConfigurations] Skipping value '$varValue' for variable '$varName' (not in allowed values)"
                         continue
                     }
 
-                    $configValues += @{
+                    $matchingEntry = $allowedEntries | Where-Object { $_.name -eq $varValue } | Select-Object -First 1
+
+                    $configEntry = @{
                         variable = @{
                             id = $variable.id
                             name = $variable.name
                         }
                         value = $varValue
                     }
+
+                    if ($matchingEntry -and $matchingEntry.id) {
+                        $configEntry.valueId = $matchingEntry.id
+                    }
+
+                    $configValues += $configEntry
                 }
             }
             

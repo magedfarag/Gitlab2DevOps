@@ -17,7 +17,8 @@
 Set-StrictMode -Version Latest
 
 # Import required modules
-Import-Module (Join-Path $PSScriptRoot "Core.psm1") -Force -Global
+$migrationRoot = Split-Path $PSScriptRoot -Parent
+Import-Module (Join-Path $migrationRoot "Core\Core.psm1") -Force -Global
 
 # Progress tracking defaults (avoids StrictMode complaints before initialization)
 $script:totalSteps = 0
@@ -559,9 +560,9 @@ function Initialize-AdoProject {
                 param($DestProject, $Areas, $ModulePath, $CoreRestParams)
                 
                 # Re-import required modules in thread context
-                $moduleDir = Split-Path (Split-Path $ModulePath -Parent) -Parent
-                Import-Module (Join-Path $moduleDir "modules\AzureDevOps.psm1") -Force
-                Import-Module (Join-Path $moduleDir "modules\Core.Rest.psm1") -Force
+                $modulesRoot = Split-Path (Split-Path $ModulePath -Parent) -Parent
+                Import-Module (Join-Path $modulesRoot "adapters\AzureDevOps.psm1") -Force
+                Import-Module (Join-Path $modulesRoot "core\Core.Rest.psm1") -Force
 
                 # Rehydrate Core.Rest context for this runspace
                 if ($CoreRestParams) {
@@ -596,9 +597,9 @@ function Initialize-AdoProject {
                 param($DestProject, $ProjId, $ModulePath, $CustomTemplateDir, $CoreRestParams)
                 
                 # Re-import required modules in thread context
-                $moduleDir = Split-Path (Split-Path $ModulePath -Parent) -Parent
-                Import-Module (Join-Path $moduleDir "modules\AzureDevOps.psm1") -Force
-                Import-Module (Join-Path $moduleDir "modules\Core.Rest.psm1") -Force
+                $modulesRoot = Split-Path (Split-Path $ModulePath -Parent) -Parent
+                Import-Module (Join-Path $modulesRoot "adapters\AzureDevOps.psm1") -Force
+                Import-Module (Join-Path $modulesRoot "core\Core.Rest.psm1") -Force
 
                 if ($CoreRestParams) {
                     Initialize-CoreRest @CoreRestParams
@@ -648,7 +649,8 @@ This project was migrated from GitLab using automated tooling.
                     
                     # Try default directory
                     if (-not $welcomeContent) {
-                        $defaultPath = Join-Path (Split-Path $ModulePath -Parent) "templates\welcome-wiki.md"
+                        $templatesDir = Join-Path $modulesRoot "templates"
+                        $defaultPath = Join-Path $templatesDir "welcome-wiki.md"
                         if (Test-Path $defaultPath) {
                             try {
                                 $template = Get-Content -Path $defaultPath -Raw -Encoding UTF8
@@ -802,9 +804,9 @@ This project was migrated from GitLab using automated tooling.
                 $wikiJobs += Start-ThreadJob -Name "WikiCommonTags" -ScriptBlock {
                     param($DestProject, $WikiId, $ModulePath, $CoreRestParams)
             
-                    $moduleDir = Split-Path (Split-Path $ModulePath -Parent) -Parent
-                    Import-Module (Join-Path $moduleDir "modules\AzureDevOps.psm1") -Force
-                    Import-Module (Join-Path $moduleDir "modules\Core.Rest.psm1") -Force
+                    $modulesRoot = Split-Path (Split-Path $ModulePath -Parent) -Parent
+                    Import-Module (Join-Path $modulesRoot "adapters\AzureDevOps.psm1") -Force
+                    Import-Module (Join-Path $modulesRoot "core\Core.Rest.psm1") -Force
 
                     if ($CoreRestParams) {
                         Initialize-CoreRest @CoreRestParams
@@ -823,9 +825,9 @@ This project was migrated from GitLab using automated tooling.
                 $wikiJobs += Start-ThreadJob -Name "WikiBestPractices" -ScriptBlock {
                     param($DestProject, $WikiId, $ModulePath, $CoreRestParams)
             
-                    $moduleDir = Split-Path (Split-Path $ModulePath -Parent) -Parent
-                    Import-Module (Join-Path $moduleDir "modules\AzureDevOps.psm1") -Force
-                    Import-Module (Join-Path $moduleDir "modules\Core.Rest.psm1") -Force
+                    $modulesRoot = Split-Path (Split-Path $ModulePath -Parent) -Parent
+                    Import-Module (Join-Path $modulesRoot "adapters\AzureDevOps.psm1") -Force
+                    Import-Module (Join-Path $modulesRoot "core\Core.Rest.psm1") -Force
 
                     if ($CoreRestParams) {
                         Initialize-CoreRest @CoreRestParams

@@ -207,9 +207,13 @@ if ([string]::IsNullOrWhiteSpace($EnvFile)) {
 }
 
 if ($envFiles.Count -gt 0) {
-    # Load EnvLoader module
-    $envLoaderModule = Join-Path $scriptRoot "modules\EnvLoader.psm1"
-    if (Test-Path $envLoaderModule) {
+    # Load EnvLoader module (supports legacy and new folder layout)
+    $envLoaderCandidates = @(
+        (Join-Path $scriptRoot "modules\EnvLoader.psm1"),
+        (Join-Path $scriptRoot "modules\core\EnvLoader.psm1")
+    )
+    $envLoaderModule = $envLoaderCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($envLoaderModule) {
         Import-Module $envLoaderModule -Force -ErrorAction SilentlyContinue
         
         if (Get-Command Import-DotEnvFile -ErrorAction SilentlyContinue) {
@@ -237,6 +241,9 @@ if ($envFiles.Count -gt 0) {
             }
         }
     }
+    else {
+        Write-Warning "[EnvLoader] Could not locate EnvLoader module under modules\ or modules\core\. Skipping .env processing."
+    }
 }
 
 # Apply defaults if still empty (after .env loading)
@@ -255,10 +262,10 @@ if ([string]::IsNullOrWhiteSpace($GitLabToken)) {
 
 # Import modules
 Write-Host "[INFO] Loading migration modules..."
-Import-Module "$scriptRoot\modules\Core.Rest.psm1" -Force
-Import-Module "$scriptRoot\modules\Logging.psm1" -Force
-Import-Module "$scriptRoot\modules\GitLab.psm1" -Force
-Import-Module "$scriptRoot\modules\AzureDevOps.psm1" -Force
+Import-Module "$scriptRoot\modules\core\Core.Rest.psm1" -Force
+Import-Module "$scriptRoot\modules\core\Logging.psm1" -Force
+Import-Module "$scriptRoot\modules\adapters\GitLab.psm1" -Force
+Import-Module "$scriptRoot\modules\adapters\AzureDevOps.psm1" -Force
 Import-Module "$scriptRoot\modules\Migration.psm1" -Force
 Write-Host "[INFO] Modules loaded successfully"
 Write-Host ""

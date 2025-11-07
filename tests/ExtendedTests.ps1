@@ -65,7 +65,7 @@ function Test-Requirement {
 Write-Host "`n=== ENV LOADER MODULE ===" -ForegroundColor Cyan
 
 Test-Requirement "EnvLoader module exports all required functions" {
-    Import-Module (Join-Path $moduleRoot "EnvLoader.psm1") -Force
+    Import-Module (Join-Path $moduleRoot "core\EnvLoader.psm1") -Force
     
     $requiredFunctions = @(
         'Import-DotEnvFile',
@@ -982,7 +982,7 @@ Test-Requirement "Documentation warns about credential security" {
 Write-Host "`n=== PERFORMANCE FEATURES ===" -ForegroundColor Cyan
 
 Test-Requirement "Progress tracking module has ETA calculation" {
-    Import-Module (Join-Path $moduleRoot "ProgressTracking.psm1") -Force
+    Import-Module (Join-Path $moduleRoot "dev\ProgressTracking.psm1") -Force
     
     $cmd = Get-Command Update-MigrationProgress -ErrorAction SilentlyContinue
     if (-not $cmd) {
@@ -993,7 +993,7 @@ Test-Requirement "Progress tracking module has ETA calculation" {
     $help = Get-Help Update-MigrationProgress
     if ($help.description.Text -notmatch 'ETA|estimate|remaining') {
         # Check the module file directly
-        $moduleFile = Join-Path $moduleRoot "ProgressTracking.psm1"
+        $moduleFile = Join-Path $moduleRoot "dev\ProgressTracking.psm1"
         $content = Get-Content $moduleFile -Raw
         if ($content -notmatch 'ETA|SecondsRemaining|estimate') {
             throw "Progress tracking should calculate ETA"
@@ -1002,7 +1002,7 @@ Test-Requirement "Progress tracking module has ETA calculation" {
 }
 
 Test-Requirement "Telemetry collects API call metrics" {
-    Import-Module (Join-Path $moduleRoot "Telemetry.psm1") -Force
+    Import-Module (Join-Path $moduleRoot "dev\Telemetry.psm1") -Force
     
     $cmd = Get-Command Record-TelemetryApiCall -ErrorAction SilentlyContinue
     if (-not $cmd) {
@@ -1020,7 +1020,7 @@ Test-Requirement "Telemetry collects API call metrics" {
 }
 
 Test-Requirement "Dry-run preview generates reports" {
-    Import-Module (Join-Path $moduleRoot "DryRunPreview.psm1") -Force
+    Import-Module (Join-Path $moduleRoot "dev\DryRunPreview.psm1") -Force
     
     $cmd = Get-Command New-MigrationPreview -ErrorAction SilentlyContinue
     if (-not $cmd) {
@@ -1047,10 +1047,10 @@ Test-Requirement "All modules can be loaded together without conflicts" {
         'GitLab.psm1',
         'AzureDevOps.psm1',
         'Migration.psm1',
-        'ProgressTracking.psm1',
-        'Telemetry.psm1',
-        'DryRunPreview.psm1',
-        'EnvLoader.psm1'
+        'dev\ProgressTracking.psm1',
+        'dev\Telemetry.psm1',
+        'dev\DryRunPreview.psm1',
+        'core\EnvLoader.psm1'
     )
     
     foreach ($module in $modules) {

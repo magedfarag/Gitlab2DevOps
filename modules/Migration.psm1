@@ -15,47 +15,47 @@
 Set-StrictMode -Version Latest
 
 # Import required modules
-Import-Module (Join-Path $PSScriptRoot "Core.Rest.psm1") -Force -Global
-Import-Module (Join-Path $PSScriptRoot "AzureDevOps.psm1") -Force -Global
-Import-Module (Join-Path $PSScriptRoot "GitLab.psm1") -Force -Global
-Import-Module (Join-Path $PSScriptRoot "Logging.psm1") -Force -Global
-Import-Module (Join-Path $PSScriptRoot "ConfigLoader.psm1") -Force -Global
+Import-Module (Join-Path $PSScriptRoot "core\Core.Rest.psm1") -Force -Global
+Import-Module (Join-Path $PSScriptRoot "adapters\AzureDevOps.psm1") -Force -Global
+Import-Module (Join-Path $PSScriptRoot "adapters\GitLab.psm1") -Force -Global
+Import-Module (Join-Path $PSScriptRoot "core\Logging.psm1") -Force -Global
+Import-Module (Join-Path $PSScriptRoot "core\ConfigLoader.psm1") -Force -Global
 
 # Import Migration sub-modules
 $migrationModulePath = Join-Path $PSScriptRoot "Migration"
-Import-Module (Join-Path $migrationModulePath "Core.psm1") -Force -Global
-Import-Module (Join-Path $migrationModulePath "Menu.psm1") -Force -Global
-Import-Module (Join-Path $migrationModulePath "ProjectInitialization.psm1") -Force -Global
-Import-Module (Join-Path $migrationModulePath "TeamPacks.psm1") -Force -Global
-Import-Module (Join-Path $migrationModulePath "SingleMigration.psm1") -Force -Global
-Import-Module (Join-Path $migrationModulePath "BulkMigration.psm1") -Force -Global
+Import-Module (Join-Path $migrationModulePath "Core\Core.psm1") -Force -Global
+Import-Module (Join-Path $migrationModulePath "Menu\Menu.psm1") -Force -Global
+Import-Module (Join-Path $migrationModulePath "Initialization\ProjectInitialization.psm1") -Force -Global
+Import-Module (Join-Path $migrationModulePath "TeamPacks\TeamPacks.psm1") -Force -Global
+Import-Module (Join-Path $migrationModulePath "Workflows\SingleMigration.psm1") -Force -Global
+Import-Module (Join-Path $migrationModulePath "Workflows\BulkMigration.psm1") -Force -Global
 
 # Re-export all functions from sub-modules for backward compatibility
 Export-ModuleMember -Function @(
-    # From Migration/Core.psm1
+    # From Migration/Core/Core.psm1
     'Get-PreparedProjects',
     'Get-CoreRestConfig', 
     'Get-CoreRestThreadParams',
     'Get-WikiTemplateContent',
     
-    # From Migration/Menu.psm1
+    # From Migration/Menu/Menu.psm1
     'Show-MigrationMenu',
     'Invoke-TeamPackMenu',
     
-    # From Migration/ProjectInitialization.psm1
+    # From Migration/Initialization/ProjectInitialization.psm1
     'Initialize-AdoProject',
     
-    # From Migration/TeamPacks.psm1
+    # From Migration/TeamPacks/TeamPacks.psm1
     'Initialize-BusinessInit',
     'Initialize-DevInit',
     'Initialize-SecurityInit',
     'Initialize-ManagementInit',
     
-    # From Migration/SingleMigration.psm1
+    # From Migration/Workflows/SingleMigration.psm1
     'New-MigrationPreReport',
     'Invoke-SingleMigration',
     
-    # From Migration/BulkMigration.psm1
+    # From Migration/Workflows/BulkMigration.psm1
     'Invoke-BulkPreparationWorkflow',
     'Invoke-BulkMigrationWorkflow',
     'Show-BulkMigrationStatus'

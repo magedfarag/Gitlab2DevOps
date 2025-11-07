@@ -19,34 +19,34 @@
   - Supports external files + embedded fallbacks
 
 ### **Interactive Menu System**
-- **`modules/Menu.psm1`** (NEW) - Extracted from Migration.psm1
+- **`modules/Migration/Menu/Menu.psm1`** (NEW) - Extracted from Migration.psm1
   - `Show-MigrationMenu` - 5-option interactive menu
   - `Invoke-TeamPackMenu` - Team productivity pack selection
   - Dynamic module loading with proper error handling
 
 ### **Project Initialization**
-- **`modules/Initialization.psm1`** (NEW) - Extracted from Migration.psm1
+- **`modules/Migration/Initialization/ProjectInitialization.psm1`** (NEW) - Extracted from Migration.psm1
   - `Initialize-AdoProject` - Complete project setup with checkpoints
   - Parallel execution for performance (areas + wiki)
   - Component-based initialization (Profile/Selective modes)
   - Resume functionality with checkpoint system
 
 ### **Team Productivity Packs**
-- **`modules/TeamPacks.ps1`** (NEW) - Specialized team initialization
+- **`modules/Migration/TeamPacks/TeamPacks.psm1`** (NEW) - Specialized team initialization
   - `Initialize-BusinessInit` - Stakeholder-focused resources
   - `Initialize-DevInit` - Development-focused templates
   - `Initialize-SecurityInit` - DevSecOps security resources
   - `Initialize-ManagementInit` - Executive oversight tools
 
 ### **Migration Workflows**
-- **`modules/Workflows.psm1`** (NEW) - Extracted from Migration.psm1
+- **`modules/Migration/Workflows`** (NEW) - Extracted from Migration.psm1
   - `Invoke-SingleMigration` - Individual project migration
   - `Invoke-BulkPreparationWorkflow` - Multi-project preparation
   - `Invoke-BulkMigrationWorkflow` - Bulk execution
   - v2.1.0 structure detection and compatibility
 
 ### **Migration Orchestration**
-- **`modules/MigrationOrchestrator.psm1`** (NEW) - Main coordination layer
+- **`modules/Migration.psm1`** (NEW orchestrator) - Main coordination layer
   - Imports all specialized modules
   - Provides backward-compatible aliases
   - Orchestrates between Menu, Initialization, and Workflows
@@ -130,10 +130,10 @@
 - **Error Isolation**: Failures in one module don't affect others
 
 ### **Extensibility**
-- **New Team Packs**: Easy to add by extending TeamPacks.ps1
+- **New Team Packs**: Easy to add by extending modules/Migration/TeamPacks/TeamPacks.psm1
 - **Custom Templates**: Drop-in template replacement without code changes
-- **Workflow Extensions**: New migration patterns via Workflows.psm1
-- **Menu Options**: Simple to add via Menu.psm1
+- **Workflow Extensions**: New migration patterns via modules/Migration/Workflows
+- **Menu Options**: Simple to add via modules/Migration/Menu/Menu.psm1
 
 ### **Performance**
 - **Lazy Loading**: Modules loaded only when needed
@@ -163,15 +163,15 @@
 Initialize-AdoProject "MyProject" "my-repo"
 
 # New modular way (identical result)
-Initialize-AdoProject "MyProject" "my-repo"  # Routes through MigrationOrchestrator
+Initialize-AdoProject "MyProject" "my-repo"  # Routes through modules/Migration.psm1 orchestrator
 ```
 
 ### **Function Aliases**
 All major functions are re-exported through the orchestrator:
-- `Show-MigrationMenu` → Menu.psm1
-- `Initialize-AdoProject` → Initialization.psm1  
-- `Invoke-SingleMigration` → Workflows.psm1
-- Team pack functions → TeamPacks.ps1
+- `Show-MigrationMenu` → modules/Migration/Menu/Menu.psm1
+- `Initialize-AdoProject` → modules/Migration/Initialization/ProjectInitialization.psm1  
+- `Invoke-SingleMigration` → modules/Migration/Workflows/SingleMigration.psm1
+- Team pack functions → modules/Migration/TeamPacks/TeamPacks.psm1
 
 ---
 
@@ -213,11 +213,11 @@ All major functions are re-exported through the orchestrator:
 ## 🔮 **Future Enhancements Made Easier**
 
 ### **Now Trivial to Add**:
-1. **New Team Packs**: Add functions to TeamPacks.ps1
+1. **New Team Packs**: Add functions under modules/Migration/TeamPacks
 2. **Custom Reports**: Drop HTML templates in templates/html/
 3. **Query Libraries**: Add .wiql files to templates/wiql/
 4. **Wiki Content**: Extend wiki templates collection
-5. **Menu Options**: Extend Show-MigrationMenu in Menu.psm1
+5. **Menu Options**: Extend Show-MigrationMenu in modules/Migration/Menu/Menu.psm1
 
 ### **Architectural Foundation**:
 - Clean separation enables independent development

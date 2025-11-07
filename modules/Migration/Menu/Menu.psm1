@@ -16,7 +16,8 @@
 Set-StrictMode -Version Latest
 
 # Import required modules
-Import-Module (Join-Path $PSScriptRoot "Core.psm1") -Force -Global
+$migrationRoot = Split-Path $PSScriptRoot -Parent
+Import-Module (Join-Path $migrationRoot "Core\Core.psm1") -Force -Global
 
 # Module-level variables for menu context
 $script:CollectionUrl = $null

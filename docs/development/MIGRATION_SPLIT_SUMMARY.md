@@ -20,44 +20,49 @@ The large Migration.psm1 file (3,479 lines) has been successfully split into a l
 
 ```
 modules/Migration/
-├── Core.psm1                     # 361 lines - Shared utilities and helpers
-├── Menu.psm1                     # 755 lines - Interactive menu system 
-├── ProjectInitialization.psm1    # 1,520 lines - Azure DevOps project setup
-├── TeamPacks.psm1                # 298 lines - Specialized team initialization
-├── SingleMigration.psm1          # 494 lines - Single project migrations
-└── BulkMigration.psm1            # 515 lines - Bulk migration workflows
+├── Core/
+│   └── Core.psm1                     # Shared utilities and helpers
+├── Menu/
+│   └── Menu.psm1                     # Interactive menu system 
+├── Initialization/
+│   └── ProjectInitialization.psm1    # Azure DevOps project setup
+├── TeamPacks/
+│   └── TeamPacks.psm1                # Specialized team initialization
+└── Workflows/
+    ├── SingleMigration.psm1          # Single project migrations
+    └── BulkMigration.psm1            # Bulk migration workflows
 ```
 
 ## 🔧 **Module Responsibilities**
 
-### **Migration/Core.psm1**
+### **Migration/Core/Core.psm1**
 - `Get-PreparedProjects` - Scan for prepared projects
 - `Get-CoreRestConfig` - Configuration management
 - `Get-CoreRestThreadParams` - Thread parameter setup
 - `Get-WikiTemplateContent` - Template loading with fallbacks
 
-### **Migration/Menu.psm1**
+### **Migration/Menu/Menu.psm1**
 - `Show-MigrationMenu` - Main interactive menu (5 options)
 - `Invoke-TeamPackMenu` - Team pack selection interface
 
-### **Migration/ProjectInitialization.psm1**
+### **Migration/Initialization/ProjectInitialization.psm1**
 - `Initialize-AdoProject` - Complete Azure DevOps project setup
   - Project creation, areas, wikis, work item templates
   - Sprint iterations, queries, team settings, dashboards
   - QA infrastructure, repository creation, branch policies
   - Checkpoint/resume support, parallel execution
 
-### **Migration/TeamPacks.psm1**
+### **Migration/TeamPacks/TeamPacks.psm1**
 - `Initialize-BusinessInit` - Business team resources
 - `Initialize-DevInit` - Development team resources  
 - `Initialize-SecurityInit` - Security team resources
 - `Initialize-ManagementInit` - Management team resources
 
-### **Migration/SingleMigration.psm1**
+### **Migration/Workflows/SingleMigration.psm1**
 - `New-MigrationPreReport` - Pre-migration validation
 - `Invoke-SingleMigration` - Single project migration workflow
 
-### **Migration/BulkMigration.psm1**
+### **Migration/Workflows/BulkMigration.psm1**
 - `Invoke-BulkPreparationWorkflow` - Bulk preparation
 - `Invoke-BulkMigrationWorkflow` - Bulk execution
 - `Show-BulkMigrationStatus` - Status display
@@ -91,12 +96,12 @@ The main `Migration.psm1` file now acts as an **orchestrator module** that:
 
 | Module | Lines | Primary Focus |
 |--------|-------|---------------|
-| Core.psm1 | 361 | Utilities & helpers |
-| Menu.psm1 | 755 | User interface |
-| ProjectInitialization.psm1 | 1,520 | Project setup |
-| TeamPacks.psm1 | 298 | Team resources |
-| SingleMigration.psm1 | 494 | Single migrations |
-| BulkMigration.psm1 | 515 | Bulk migrations |
+| Core/Core.psm1 | 361 | Utilities & helpers |
+| Menu/Menu.psm1 | 755 | User interface |
+| Initialization/ProjectInitialization.psm1 | 1,520 | Project setup |
+| TeamPacks/TeamPacks.psm1 | 298 | Team resources |
+| Workflows/SingleMigration.psm1 | 494 | Single migrations |
+| Workflows/BulkMigration.psm1 | 515 | Bulk migrations |
 | **Migration.psm1** | **62** | **Orchestrator** |
 | **Total** | **4,005** | **+526 lines** |
 

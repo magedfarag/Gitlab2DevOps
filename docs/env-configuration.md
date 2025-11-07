@@ -223,7 +223,7 @@ Create separate files for different environments:
 
 ```powershell
 # Import the module
-Import-Module .\modules\EnvLoader.psm1
+Import-Module .\modules\core\EnvLoader.psm1
 
 # Load .env and get configuration as hashtable
 $config = Import-DotEnvFile -Path ".env"
@@ -282,7 +282,7 @@ if (-not $isValid) {
 
 ```powershell
 # Debug: Show what would be loaded
-Import-Module .\modules\EnvLoader.psm1
+Import-Module .\modules\core\EnvLoader.psm1
 $config = Import-DotEnvFile -Path ".env" -Verbose
 $config | Format-Table -AutoSize
 ```

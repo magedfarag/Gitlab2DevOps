@@ -58,7 +58,7 @@ function Test-Module {
 Write-Host "`n=== PROGRESS TRACKING MODULE ===" -ForegroundColor Cyan
 
 Test-Module "ProgressTracking module loads" {
-    Import-Module (Join-Path $moduleRoot "ProgressTracking.psm1") -Force
+    Import-Module (Join-Path $moduleRoot "dev\ProgressTracking.psm1") -Force
     if (-not (Get-Command Start-MigrationProgress -ErrorAction SilentlyContinue)) {
         throw "Start-MigrationProgress not exported"
     }
@@ -134,7 +134,7 @@ Test-Module "Invoke-GitCloneWithProgress accepts parameters" {
 Write-Host "`n=== TELEMETRY MODULE ===" -ForegroundColor Cyan
 
 Test-Module "Telemetry module loads" {
-    Import-Module (Join-Path $moduleRoot "Telemetry.psm1") -Force
+    Import-Module (Join-Path $moduleRoot "dev\Telemetry.psm1") -Force
     if (-not (Get-Command Initialize-Telemetry -ErrorAction SilentlyContinue)) {
         throw "Initialize-Telemetry not exported"
     }
@@ -281,7 +281,7 @@ function Invoke-AdoRest {
 }
 
 Test-Module "DryRunPreview module loads" {
-    Import-Module (Join-Path $moduleRoot "DryRunPreview.psm1") -Force
+    Import-Module (Join-Path $moduleRoot "dev\DryRunPreview.psm1") -Force
     if (-not (Get-Command New-MigrationPreview -ErrorAction SilentlyContinue)) {
         throw "New-MigrationPreview not exported"
     }
@@ -467,9 +467,9 @@ Test-Module "Advanced features has code examples" {
 Write-Host "`n=== INTEGRATION TESTS ===" -ForegroundColor Cyan
 
 Test-Module "All modules can be loaded together" {
-    Import-Module (Join-Path $moduleRoot "ProgressTracking.psm1") -Force
-    Import-Module (Join-Path $moduleRoot "Telemetry.psm1") -Force
-    Import-Module (Join-Path $moduleRoot "DryRunPreview.psm1") -Force
+    Import-Module (Join-Path $moduleRoot "dev\ProgressTracking.psm1") -Force
+    Import-Module (Join-Path $moduleRoot "dev\Telemetry.psm1") -Force
+    Import-Module (Join-Path $moduleRoot "dev\DryRunPreview.psm1") -Force
     
     # Verify no conflicts
     $commands = @(
