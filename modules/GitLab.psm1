@@ -125,7 +125,8 @@ function Prepare-GitLab {
     )
     
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        throw "git not found on PATH."
+        $errorMsg = New-ActionableError -ErrorType 'GitNotFound' -Details @{}
+        throw $errorMsg
     }
     
     $p = Get-GitLabProject $ProjectPath
@@ -186,7 +187,8 @@ function Prepare-GitLab {
         $gitLabToken = Get-GitLabToken
     }
     catch {
-        throw "GitLab token not available. Initialize Core.Rest module first."
+        # Token error already has actionable message from Core.Rest
+        throw
     }
     
     # Download repository for migration preparation

@@ -147,6 +147,190 @@ function Get-CoreRestVersion {
 
 <#
 .SYNOPSIS
+    Creates an actionable error message with recovery suggestions.
+
+.DESCRIPTION
+    Formats error messages with specific recovery steps based on error type.
+    Helps users quickly resolve common issues.
+
+.PARAMETER ErrorType
+    Type of error: GitNotFound, GitLFSRequired, ProjectNotFound, RepoNotFound,
+    AuthFailed, NetworkError, GitPushFailed, WikiCreateFailed, APIError
+
+.PARAMETER Details
+    Specific details about the error (e.g., project name, status code)
+
+.OUTPUTS
+    Formatted error message with actionable steps.
+
+.EXAMPLE
+    New-ActionableError -ErrorType "ProjectNotFound" -Details @{ ProjectName = "MyProject" }
+#>
+function New-ActionableError {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('GitNotFound', 'GitLFSRequired', 'ProjectNotFound', 'RepoNotFound', 
+                     'AuthFailed', 'NetworkError', 'GitPushFailed', 'WikiCreateFailed', 
+                     'APIError', 'TokenNotSet', 'TemplateNotFound')]
+        [string]$ErrorType,
+        
+        [Parameter(Mandatory)]
+        [hashtable]$Details
+    )
+    
+    $message = switch ($ErrorType) {
+        'GitNotFound' {
+            @"
+Git executable not found on PATH.
+
+Recovery steps:
+  1. Install Git: https://git-scm.com/download/win
+  2. Restart PowerShell after installation
+  3. Verify with: git --version
+"@
+        }
+        
+        'GitLFSRequired' {
+            @"
+Git LFS (Large File Storage) required but not found.
+Repository contains $($Details.LFSSizeMB) MB of LFS data.
+
+Recovery steps:
+  1. Install Git LFS: https://git-lfs.github.com/
+  2. Run: git lfs install
+  3. Verify with: git lfs version
+  4. Re-run preparation step
+"@
+        }
+        
+        'ProjectNotFound' {
+            @"
+Azure DevOps project '$($Details.ProjectName)' not found.
+
+Recovery steps:
+  1. Check project name spelling (case-sensitive)
+  2. Verify you have access to the project
+  3. Create project first using Option 2 (Initialize Azure DevOps Project)
+  4. List available projects: az devops project list
+"@
+        }
+        
+        'RepoNotFound' {
+            @"
+Repository '$($Details.RepoName)' not found in project '$($Details.ProjectName)'.
+
+Recovery steps:
+  1. Check repository name spelling
+  2. Verify repository exists in Azure DevOps
+  3. Check your access permissions
+  4. Create repository first or use -AllowSync flag
+"@
+        }
+        
+        'AuthFailed' {
+            $target = if ($Details.Target -eq 'GitLab') { 'GitLab' } else { 'Azure DevOps' }
+            @"
+Authentication failed for $target.
+
+Recovery steps:
+  1. Verify PAT token is valid and not expired
+  2. Check token has required permissions:
+     - Azure DevOps: Code (Read & Write), Project (Read)
+     - GitLab: api, read_repository
+  3. Re-run Initialize-CoreRest with correct token
+  4. Check token in environment: `$env:ADO_PAT or `$env:GITLAB_PAT
+"@
+        }
+        
+        'NetworkError' {
+            @"
+Network connection failed to $($Details.Target).
+
+Recovery steps:
+  1. Check network connectivity: ping $($Details.Hostname)
+  2. Verify firewall/proxy settings
+  3. For on-premise servers, check VPN connection
+  4. Test URL in browser: $($Details.Url)
+  5. If using SSL/TLS, server may need -SkipCertificateCheck
+"@
+        }
+        
+        'GitPushFailed' {
+            @"
+Git push to Azure DevOps failed.
+
+Recovery steps:
+  1. Verify PAT has Code (Write) permission
+  2. Check branch policies aren't blocking the push
+  3. Ensure repository isn't locked
+  4. Verify remote URL is correct
+  5. Check network connectivity
+  6. Try manual push: git push ado --mirror
+"@
+        }
+        
+        'WikiCreateFailed' {
+            @"
+Failed to create wiki page '$($Details.PagePath)'.
+
+Recovery steps:
+  1. Check project has wiki enabled
+  2. Verify PAT has Wiki (Read & Write) permission
+  3. Check page path is valid (no special characters)
+  4. Ensure wiki repository exists
+  5. Try creating page manually in Azure DevOps UI
+"@
+        }
+        
+        'TokenNotSet' {
+            $tokenType = if ($Details.TokenType -eq 'GitLab') { 'GITLAB_PAT' } else { 'ADO_PAT' }
+            @"
+$($Details.TokenType) token not configured.
+
+Recovery steps:
+  1. Set environment variable: `$env:$tokenType = 'your-token-here'
+  2. Or add to .env file: $tokenType=your-token-here
+  3. Or pass via parameter: -$($Details.TokenType)Pat 'your-token-here'
+  4. Verify with: `$env:$tokenType (should show masked value)
+  5. Re-run Initialize-CoreRest
+"@
+        }
+        
+        'TemplateNotFound' {
+            @"
+Template file '$($Details.TemplateName)' not found.
+
+Recovery steps:
+  1. Check template name spelling: $($Details.TemplateName)
+  2. Verify template exists in: $($Details.TemplatePath)
+  3. Use -TemplateDirectory parameter for custom location
+  4. System will fall back to embedded template automatically
+"@
+        }
+        
+        'APIError' {
+            @"
+API request failed: $($Details.Method) $($Details.Endpoint)
+Status: $($Details.StatusCode) - $($Details.StatusText)
+
+Recovery steps:
+  1. Check endpoint URL is correct
+  2. Verify API version compatibility
+  3. Ensure token has required permissions
+  4. Check server is accessible
+  5. Review detailed error: $($Details.ErrorMessage)
+  6. Retry operation (automatic retry may have been exhausted)
+"@
+        }
+    }
+    
+    return $message
+}
+
+<#
+.SYNOPSIS
     Gets the GitLab token for authentication.
 
 .DESCRIPTION
@@ -165,7 +349,8 @@ function Get-GitLabToken {
     param()
     
     if ([string]::IsNullOrWhiteSpace($script:GitLabToken)) {
-        throw "GitLab token not available. Call Initialize-CoreRest first."
+        $errorMsg = New-ActionableError -ErrorType 'TokenNotSet' -Details @{ TokenType = 'GitLab' }
+        throw $errorMsg
     }
     
     return $script:GitLabToken
@@ -956,7 +1141,8 @@ function Invoke-GitLabRest {
     )
     
     if (-not $script:GitLabToken) {
-        throw "GitLab token not set. Call Initialize-CoreRest first."
+        $errorMsg = New-ActionableError -ErrorType 'TokenNotSet' -Details @{ TokenType = 'GitLab' }
+        throw $errorMsg
     }
     
     $headers = @{ 'PRIVATE-TOKEN' = $script:GitLabToken }
@@ -1024,6 +1210,7 @@ Export-ModuleMember -Function @(
     'Get-GitLabToken',
     'Get-SkipCertificateCheck',
     'Hide-Secret',
+    'New-ActionableError',
     'New-NormalizedError',
     'New-AuthHeader',
     'Invoke-RestWithRetry',

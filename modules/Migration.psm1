@@ -1838,7 +1838,8 @@ function Initialize-BusinessInit {
 
     # Validate project exists
     if (-not (Test-AdoProjectExists -ProjectName $DestProject)) {
-        throw "Project '$DestProject' was not found in Azure DevOps. Create it first (Initialize mode)."
+        $errorMsg = New-ActionableError -ErrorType 'ProjectNotFound' -Details @{ ProjectName = $DestProject }
+        throw $errorMsg
     }
 
     # Get project and wiki
@@ -1917,7 +1918,8 @@ function Initialize-DevInit {
 
     # Validate project exists
     if (-not (Test-AdoProjectExists -ProjectName $DestProject)) {
-        throw "Project '$DestProject' was not found in Azure DevOps. Create it first (Initialize mode)."
+        $errorMsg = New-ActionableError -ErrorType 'ProjectNotFound' -Details @{ ProjectName = $DestProject }
+        throw $errorMsg
     }
 
     # Get project and wiki
@@ -1998,7 +2000,8 @@ function Initialize-SecurityInit {
 
     # Validate project exists
     if (-not (Test-AdoProjectExists -ProjectName $DestProject)) {
-        throw "Project '$DestProject' was not found in Azure DevOps. Create it first (Initialize mode)."
+        $errorMsg = New-ActionableError -ErrorType 'ProjectNotFound' -Details @{ ProjectName = $DestProject }
+        throw $errorMsg
     }
 
     # Get project and wiki
@@ -2077,7 +2080,8 @@ function Initialize-ManagementInit {
 
     # Validate project exists
     if (-not (Test-AdoProjectExists -ProjectName $DestProject)) {
-        throw "Project '$DestProject' was not found in Azure DevOps. Create it first (Initialize mode)."
+        $errorMsg = New-ActionableError -ErrorType 'ProjectNotFound' -Details @{ ProjectName = $DestProject }
+        throw $errorMsg
     }
 
     # Get project and wiki
@@ -2260,7 +2264,8 @@ function Invoke-SingleMigration {
     )
     
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        throw "git not found on PATH."
+        $errorMsg = New-ActionableError -ErrorType 'GitNotFound' -Details @{}
+        throw $errorMsg
     }
     
     Write-Host "[INFO] Starting migration: $SrcPath → $DestProject" -ForegroundColor Cyan
@@ -2316,7 +2321,8 @@ function Invoke-SingleMigration {
                     Write-Warning "Git LFS required but not found. Repository has $($preflightData.lfs_size_MB) MB of LFS data. Proceeding due to -Force..."
                 }
                 else {
-                    throw "Git LFS required but not found. Repository has $($preflightData.lfs_size_MB) MB of LFS data."
+                    $errorMsg = New-ActionableError -ErrorType 'GitLFSRequired' -Details @{ LFSSizeMB = $preflightData.lfs_size_MB }
+                    throw $errorMsg
                 }
             }
             else {
