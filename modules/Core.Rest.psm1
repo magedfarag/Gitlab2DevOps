@@ -147,6 +147,41 @@ function Get-CoreRestVersion {
 
 <#
 .SYNOPSIS
+    Returns the current Core.Rest configuration.
+
+.DESCRIPTION
+    Exposes the connection settings that were provided to Initialize-CoreRest
+    so that other runspaces can reinitialize themselves (e.g., thread jobs).
+
+.OUTPUTS
+    Hashtable containing configuration values (may contain $null values if
+    Initialize-CoreRest has not been called yet).
+
+.EXAMPLE
+    $config = Get-CoreRestConfig
+    Initialize-CoreRest @config
+#>
+function Get-CoreRestConfig {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    
+    return @{
+        CollectionUrl        = $script:CollectionUrl
+        AdoPat               = $script:AdoPat
+        GitLabBaseUrl        = $script:GitLabBaseUrl
+        GitLabToken          = $script:GitLabToken
+        AdoApiVersion        = $script:AdoApiVersion
+        SkipCertificateCheck = $script:SkipCertificateCheck
+        RetryAttempts        = $script:RetryAttempts
+        RetryDelaySeconds    = $script:RetryDelaySeconds
+        MaskSecrets          = $script:MaskSecrets
+        LogRestCalls         = $script:LogRestCalls
+    }
+}
+
+<#
+.SYNOPSIS
     Creates an actionable error message with recovery suggestions.
 
 .DESCRIPTION
@@ -1311,6 +1346,7 @@ function Clear-GitCredentials {
 Export-ModuleMember -Function @(
     'Initialize-CoreRest',
     'Get-CoreRestVersion',
+    'Get-CoreRestConfig',
     'Get-GitLabToken',
     'Get-SkipCertificateCheck',
     'Hide-Secret',
