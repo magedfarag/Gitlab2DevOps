@@ -23,6 +23,15 @@ $script:GitLabToken = $null
 $script:BuildDefinitionId = 0
 $script:SonarStatusContext = ""
 
+# Module-level constants for configuration defaults
+$script:DEFAULT_SPRINT_COUNT = 6
+$script:DEFAULT_SPRINT_DURATION_DAYS = 14
+$script:DEFAULT_AREA_PATHS = @('Frontend', 'Backend', 'Infrastructure', 'Documentation')
+$script:REPO_INIT_MAX_RETRIES = 5
+$script:REPO_INIT_RETRY_DELAYS = @(2, 4, 8, 16, 32)  # Exponential backoff in seconds
+$script:PARALLEL_WIKI_MAX_THREADS = 10
+$script:BRANCH_POLICY_WAIT_SECONDS = 2
+
 <#
 .SYNOPSIS
     Scans for prepared GitLab projects.
@@ -830,6 +839,10 @@ function Initialize-AdoProject {
         [string]$DestProject,
         
         [Parameter(Mandatory)]
+        [ValidateScript({
+            Test-AdoRepositoryName $_ -ThrowOnError
+            $true
+        })]
         [string]$RepoName,
         
         [int]$BuildDefinitionId = 0,
@@ -1077,6 +1090,10 @@ Tag work items by component for better tracking.
     
     Write-Host "[NOTE] You may see some 404 errors - these are normal when checking if resources already exist" -ForegroundColor Gray
     
+    # Track execution timing for performance metrics
+    $executionStartTime = Get-Date
+    $stepTiming = @{}
+    
     # Define total steps for progress tracking
     $totalSteps = 13
     $currentStep = 0
@@ -1180,13 +1197,21 @@ Tag work items by component for better tracking.
             return $true
         }
         
+        # Start timing this step
+        $stepStart = Get-Date
+        
         try {
             Write-Verbose "[Initialize-AdoProject] Executing step: $StepName"
             & $Action
+            
+            # Record step duration
+            $stepDuration = (Get-Date) - $stepStart
+            $stepTiming[$StepName] = $stepDuration.TotalSeconds
+            
             $checkpoint[$StepName] = $true
             Save-InitCheckpoint $checkpoint
             if ($SuccessMessage) {
-                Write-Host "[SUCCESS] $SuccessMessage" -ForegroundColor Green
+                Write-Host "[SUCCESS] $SuccessMessage (${stepDuration.TotalSeconds}s)" -ForegroundColor Green
             }
             return $true
         }
@@ -1604,8 +1629,8 @@ This project was migrated from GitLab using automated tooling.
             -ProgressStatus "Applying branch policies (11/$totalSteps)" -Action {
             # Wait for default branch with retry logic (handles ADO initialization delays)
             Write-Verbose "[Initialize-AdoProject] Waiting for repository default branch to be established..."
-            $maxRetries = 5
-            $retryDelays = @(2, 4, 8, 16, 32)  # Exponential backoff in seconds
+            $maxRetries = $script:REPO_INIT_MAX_RETRIES
+            $retryDelays = $script:REPO_INIT_RETRY_DELAYS
             $defaultRef = $null
             
             for ($i = 0; $i -lt $maxRetries; $i++) {
@@ -1776,6 +1801,25 @@ This project was migrated from GitLab using automated tooling.
     
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Cyan
+    
+    # Display execution timing summary
+    $totalExecutionTime = (Get-Date) - $executionStartTime
+    Write-Host "⏱️  Execution Timing:" -ForegroundColor Cyan
+    Write-Host ("   Total: {0:F1}s ({1}m {2}s)" -f $totalExecutionTime.TotalSeconds, [int]$totalExecutionTime.Minutes, $totalExecutionTime.Seconds) -ForegroundColor White
+    
+    if ($stepTiming.Count -gt 0) {
+        Write-Host "   Step breakdown:" -ForegroundColor Gray
+        $sortedSteps = $stepTiming.GetEnumerator() | Sort-Object Value -Descending
+        foreach ($step in $sortedSteps) {
+            $stepName = $step.Key
+            $stepSeconds = $step.Value
+            $percentage = ($stepSeconds / $totalExecutionTime.TotalSeconds) * 100
+            Write-Host ("      • {0}: {1:F1}s ({2:F0}%)" -f $stepName, $stepSeconds, $percentage) -ForegroundColor Gray
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Cyan
     Write-Host "Next Steps:" -ForegroundColor White
     Write-Host "  1. Use Option 3 (Migrate) or Option 6 (Bulk) to push code" -ForegroundColor Gray
     Write-Host "  2. 📖 Read Best Practices: Wiki → Best-Practices (START HERE!)" -ForegroundColor Cyan
@@ -1862,8 +1906,8 @@ function Initialize-BusinessInit {
     Ensure-AdoSharedQueries -Project $DestProject -Team "$DestProject Team" | Out-Null
     Ensure-AdoBusinessQueries -Project $DestProject | Out-Null
 
-    # Seed short-term iterations (3 sprints of 2 weeks)
-    Ensure-AdoIterations -Project $DestProject -Team "$DestProject Team" -SprintCount 3 -SprintDurationDays 14 | Out-Null
+    # Seed short-term iterations (using default: 3 sprints of 2 weeks)
+    Ensure-AdoIterations -Project $DestProject -Team "$DestProject Team" -SprintCount 3 -SprintDurationDays $script:DEFAULT_SPRINT_DURATION_DAYS | Out-Null
 
     # Ensure dashboard
     Ensure-AdoDashboard -Project $DestProject -Team "$DestProject Team" | Out-Null
@@ -2157,6 +2201,10 @@ function New-MigrationPreReport {
         [string]$AdoProject,
         
         [Parameter(Mandatory)]
+        [ValidateScript({
+            Test-AdoRepositoryName $_ -ThrowOnError
+            $true
+        })]
         [string]$AdoRepoName,
         
         [string]$OutputPath = (Join-Path (Get-Location) "migration-precheck-$((Get-Date).ToString('yyyyMMdd-HHmmss')).json"),
@@ -2365,7 +2413,8 @@ function Invoke-SingleMigration {
     # Create migration log
     $logFile = New-LogFilePath $logsDir "migration"
     $startTime = Get-Date
-    
+    $stepTiming = @{}
+
     Write-MigrationLog $logFile @(
         "=== Azure DevOps Migration Log ==="
         "Migration started: $startTime"
@@ -2377,10 +2426,11 @@ function Invoke-SingleMigration {
     )
     
     # Ensure ADO repo exists
+    $stepStart = Get-Date
     $repo = Ensure-AdoRepository $DestProject $projId $repoName -AllowExisting:$AllowSync -Replace:$Replace
-    $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
+    $stepTiming['Repository Creation'] = ((Get-Date) - $stepStart).TotalSeconds
     
-    $isSync = $AllowSync -and $preReport.ado_repo_exists
+    $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id    $isSync = $AllowSync -and $preReport.ado_repo_exists
     if ($isSync) {
         Write-Host "[INFO] Sync mode: Updating existing repository" -ForegroundColor Yellow
         Write-MigrationLog $logFile "=== SYNC MODE: Updating existing repository ==="
@@ -2388,6 +2438,7 @@ function Invoke-SingleMigration {
     
     try {
         # Determine source repository
+        $stepStart = Get-Date
         if ($useLocalRepo) {
             Write-Host "[INFO] Using pre-downloaded repository"
             $sourceRepo = $repoDir
@@ -2405,8 +2456,10 @@ function Invoke-SingleMigration {
                 git clone --mirror $gitUrl $sourceRepo
             }
         }
+        $stepTiming['Repository Download'] = ((Get-Date) - $stepStart).TotalSeconds
         
         # Configure Azure DevOps remote
+        $stepStart = Get-Date
         $adoRemote = "$($script:CollectionUrl)/$([uri]::EscapeDataString($DestProject))/_git/$([uri]::EscapeDataString($repoName))"
         Push-Location $sourceRepo
         
@@ -2423,6 +2476,7 @@ function Invoke-SingleMigration {
         else {
             git push ado --mirror
         }
+        $stepTiming['Git Push'] = ((Get-Date) - $stepStart).TotalSeconds
         
         # Clean up credentials
         git config --unset-all "http.$adoRemote.extraheader" 2>$null | Out-Null
@@ -2438,6 +2492,7 @@ function Invoke-SingleMigration {
         # After successful push, apply branch policies if this is the first migration (not sync)
         if (-not $isSync) {
             Write-Host "[INFO] Applying branch policies to migrated repository..." -ForegroundColor Cyan
+            $stepStart = Get-Date
             try {
                 # Get the default branch now that code has been pushed
                 Start-Sleep -Seconds 2  # Wait for Azure DevOps to recognize branches
@@ -2450,20 +2505,20 @@ function Invoke-SingleMigration {
                         -RepoId $repo.id `
                         -Ref $defaultRef `
                         -Min 2
-                    
+
                     Write-Host "[SUCCESS] Branch policies applied successfully" -ForegroundColor Green
                 }
                 else {
                     Write-Warning "Could not determine default branch. Branch policies not applied."
                 }
+                $stepTiming['Branch Policies'] = ((Get-Date) - $stepStart).TotalSeconds
             }
             catch {
                 Write-Warning "Failed to apply branch policies: $_"
                 Write-Host "[INFO] You can manually configure branch policies in Azure DevOps" -ForegroundColor Yellow
+                $stepTiming['Branch Policies'] = ((Get-Date) - $stepStart).TotalSeconds
             }
-        }
-        
-        $endTime = Get-Date
+        }        $endTime = Get-Date
         
         # Create migration summary
         $summary = New-MigrationSummary `
@@ -2511,7 +2566,17 @@ function Invoke-SingleMigration {
         )
         
         Write-Host "[OK] Migration completed successfully!" -ForegroundColor Green
-        Write-Host "      Duration: $($summary.duration_minutes) minutes"
+        Write-Host "      Total duration: $($summary.duration_minutes) minutes" -ForegroundColor White
+        
+        # Show timing breakdown
+        if ($stepTiming.Count -gt 0) {
+            Write-Host "      Step breakdown:" -ForegroundColor Gray
+            $sortedSteps = $stepTiming.GetEnumerator() | Sort-Object Value -Descending
+            foreach ($step in $sortedSteps) {
+                Write-Host ("        • {0}: {1:F1}s" -f $step.Key, $step.Value) -ForegroundColor Gray
+            }
+        }
+        
         Write-Host "      Summary: $summaryFile"
     }
     catch {

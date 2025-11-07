@@ -331,6 +331,110 @@ Recovery steps:
 
 <#
 .SYNOPSIS
+    Validates an Azure DevOps repository name.
+
+.DESCRIPTION
+    Checks if a repository name meets Azure DevOps naming requirements:
+    - Only alphanumeric characters, hyphens, underscores, and periods
+    - Cannot start with underscore or period
+    - Cannot end with period
+    - Maximum 64 characters
+    - Cannot contain reserved characters: / \ : * ? " < > | # $ } { , + = [ ]
+
+.PARAMETER RepoName
+    The repository name to validate.
+
+.PARAMETER ThrowOnError
+    If specified, throws an exception on validation failure. Otherwise returns $false.
+
+.OUTPUTS
+    Boolean indicating if the name is valid (if -ThrowOnError not specified).
+
+.EXAMPLE
+    Test-AdoRepositoryName "my-repo-123"  # Returns $true
+    
+.EXAMPLE
+    Test-AdoRepositoryName "_invalid" -ThrowOnError  # Throws exception
+#>
+function Test-AdoRepositoryName {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoName,
+        
+        [switch]$ThrowOnError
+    )
+    
+    $errors = @()
+    
+    # Check length
+    if ($RepoName.Length -gt 64) {
+        $errors += "Repository name exceeds 64 characters (length: $($RepoName.Length))"
+    }
+    
+    if ($RepoName.Length -eq 0) {
+        $errors += "Repository name cannot be empty"
+    }
+    
+    # Check for invalid starting characters
+    if ($RepoName -match '^[._]') {
+        $errors += "Repository name cannot start with underscore or period"
+    }
+    
+    # Check for invalid ending characters
+    if ($RepoName -match '\.$') {
+        $errors += "Repository name cannot end with period"
+    }
+    
+    # Check for invalid characters (Azure DevOps restrictions)
+    $invalidChars = @('/', '\', ':', '*', '?', '"', '<', '>', '|', '#', '$', '}', '{', ',', '+', '=', '[', ']', '@', '!', '%', '^', '&', '(', ')', ' ')
+    foreach ($char in $invalidChars) {
+        if ($RepoName.Contains($char)) {
+            $errors += "Repository name contains invalid character: '$char'"
+            break
+        }
+    }
+    
+    # Check for valid pattern (alphanumeric, hyphen, underscore, period only)
+    if ($RepoName -notmatch '^[a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]$' -and $RepoName.Length -gt 1) {
+        # Allow single character names if alphanumeric
+        if (-not ($RepoName.Length -eq 1 -and $RepoName -match '^[a-zA-Z0-9]$')) {
+            $errors += "Repository name must contain only alphanumeric characters, hyphens, underscores, and periods"
+        }
+    }
+    
+    if ($errors.Count -gt 0) {
+        if ($ThrowOnError) {
+            $errorMsg = @"
+Invalid Azure DevOps repository name: '$RepoName'
+
+Validation errors:
+$($errors | ForEach-Object { "  • $_" } | Out-String)
+
+Azure DevOps naming rules:
+  • Only alphanumeric characters, hyphens (-), underscores (_), and periods (.)
+  • Cannot start with underscore or period
+  • Cannot end with period
+  • Maximum 64 characters
+  • No spaces or special characters: / \ : * ? " < > | # $ } { , + = [ ] @ ! % ^ & ( )
+
+Valid examples:
+  • my-repo
+  • MyRepository
+  • app_backend
+  • project-api-v2
+"@
+            throw $errorMsg
+        }
+        return $false
+    }
+    
+    return $true
+}
+
+<#
+.SYNOPSIS
     Gets the GitLab token for authentication.
 
 .DESCRIPTION
@@ -1210,6 +1314,7 @@ Export-ModuleMember -Function @(
     'Get-GitLabToken',
     'Get-SkipCertificateCheck',
     'Hide-Secret',
+    'Test-AdoRepositoryName',
     'New-ActionableError',
     'New-NormalizedError',
     'New-AuthHeader',

@@ -187,6 +187,10 @@ function Ensure-AdoRepository {
         [string]$ProjId,
         
         [Parameter(Mandatory)]
+        [ValidateScript({
+            Test-AdoRepositoryName $_ -ThrowOnError
+            $true
+        })]
         [string]$RepoName,
         
         [switch]$AllowExisting,
