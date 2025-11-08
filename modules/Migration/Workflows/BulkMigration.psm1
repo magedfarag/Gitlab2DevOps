@@ -67,8 +67,8 @@ function Invoke-BulkPreparationWorkflow {
     }
     
     # Initialize bulk log
-    $bulkLogFile = New-LogFilePath $bulkPaths.logsDir "bulk-preparation"
-    Write-MigrationLog $bulkLogFile @(
+    $bulkLogFile = New-LogFilePath -LogsDir $bulkPaths.logsDir -Prefix "bulk-preparation"
+    Write-MigrationLog -LogFile $bulkLogFile -Message @(
         "=== Bulk Preparation Started ==="
         "Timestamp: $(Get-Date)"
         "Destination Project: $DestProject"
@@ -85,15 +85,15 @@ function Invoke-BulkPreparationWorkflow {
             $gl = Get-GitLabProject $gitlabPath
             $repoName = $gl.path
             
-            # Create paths for this specific project
-            $projectPaths = Get-BulkProjectPaths -AdoProject $DestProject -GitLabProject $repoName
+            # Create paths for this specific project (avoid variable name conflict)
+            $specificProjectPaths = Get-BulkProjectPaths -AdoProject $DestProject -GitLabProject $repoName
             
             # Ensure GitLab project directory exists
-            if (-not (Test-Path $projectPaths.gitlabDir)) {
-                New-Item -ItemType Directory -Path $projectPaths.gitlabDir -Force | Out-Null
+            if (-not (Test-Path $specificProjectPaths.gitlabDir)) {
+                New-Item -ItemType Directory -Path $specificProjectPaths.gitlabDir -Force | Out-Null
             }
-            if (-not (Test-Path $projectPaths.reportsDir)) {
-                New-Item -ItemType Directory -Path $projectPaths.reportsDir -Force | Out-Null
+            if (-not (Test-Path $specificProjectPaths.reportsDir)) {
+                New-Item -ItemType Directory -Path $specificProjectPaths.reportsDir -Force | Out-Null
             }
             
             # Use Initialize-GitLab with custom directory structure
@@ -101,7 +101,7 @@ function Invoke-BulkPreparationWorkflow {
             $result = Initialize-GitLab -ProjectPath $gitlabPath -CustomBaseDir $bulkPaths.containerDir -CustomProjectName $repoName
             
             # Create preflight report in the GitLab project subfolder
-            $preflightFile = Join-Path $projectPaths.reportsDir "preflight-report.json"
+            $preflightFile = Join-Path $specificProjectPaths.reportsDir "preflight-report.json"
             $preflightData = @{
                 project = $gl.path_with_namespace
                 ado_repo_name = $repoName
@@ -136,7 +136,7 @@ function Invoke-BulkPreparationWorkflow {
             
             $successCount++
             
-            Write-MigrationLog $bulkLogFile "[SUCCESS] $gitlabPath prepared successfully (Size: $($preflightData.repo_size_MB) MB)"
+            Write-MigrationLog -LogFile $bulkLogFile -Message "[SUCCESS] $gitlabPath prepared successfully (Size: $($preflightData.repo_size_MB) MB)"
         }
         catch {
             Write-Host "[ERROR] Failed to prepare $gitlabPath`: $_" -ForegroundColor Red
@@ -156,12 +156,21 @@ function Invoke-BulkPreparationWorkflow {
             }
             
             $failureCount++
-            Write-MigrationLog $bulkLogFile "[ERROR] $gitlabPath preparation failed: $_"
+            Write-MigrationLog -LogFile $bulkLogFile -Message "[ERROR] $gitlabPath preparation failed: $_"
         }
     }
     
     $totalEndTime = Get-Date
     $totalDuration = ($totalEndTime - $totalStartTime).TotalMinutes
+    
+    # Calculate totals safely (handle null/empty results)
+    $successfulResults = @($preparationResults | Where-Object { $_.preparation_status -eq "SUCCESS" })
+    $totalSizeMB = if ($successfulResults.Count -gt 0) {
+        ($successfulResults | Measure-Object -Property repo_size_MB -Sum).Sum
+    } else { 0 }
+    $totalLfsMB = if ($successfulResults.Count -gt 0) {
+        ($successfulResults | Measure-Object -Property lfs_size_MB -Sum).Sum
+    } else { 0 }
     
     # Create bulk configuration file (v2.1.0+)
     $bulkConfig = @{
@@ -172,8 +181,8 @@ function Invoke-BulkPreparationWorkflow {
             total_projects = $ProjectPaths.Count
             successful_preparations = $successCount
             failed_preparations = $failureCount
-            total_size_MB = ($preparationResults | Where-Object { $_.preparation_status -eq "SUCCESS" } | Measure-Object repo_size_MB -Sum).Sum
-            total_lfs_MB = ($preparationResults | Where-Object { $_.preparation_status -eq "SUCCESS" } | Measure-Object lfs_size_MB -Sum).Sum
+            total_size_MB = $totalSizeMB
+            total_lfs_MB = $totalLfsMB
             preparation_time = $totalStartTime.ToString('yyyy-MM-dd HH:mm:ss')
             preparation_duration_minutes = [math]::Round($totalDuration, 1)
         }
@@ -183,12 +192,12 @@ function Invoke-BulkPreparationWorkflow {
     $bulkConfig | ConvertTo-Json -Depth 5 | Set-Content -Path $bulkPaths.configFile -Encoding UTF8
     
     # Write summary to log
-    Write-MigrationLog $bulkLogFile @(
+    Write-MigrationLog -LogFile $bulkLogFile -Message @(
         "=== Bulk Preparation Completed ==="
         "Total projects: $($ProjectPaths.Count)"
         "Successful: $successCount"
         "Failed: $failureCount"
-        "Total size: $($bulkConfig.preparation_summary.total_size_MB) MB"
+        "Total size: $totalSizeMB MB"
         "Duration: $([math]::Round($totalDuration, 1)) minutes"
         "Configuration saved: $($bulkPaths.configFile)"
     )
@@ -197,9 +206,36 @@ function Invoke-BulkPreparationWorkflow {
     Write-Host "[INFO] Bulk preparation completed:" -ForegroundColor Cyan
     Write-Host "       Successful: $successCount / $($ProjectPaths.Count)" -ForegroundColor Green
     Write-Host "       Failed: $failureCount / $($ProjectPaths.Count)" -ForegroundColor Red
-    Write-Host "       Total size: $($bulkConfig.preparation_summary.total_size_MB) MB"
+    Write-Host "       Total size: $totalSizeMB MB"
     Write-Host "       Duration: $([math]::Round($totalDuration, 1)) minutes"
     Write-Host "       Configuration: $($bulkPaths.configFile)"
+    
+    # Extract documentation files if any projects were successful
+    if ($successCount -gt 0) {
+        Write-Host ""
+        Write-Host "[INFO] Extracting documentation files..." -ForegroundColor Cyan
+        try {
+            $docStats = Export-GitLabDocumentation -AdoProject $DestProject
+            
+            if ($docStats -and $docStats.total_files -gt 0) {
+                Write-Host "[SUCCESS] Extracted $($docStats.total_files) documentation files ($($docStats.total_size_MB) MB)" -ForegroundColor Green
+                
+                # Add documentation stats to config
+                $bulkConfig.preparation_summary.documentation_extracted = $docStats.total_files
+                $bulkConfig.preparation_summary.documentation_size_MB = $docStats.total_size_MB
+                $bulkConfig | ConvertTo-Json -Depth 5 | Set-Content -Path $bulkPaths.configFile -Encoding UTF8
+                
+                Write-MigrationLog -LogFile $bulkLogFile -Message "[INFO] Documentation extraction: $($docStats.total_files) files, $($docStats.total_size_MB) MB"
+            }
+            else {
+                Write-Host "[INFO] No documentation files found to extract" -ForegroundColor Gray
+            }
+        }
+        catch {
+            Write-Warning "[WARN] Documentation extraction failed: $_"
+            Write-MigrationLog -LogFile $bulkLogFile -Message "[WARN] Documentation extraction failed: $_"
+        }
+    }
     
     if ($failureCount -gt 0) {
         Write-Host "[WARN] Some projects failed preparation. Review logs for details." -ForegroundColor Yellow

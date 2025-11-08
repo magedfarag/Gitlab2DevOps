@@ -1,1006 +1,403 @@
-# GitLab to Azure DevOps Migration Tool# GitLab to Azure DevOps Migration Tool
+# GitLab to Azure DevOps Migration Tool
 
+[![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://github.com/PowerShell/PowerShell)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-2.1.0--dev-orange.svg)](CHANGELOG.md)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
+> **Enterprise-grade migration toolkit for seamless GitLab to Azure DevOps transitions**
 
-[![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://github.com/PowerShell/PowerShell)[![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://github.com/PowerShell/PowerShell)
-
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-
-[![Version](https://img.shields.io/badge/Version-2.1.0-brightgreen.svg)](CHANGELOG.md)[![Version](https://img.shields.io/badge/Version-2.1.0-brightgreen.svg)](CHANGELOG.md)
-
-[![Tests](https://img.shields.io/badge/Tests-90%2F108%20Passing-success.svg)]()[![Tests](https://img.shields.io/badge/Tests-90%2F108%20Passing-success.svg)]()
-
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-
-
-
-> **Enterprise-grade migration toolkit for seamless GitLab to Azure DevOps transitions**> **Enterprise-grade migration toolkit for seamless GitLab to Azure DevOps transitions**
-
-
-
-Migrate Git repositories with full history, LFS support, and comprehensive project initialization. Built for **on-premise Azure DevOps servers** with SSL/TLS challenges, featuring automatic **curl fallback** and robust retry logic.Migrate Git repositories with full history, LFS support, and comprehensive project initialization. Built for **on-premise Azure DevOps servers** with SSL/TLS challenges, featuring automatic **curl fallback** and robust retry logic.
-
-
-
-------
-
-
-
-## ✨ Key Features## ✨ Key Features
-
-
-
-| Feature | Description || Feature | Description |
-
-|---------|-------------||---------|-------------|
-
-| 🔒 **Security-First** | Zero credential exposure, token masking, audit trails || 🔒 **Security-First** | Zero credential exposure, token masking, audit trails |
-
-| 🛡️ **SSL/TLS Resilience** | Automatic curl fallback for on-premise servers || 🛡️ **SSL/TLS Resilience** | Automatic curl fallback for on-premise servers with certificate issues |
-
-| ✅ **Idempotent Operations** | Safe to re-run with `-WhatIf` preview || ✅ **Idempotent Operations** | Safe to re-run, `-WhatIf` preview, `-Force` override |
-
-| ⚡ **Performance Optimized** | Project caching, 2-5x faster re-runs || ⚡ **Performance Optimized** | Project caching, repository reuse, 2-5x faster re-runs |
-
-| 🤖 **CLI Automation** | 10 operation modes for full automation || 🤖 **CLI Automation** | 10 modes including Business/Dev/Security/Management Init |
-
-| 📊 **Full Observability** | Structured logs, REST timing, manifests || 📊 **Full Observability** | Run manifests, REST timing, structured logs |
-
-| 🔄 **Bulk Migration** | Process dozens of projects in one command || 🔄 **Bulk Migration** | Process dozens of projects with single command |
-
-| 📚 **43 Wiki Templates** | ~18,000 lines of ready-to-use docs || 📚 **43 Wiki Templates** | ~18,000 lines of production-ready documentation |
-
-
-
-------
-
-
-
-## 🚀 Quick Start## 🚀 Quick Start
-
-
-
-### Prerequisites### Prerequisites
-
-
-
-- PowerShell 5.1+ (Windows) or PowerShell Core 7+ (cross-platform)- PowerShell 5.1+ (Windows) or PowerShell Core 7+ (cross-platform)
-
-- Git 2.20+ installed and in PATH- Git 2.20+ installed and in PATH
-
-- Access to GitLab and Azure DevOps (PATs required)- Access to GitLab and Azure DevOps (PATs required)
-
-- Git LFS (optional, for LFS-enabled repositories)- Git LFS (optional, for LFS-enabled repositories)
-
-
-
-### Installation### Installation
-
-
-
-```powershell```powershell
-
-# Clone the repository# Clone the repository
-
-git clone https://github.com/magedfarag/Gitlab2DevOps.gitgit clone https://github.com/magedfarag/Gitlab2DevOps.git
-
-cd Gitlab2DevOps
-
-cd Gitlab2DevOps
-
-# Set up credentials (option 1: environment variables)
-
-$env:ADO_PAT = "your-azure-devops-pat"- 🚀 **[Quick Start Guide](docs/quickstart.md)** - Get running in 5 minutes
-
-$env:GITLAB_PAT = "your-gitlab-pat"
-
-# Set up environment (copy and edit .env)- 📖 **[CLI Usage](docs/cli-usage.md)** - Command-line automation examples
-
-# Or create .env file (option 2)
-
-cp setup-env.template.ps1 .envCopy-Item .env.example .env- ⚠️ **[Limitations](docs/architecture/limitations.md)** - What this tool does NOT do
-
-# Edit .env with your credentials
-
-```# Edit .env with your PATs and URLs- 🛠️ **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
-
-
-
-### Basic Usage
-
-
-
-```powershell# Run interactive mode**Complete Documentation:**
-
-# Interactive mode (recommended for first-time users)
-
-.\Gitlab2DevOps.ps1.\Gitlab2DevOps.ps1- [Installation Guide](docs/installation.md)
-
-
-
-# CLI mode: Single project migration```- [Configuration Reference](docs/configuration.md)
-
-.\Gitlab2DevOps.ps1 -Mode Migrate `
-
-    -Source "my-group/my-project" `- [Interactive Mode](docs/interactive-mode.md)
-
-    -Project "MyAzureDevOpsProject"
-
-### Quick Migration Example- [Bulk Migrations](docs/bulk-migrations.md)
-
-# Initialize project with Dev Team Pack
-
-.\Gitlab2DevOps.ps1 -Mode DevInit `- [Advanced Features](examples/advanced-features.md) - Progress tracking, telemetry, dry-run
-
-    -Project "MyAzureDevOpsProject"
-
-``````powershell- [API Error Catalog](docs/api-errors.md) - Troubleshooting guide
-
-
-
----# Interactive mode (recommended for first-time users)- [API Reference](docs/api-reference.md)
-
-
-
-## 📚 Documentation.\Gitlab2DevOps.ps1- [Architecture Overview](docs/architecture/modules.md)
-
-
-
-**Getting Started:**
-
-- [Quick Setup Guide](docs/QUICK_SETUP.md)
-
-- [Quickstart Tutorial](docs/quickstart.md)# CLI automation mode---
-
-- [CLI Usage Examples](docs/cli-usage.md)
-
-.\Gitlab2DevOps.ps1 -Mode Migrate `
-
-**Advanced Topics:**
-
-- [Bulk Migration Guide](docs/guides/BULK_MIGRATION_CONFIG.md)    -Source "my-group/my-project" `## ⚡ Quick Start
-
-- [Team Productivity Packs](docs/guides/TEAM_PRODUCTIVITY_GUIDE.md)
-
-- [Environment Configuration](docs/env-configuration.md)    -Project "MyAzureDevOpsProject"
-
-
-
-**Reference:**``````powershell
-
-- [Architecture Overview](.github/copilot-instructions.md)
-
-- [Contributing Guide](CONTRIBUTING.md)# 1. Configure credentials (create migration.config.json)
-
-- [Test Coverage](tests/TEST_COVERAGE.md)
-
----@{
+Migrate Git repositories with full history, branch policies, and comprehensive audit trails. Built for **on-premise Azure DevOps servers** with SSL/TLS challenges, featuring automatic **curl fallback** and robust retry logic.
 
 ---
 
-    gitlab = @{
+## 🎯 Why Gitlab2DevOps?
 
-## 🏗️ Architecture
-
-## 📋 What Gets Migrated        base_url = "https://gitlab.example.com"
-
-**Greenfield modular design** with clean separation of concerns:
-
-        token = "glpat-XXXXXXXXXXXXXXXXXXXX"
-
-```
-
-modules/| ✅ Migrated | ❌ Not Migrated | 🔜 Planned (v3.0) |    }
-
-├── GitLab/              # GitLab API integration
-
-│   └── GitLab.psm1|-------------|-----------------|-------------------|    ado = @{
-
-├── AzureDevOps/         # Azure DevOps operations
-
-│   ├── AzureDevOps.psm1| Git repositories | Issues/Work Items | CI/CD pipeline conversion |        organization = "https://dev.azure.com/yourorg"
-
-│   ├── Core.psm1        # REST foundation
-
-│   ├── Projects.psm1    # Project management| Full commit history | Merge Requests | User permissions mapping |        token = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-
-│   ├── Repositories.psm1
-
-│   ├── Wikis.psm1       # 43 templates| All branches | CI/CD pipelines | Container registry |    }
-
-│   ├── WorkItems.psm1
-
-│   ├── Dashboards.psm1| All tags | Container registry | Package registry |} | ConvertTo-Json | Out-File migration.config.json
-
-│   └── Security.psm1
-
-├── Migration/           # Orchestration| LFS objects | Package registry | Group-level settings |
-
-└── core/                # Foundation
-
-    ├── Core.Rest.psm1   # REST client with retry| Repository settings | Webhooks | Automated rollback |# 2. Run preflight check
-
-    └── Logging.psm1     # Logging & reporting
-
-```| Default branch | User permissions | |.\Gitlab2DevOps.ps1 -Mode Preflight -Source "my-group/my-project"
-
-
-
----
-
-
-
-## 📋 What Gets Migrated---# 3. Execute migration
-
-
-
-| ✅ Migrated | ❌ Not Migrated |.\Gitlab2DevOps.ps1 -Mode Migrate -Source "my-group/my-project" -Project "MyADOProject"
-
-|-------------|-----------------|
-
-| ✅ Full Git history | ❌ Issues/Work Items |## 🏗️ Project Structure```
-
-| ✅ All branches & tags | ❌ Merge Requests |
-
-| ✅ Git LFS objects | ❌ CI/CD pipelines |
-
-| ✅ Branch policies | ❌ Wikis |
-
-| ✅ Repository config | ❌ User permissions |Gitlab2DevOps uses **self-contained folder structures** for all migrations:Optional: Provision team-specific initialization packs in an existing ADO project:
-
-
-
-**Note:** Issues, MRs, and pipelines require manual migration due to different data models between GitLab and Azure DevOps.
-
-
-
----### Single Project Migration```powershell
-
-
-
-## 🎯 CLI Modes# Business team assets (10 wiki pages, 8 queries, dashboard)
-
-
-
-| Mode | Description |```./Gitlab2DevOps.ps1 -Mode BusinessInit -Project "MyADOProject"
-
-|------|-------------|
-
-| `Prepare` | Analyze and clone GitLab project |migrations/
-
-| `Initialize` | Create Azure DevOps project structure |
-
-| `Migrate` | Execute full migration |└── MyAzureDevOpsProject/          # Azure DevOps project (parent)# Development team assets (7 wiki pages, technical documentation)
-
-| `BulkPrep` | Prepare multiple projects |
-
-| `BulkExec` | Execute bulk migration |    ├── migration-config.json      # Project metadata./Gitlab2DevOps.ps1 -Mode DevInit -Project "MyADOProject"
-
-| `DevInit` | Initialize Dev Team Pack |
-
-| `BusinessInit` | Initialize Business Team Pack |    ├── reports/                   # Migration reports
-
-| `SecurityInit` | Initialize Security Team Pack |
-
-| `ManagementInit` | Initialize Management Team Pack |    │   └── migration-summary.json# Security team assets (7 wiki pages, security queries, dashboard)
-
-| `Menu` | Interactive menu (default) |
-
-    ├── logs/                      # Operation logs./Gitlab2DevOps.ps1 -Mode SecurityInit -Project "MyADOProject"
-
----
-
-    │   └── migration-YYYYMMDD-HHMMSS.log
-
-## 🛠️ Team Initialization Packs
-
-    └── my-gitlab-project/         # GitLab project (subfolder)# Management/PMO assets (8 wiki pages, 6 queries, executive dashboard)
-
-### Dev Team Pack
-
-7 wiki templates + dev dashboard + comprehensive workflows        ├── reports/               # GitLab-specific reports./Gitlab2DevOps.ps1 -Mode ManagementInit -Project "MyADOProject"
-
-- Architecture docs, API reference, dev setup
-
-- Git workflow, code review checklist        │   └── preflight-report.json```
-
-- Build status, PR metrics, code coverage
-
-        └── repository/            # Bare Git mirror
-
-### Business Team Pack
-
-10 wiki templates + business dashboard + work item types```📖 **New to this tool?** → [Full Quick Start Guide](docs/quickstart.md)
-
-- Product roadmap, user research, requirements
-
-- Business KPIs, sprint progress, customer feedback
-
-
-
-### Security Team Pack### Bulk Migration---
-
-7 wiki templates + compliance dashboard + security configs
-
-- Security policies, threat modeling, incident response
-
-- Vulnerability scanning, compliance tracking
-
-```## ✨ What Gets Migrated?
-
-### Management Team Pack
-
-8 wiki templates + executive dashboards + strategic queriesmigrations/
-
-- Project charter, risk management, stakeholder analysis
-
-- High-level KPIs, project health, resource utilization└── ConsolidatedProject/           # Azure DevOps project (parent)### ✅ Included
-
-
-
----    ├── bulk-migration-config.json # Bulk configuration
-
-
-
-## 📊 Project Structure (v2.1.0)    ├── reports/                   # Analysis results| Item | Details |
-
-
-
-Self-contained folders for easy management:    ├── logs/                      # Operation logs|------|---------|
-
-
-
-```    ├── frontend-app/              # GitLab project 1| **Git Repository** | All commits, branches, tags with full history |
-
-migrations/
-
-└── MyDevOpsProject/              # Azure DevOps project    │   └── repository/| **Branch Protection** | Converted to Azure DevOps branch policies |
-
-    ├── migration-config.json     # Metadata
-
-    ├── reports/                  # Reports    ├── backend-api/               # GitLab project 2| **Default Branch** | Preserved from GitLab configuration |
-
-    ├── logs/                     # Logs
-
-    └── my-gitlab-project/        # GitLab project    │   └── repository/| **Repository Settings** | Basic metadata and configuration |
-
-        └── repository/           # Bare Git mirror
-
-```    └── infrastructure/            # GitLab project 3
-
-
-
----        └── repository/### ❌ Not Included
-
-
-
-## 🔒 Security Features```
-
-
-
-- Zero credential exposure with automatic token masking| Item | Why Not? | Alternative |
-
-- Git credentials cleaned after each operation
-
-- Comprehensive audit trails with timestamps**Benefits**: Self-contained, portable, easy to archive, clear parent-child relationships.|------|----------|-------------|
-
-- Environment variables or `.env` file (gitignored)
-
-- No hardcoded secrets anywhere| **Issues / Work Items** | Different data models | Manual recreation |
-
-
-
-------| **Merge Requests / PRs** | Live objects, lose context | Close before migration |
-
-
-
-## 🧪 Testing| **CI/CD Pipelines** | Different syntax | Recreate in Azure Pipelines |
-
-
-
-```powershell## 🎯 Usage Modes| **Wikis** | Separate repositories | Planned for v3.0 |
-
-# Run all tests
-
-Invoke-Pester -Path .\tests
-
-
-
-# Run specific module tests### Interactive Menu📖 **Full scope details:** [Limitations Documentation](docs/architecture/limitations.md)
-
-Invoke-Pester -Path .\tests\Core.Rest.Tests.ps1
-
-
-
-# Run with coverage
-
-Invoke-Pester -Configuration @{```powershell---
-
-    CodeCoverage = @{ 
-
-        Enabled = $true.\Gitlab2DevOps.ps1
-
-        Path = '.\modules\**\*.psm1'
-
-    }```## 🚀 Features
-
-}
-
-```
-
-
-
-**Status:** 90/108 tests passing (83% pass rate)**Available Options:**### Core Capabilities
-
-
-
----1. **Prepare Project** - Analyze and clone GitLab project
-
-
-
-## 🤝 Contributing2. **Create Azure DevOps Project** - Initialize with templates- **Idempotent Operations**: Safe to re-run with `-Force` and `-Replace` flags
-
-
-
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for:3. **Complete Migration** - Push code and configure- **CLI Automation**: 10 modes (Preflight, Initialize, Migrate, BulkPrepare, BulkMigrate, BusinessInit, DevInit, SecurityInit, ManagementInit, MenuMode)
-
-- Code of Conduct
-
-- Development setup4. **Bulk Preparation** - Analyze multiple projects- **User Identity Migration**: ⭐ **NEW** Export GitLab users/groups to JSON, import to Azure DevOps Server
-
-- Coding standards
-
-- Testing requirements5. **List Prepared Projects** - View migration status- **Progress Tracking**: Visual progress bars with ETA for long-running operations
-
-
-
----6. **Bulk Execution** - Migrate multiple projects- **Telemetry Analytics**: Opt-in metrics collection for performance analysis (local only)
-
-
-
-## 📄 License7. **Initialize Business Team** - Wiki + work items + dashboard- **Dry-Run Preview**: Generate HTML/JSON reports before migration with size estimates
-
-
-
-MIT License - see [LICENSE](LICENSE) file for details.8. **Initialize Dev Team** - Technical documentation + workflows- **API Error Catalog**: Comprehensive troubleshooting guide with 25+ documented errors
-
-
-
----9. **Initialize Security Team** - Security policies + compliance- **Performance Caching**: 15-minute project cache, repository reuse
-
-
-
-## 📞 Support10. **Initialize Management Team** - Executive dashboards + reports- **Audit Trails**: Run manifests with execution metadata
-
-
-
-- 📖 [Documentation](docs/README.md)- **REST Observability**: Timing measurements, status code logging
-
-- 🐛 [Issue Tracker](https://github.com/magedfarag/Gitlab2DevOps/issues)
-
-- 💬 [Discussions](https://github.com/magedfarag/Gitlab2DevOps/discussions)### CLI Automation- **Bulk Migration**: Process multiple projects efficiently
-
-
-
----- **Modular Architecture**: 7 sub-modules (Core, Security, Projects, Repositories, Wikis, WorkItems, Dashboards)
-
-
-
-**Made with ❤️ for enterprise DevOps teams**```powershell- **JSON Configuration**: Project settings, branch policies, and templates via configuration files
-
-
-# Single project migration
-
-.\Gitlab2DevOps.ps1 -Mode Migrate `### Production-Grade Features
-
-    -Source "group/project" `
-
-    -Project "ADOProject"| Feature | Description |
-
+| Feature | Description |
 |---------|-------------|
+| 🔒 **Security-First** | Zero credential exposure, token masking, audit trails |
+| 🛡️ **SSL/TLS Resilience** | Automatic curl fallback for on-premise servers with certificate issues |
+| ✅ **Idempotent Operations** | Safe to re-run, `-WhatIf` preview, `-Force` override |
+| ⚡ **Performance Optimized** | Project caching, repository reuse, 2-5x faster re-runs |
+| 🤖 **CLI Automation** | 10 modes including Business/Dev/Security/Management Init |
+| 📊 **Full Observability** | Run manifests, REST timing, structured logs |
+| 🔄 **Bulk Migration** | Process dozens of projects with single command |
+| 📚 **43 Wiki Templates** | ~18,000 lines of production-ready documentation |
+| 📋 **Excel Import** | Import work items from Excel with auto-detection and hierarchy support |
 
-# Bulk migration| **REST Resilience** | Exponential backoff, retry logic, error normalization |
+---
 
-.\Gitlab2DevOps.ps1 -Mode BulkPrep `| **Configuration Files** | JSON schema with validation, sensitive data in separate files |
+## ⚠️ v2.1.0 Breaking Change
 
-    -Config "bulk-config.json" `| **Versioning** | Semantic versioning, compatibility checks |
+**Self-contained folder structures** are now used for all migrations. See [Project Structure](#project-structure) for details.
 
-    -Project "ConsolidatedProject"| **Security** | Token masking, credential cleanup, no hardcoded secrets |
+- Single migrations: `migrations/{AdoProject}/{GitLabProject}/`
+- Bulk migrations: `migrations/{AdoProject}/{Project1,Project2,...}/`
+- Legacy projects (v2.0.x) can be detected and re-prepared
 
+---
+
+## 📚 Documentation
+
+**New to Gitlab2DevOps?** Start here:
+
+- 🚀 **[Quick Start Guide](docs/quickstart.md)** - Get running in 5 minutes
+- 📖 **[CLI Usage](docs/cli-usage.md)** - Command-line automation examples
+- 📋 **[Excel Work Items Import](docs/EXCEL_WORK_ITEMS_IMPORT.md)** - Import work items from Excel
+- ⚠️ **[Limitations](docs/architecture/limitations.md)** - What this tool does NOT do
+- 🛠️ **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
+
+**Complete Documentation:**
+- [Installation Guide](docs/installation.md)
+- [Configuration Reference](docs/configuration.md)
+- [Interactive Mode](docs/interactive-mode.md)
+- [Bulk Migrations](docs/bulk-migrations.md)
+- [Advanced Features](examples/advanced-features.md) - Progress tracking, telemetry, dry-run
+- [API Error Catalog](docs/api-errors.md) - Troubleshooting guide
+- [API Reference](docs/api-reference.md)
+- [Architecture Overview](docs/architecture/modules.md)
+
+---
+
+## ⚡ Quick Start
+
+```powershell
+# 1. Configure credentials (create migration.config.json)
+@{
+    gitlab = @{
+        base_url = "https://gitlab.example.com"
+        token = "glpat-XXXXXXXXXXXXXXXXXXXX"
+    }
+    ado = @{
+        organization = "https://dev.azure.com/yourorg"
+        token = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    }
+} | ConvertTo-Json | Out-File migration.config.json
+
+# 2. Run preflight check
+.\Gitlab2DevOps.ps1 -Mode Preflight -Source "my-group/my-project"
+
+# 3. Execute migration
+.\Gitlab2DevOps.ps1 -Mode Migrate -Source "my-group/my-project" -Project "MyADOProject"
+```
+
+Optional: Provision team-specific initialization packs in an existing ADO project:
+
+```powershell
+# Business team assets (10 wiki pages, 8 queries, dashboard)
+./Gitlab2DevOps.ps1 -Mode BusinessInit -Project "MyADOProject"
+
+# Development team assets (7 wiki pages, technical documentation)
+./Gitlab2DevOps.ps1 -Mode DevInit -Project "MyADOProject"
+
+# Security team assets (7 wiki pages, security queries, dashboard)
+./Gitlab2DevOps.ps1 -Mode SecurityInit -Project "MyADOProject"
+
+# Management/PMO assets (8 wiki pages, 6 queries, executive dashboard)
+./Gitlab2DevOps.ps1 -Mode ManagementInit -Project "MyADOProject"
+```
+
+📖 **New to this tool?** → [Full Quick Start Guide](docs/quickstart.md)
+
+---
+
+## ✨ What Gets Migrated?
+
+### ✅ Included
+
+| Item | Details |
+|------|---------|
+| **Git Repository** | All commits, branches, tags with full history |
+| **Branch Protection** | Converted to Azure DevOps branch policies |
+| **Default Branch** | Preserved from GitLab configuration |
+| **Repository Settings** | Basic metadata and configuration |
+
+### ❌ Not Included
+
+| Item | Why Not? | Alternative |
+|------|----------|-------------|
+| **Issues / Work Items** | Different data models | Manual recreation |
+| **Merge Requests / PRs** | Live objects, lose context | Close before migration |
+| **CI/CD Pipelines** | Different syntax | Recreate in Azure Pipelines |
+| **Wikis** | Separate repositories | Planned for v3.0 |
+
+📖 **Full scope details:** [Limitations Documentation](docs/architecture/limitations.md)
+
+---
+
+## 🚀 Features
+
+### Core Capabilities
+
+- **Idempotent Operations**: Safe to re-run with `-Force` and `-Replace` flags
+- **CLI Automation**: 10 modes (Preflight, Initialize, Migrate, BulkPrepare, BulkMigrate, BusinessInit, DevInit, SecurityInit, ManagementInit, MenuMode)
+- **Progress Tracking**: Visual progress bars with ETA for long-running operations
+- **Telemetry Analytics**: Opt-in metrics collection for performance analysis (local only)
+- **Dry-Run Preview**: Generate HTML/JSON reports before migration with size estimates
+- **API Error Catalog**: Comprehensive troubleshooting guide with 25+ documented errors
+- **Performance Caching**: 15-minute project cache, repository reuse
+- **Audit Trails**: Run manifests with execution metadata
+- **REST Observability**: Timing measurements, status code logging
+- **Bulk Migration**: Process multiple projects efficiently
+- **Modular Architecture**: 7 sub-modules (Core, Security, Projects, Repositories, Wikis, WorkItems, Dashboards)
+- **JSON Configuration**: Project settings, branch policies, and templates via configuration files
+
+### Production-Grade Features
+
+| Feature | Description |
+|---------|-------------|
+| **REST Resilience** | Exponential backoff, retry logic, error normalization |
+| **Configuration Files** | JSON schema with validation, sensitive data in separate files |
+| **Versioning** | Semantic versioning, compatibility checks |
+| **Security** | Token masking, credential cleanup, no hardcoded secrets |
 | **Logging** | Standardized levels (DEBUG/INFO/WARN/ERROR/SUCCESS) |
 
-.\Gitlab2DevOps.ps1 -Mode BulkExec `
+---
 
-    -Project "ConsolidatedProject"---
+## 📦 What This Tool Does NOT Do
 
+Understanding limitations helps set proper expectations:
 
-
-# Team initialization## 📦 What This Tool Does NOT Do
-
-.\Gitlab2DevOps.ps1 -Mode BusinessInit -Project "ADOProject"
-
-.\Gitlab2DevOps.ps1 -Mode DevInit -Project "ADOProject"Understanding limitations helps set proper expectations:
-
-.\Gitlab2DevOps.ps1 -Mode SecurityInit -Project "ADOProject"
-
-.\Gitlab2DevOps.ps1 -Mode ManagementInit -Project "ADOProject"❌ **Does NOT migrate:**
-
-```- GitLab Issues → Azure DevOps Work Items
-
+❌ **Does NOT migrate:**
+- GitLab Issues → Azure DevOps Work Items
 - Merge Requests → Pull Requests (close before migration)
-
----- CI/CD pipelines (recreate manually)
-
+- CI/CD pipelines (recreate manually)
 - Wikis (planned for v3.0)
+- Project settings, permissions, webhooks
 
-## 🏢 Team Initialization Packs- Project settings, permissions, webhooks
+❌ **Does NOT support:**
+- Incremental/delta migrations after initial cutover
+- Continuous sync between GitLab and Azure DevOps
+- Git LFS without manual configuration
 
-
-
-### Business Team Pack❌ **Does NOT support:**
-
-- 📊 **10 wiki templates**: Requirements, user stories, acceptance criteria- Incremental/delta migrations after initial cutover
-
-- 📝 **4 work item types**: Epic, Feature, User Story, Bug- Continuous sync between GitLab and Azure DevOps
-
-- 📈 **Custom dashboard**: Business metrics and KPIs- Git LFS without manual configuration
-
-
-
-### Dev Team Pack✅ **What it DOES:**
-
-- 🔧 **7 wiki templates**: Architecture, API docs, deployment guides- Migrate complete Git history (commits, branches, tags)
-
-- 🛠️ **Comprehensive workflows**: CI/CD, code review, branching strategy- Convert branch protection → branch policies
-
-- 📊 **Dev dashboard**: Build status, test coverage, velocity- Provide audit trails and comprehensive logging
-
+✅ **What it DOES:**
+- Migrate complete Git history (commits, branches, tags)
+- Convert branch protection → branch policies
+- Provide audit trails and comprehensive logging
 - Enable bulk migration workflows
 
-### Security Team Pack
+📖 **Full details:** [Limitations and Scope](docs/architecture/limitations.md)
 
-- 🔐 **7 wiki templates**: Security policies, incident response📖 **Full details:** [Limitations and Scope](docs/architecture/limitations.md)
+---
 
-- ✅ **Security configurations**: Branch policies, scanning setup
+## 📖 Overview
 
-- 📋 **Compliance dashboard**: Vulnerability tracking, audit logs---
-
-
-
-### Management Team Pack## 📖 Overview
-
-- 📈 **8 wiki templates**: Project charter, roadmap, status reports
-
-- 🎯 **Executive dashboards**: Portfolio health, resource allocation**API Integration:** Uses official [Microsoft Azure DevOps REST API](https://learn.microsoft.com/en-us/rest/api/azure/devops/) and [GitLab REST API v4](https://docs.gitlab.com/ee/api/rest/) with Personal Access Tokens (PATs).
-
-- 📊 **KPI tracking**: Delivery metrics, quality indicators
+**API Integration:** Uses official [Microsoft Azure DevOps REST API](https://learn.microsoft.com/en-us/rest/api/azure/devops/) and [GitLab REST API v4](https://docs.gitlab.com/ee/api/rest/) with Personal Access Tokens (PATs).
 
 ## Quick Start
 
----
-
 ### Option 1: Using .env File (Recommended)
 
-## 🔧 Configuration
-
 ```powershell
-
-### Environment Variables# 1. Create .env file from template
-
+# 1. Create .env file from template
 Copy-Item .env.example .env
 
-Create a `.env` file (copy from `.env.example`):
-
 # 2. Edit .env with your credentials
+notepad .env
 
-```bashnotepad .env
+# 3. Run preflight check
+.\Gitlab2DevOps.ps1 -Mode Preflight -Source "mygroup/myproject"
 
-# GitLab Configuration
+# 4. Execute migration
+.\Gitlab2DevOps.ps1 -Mode Migrate -Source "mygroup/myproject" -Project "MyProject"
+```
 
-GITLAB_URL=https://gitlab.example.com# 3. Run preflight check
+### Option 2: Using Environment Variables
 
-GITLAB_PAT=your-gitlab-personal-access-token.\Gitlab2DevOps.ps1 -Mode Preflight -Source "mygroup/myproject"
-
-
-
-# Azure DevOps Configuration# 4. Execute migration
-
-ADO_URL=https://dev.azure.com/your-org.\Gitlab2DevOps.ps1 -Mode Migrate -Source "mygroup/myproject" -Project "MyProject"
-
-# OR for on-premise:```
-
-# ADO_URL=https://your-ado-server.example.com/your-collection
-
-ADO_PAT=your-azure-devops-personal-access-token### Option 2: Using Environment Variables
-
-
-
-# Optional: Git LFS```powershell
-
-GIT_LFS_SKIP_SMUDGE=1  # Skip downloading LFS during clone# 1. Set credentials as environment variables
-
-```$env:ADO_COLLECTION_URL = "https://dev.azure.com/your-org"
-
+```powershell
+# 1. Set credentials as environment variables
+$env:ADO_COLLECTION_URL = "https://dev.azure.com/your-org"
 $env:ADO_PAT = "your-ado-pat-here"
-
-### Bulk Migration Config$env:GITLAB_BASE_URL = "https://gitlab.com"
-
+$env:GITLAB_BASE_URL = "https://gitlab.com"
 $env:GITLAB_PAT = "your-gitlab-token-here"
 
-Create `bulk-migration-config.json`:
-
 # 2. Run preflight check
+.\Gitlab2DevOps.ps1 -Mode Preflight -Source "mygroup/myproject"
 
-```json.\Gitlab2DevOps.ps1 -Mode Preflight -Source "mygroup/myproject"
+# 3. Execute migration
+.\Gitlab2DevOps.ps1 -Mode Migrate -Source "mygroup/myproject" -Project "MyProject"
+```
 
-{
+📖 **First time?** Jump to [Step-by-Step Guide](#usage) for detailed instructions.  
+⚡ **Need quick commands?** Check the [Quick Reference Guide](QUICK_REFERENCE.md).  
+📦 **Bulk migrations?** See [Bulk Migration Config Guide](BULK_MIGRATION_CONFIG.md).
 
-  "destination_project": "ConsolidatedProject",# 3. Execute migration
+## Table of Contents
 
-  "projects": [.\Gitlab2DevOps.ps1 -Mode Migrate -Source "mygroup/myproject" -Project "MyProject"
-
-    {```
-
-      "gitlab_path": "group/frontend-app",
-
-      "ado_repo_name": "frontend-app",📖 **First time?** Jump to [Step-by-Step Guide](#usage) for detailed instructions.  
-
-      "description": "Frontend application"⚡ **Need quick commands?** Check the [Quick Reference Guide](QUICK_REFERENCE.md).  
-
-    },📦 **Bulk migrations?** See [Bulk Migration Config Guide](BULK_MIGRATION_CONFIG.md).
-
-    {
-
-      "gitlab_path": "group/backend-api",## Table of Contents
-
-      "ado_repo_name": "backend-api",
-
-      "description": "Backend REST API"- [Features](#features)
-
-    }- [Prerequisites](#prerequisites)
-
-  ]- [Installation](#installation)
-
-}- [Configuration](#configuration)
-
-```- [Usage](#usage)
-
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
   - [Single Project Migration](#single-project-migration)
-
----  - [Bulk Migration](#bulk-migration-workflow)
-
+  - [Bulk Migration](#bulk-migration-workflow)
   - [Re-running Migrations (Sync Mode)](#re-running-migrations-sync-mode)
-
-## 📖 Documentation- [Project Structure](#project-structure)
-
+- [Project Structure](#project-structure)
 - [Pre-Migration Report Format](#pre-migration-report-format)
-
-### Getting Started- [Advanced Configuration](#advanced-configuration)
-
-- 📘 [Quick Start Guide](docs/quickstart.md) - 5-minute setup- [Troubleshooting](#troubleshooting)
-
-- 🎓 [Quick Setup](docs/QUICK_SETUP.md) - Detailed installation- [Security Features](#security-features)
-
-- 📋 [CLI Usage Guide](docs/cli-usage.md) - Automation examples- [Contributing](#contributing)
-
+- [Advanced Configuration](#advanced-configuration)
+- [Troubleshooting](#troubleshooting)
+- [Security Features](#security-features)
+- [Contributing](#contributing)
 - [License](#license)
 
-### Configuration & Guides
+## 📚 Documentation
 
-- ⚙️ [Environment Configuration](docs/env-configuration.md)## 📚 Documentation
-
-- 📦 [Bulk Migration Guide](docs/guides/BULK_MIGRATION_CONFIG.md)
-
-- 👥 [Team Productivity Guide](docs/guides/TEAM_PRODUCTIVITY_GUIDE.md)### User Guides
-
-- 📥 [User Import/Export](docs/USER_EXPORT_IMPORT.md)- 🔄 [Sync Mode Guide](docs/guides/SYNC_MODE_GUIDE.md) - Re-running migrations and keeping repositories in sync
-
+### User Guides
+- 🔄 [Sync Mode Guide](docs/guides/SYNC_MODE_GUIDE.md) - Re-running migrations and keeping repositories in sync
 - 📦 [Bulk Migration Configuration](docs/guides/BULK_MIGRATION_CONFIG.md) - Migrating multiple repositories
+- ⚡ [Quick Reference](docs/reference/QUICK_REFERENCE.md) - Common commands and parameters
+- 📋 [Work Item Templates](docs/WORK_ITEM_TEMPLATES.md) - Using standardized templates
 
-### Reference- ⚡ [Quick Reference](docs/reference/QUICK_REFERENCE.md) - Common commands and parameters
-
-- 📚 [Work Item Templates](docs/WORK_ITEM_TEMPLATES.md)- 📋 [Work Item Templates](docs/WORK_ITEM_TEMPLATES.md) - Using standardized templates
-
-- 🔍 [Quick Reference](docs/reference/QUICK_REFERENCE.md)
-
-- 📊 [Project Summary](docs/reference/PROJECT_SUMMARY.md)### Technical Documentation
-
-- ⚠️ [Limitations](docs/architecture/limitations.md)- 🏗️ [Project Summary](docs/reference/PROJECT_SUMMARY.md) - Architecture and technical overview
-
+### Technical Documentation
+- 🏗️ [Project Summary](docs/reference/PROJECT_SUMMARY.md) - Architecture and technical overview
 - 🗺️ [Implementation Roadmap](docs/development/IMPLEMENTATION_ROADMAP.md) - Development progress
+- 📝 [Changelog](CHANGELOG.md) - Version history and migration guides
 
-### API & Troubleshooting- 📝 [Changelog](CHANGELOG.md) - Version history and migration guides
-
-- 🔌 [API Error Reference](docs/api-errors.md)
-
-- 🔧 [Best Practices](docs/BEST_PRACTICES_ALIGNMENT.md)### Contributing
-
+### Contributing
 - 🤝 [Contributing Guide](CONTRIBUTING.md) - How to contribute to this project
+- 📖 [Publishing Guide](docs/development/PUBLISHING_GUIDE.md) - Release process for maintainers
 
----- 📖 [Publishing Guide](docs/development/PUBLISHING_GUIDE.md) - Release process for maintainers
-
-
-
-## 🏗️ Architecture### All Documentation
-
+### All Documentation
 - 📚 [Documentation Index](docs/README.md) - Complete documentation directory
-
-### Module Organization
 
 ## Features
 
-```
+### 🚀 **Complete Migration Workflow**
+- **Step 1**: GitLab project preparation and analysis
+- **Step 2**: Azure DevOps project creation with full organizational setup
+- **Step 3**: Repository migration with all refs, branches, and Git LFS support
 
-modules/### 🚀 **Complete Migration Workflow**
+### 📊 **Project Analysis & Reporting**
+- Repository size analysis and LFS detection
+- Comprehensive preflight reports (JSON format)
+- Migration logs with detailed timestamps
+- Success/failure tracking with error diagnostics
 
-├── Migration.psm1          # Main orchestration module- **Step 1**: GitLab project preparation and analysis
+### 🏢 **Enterprise-Ready Setup**
+- **RBAC Groups**: Dev, QA, BA, Release Approvers, Pipeline Maintainers
+- **Branch Policies**: Required reviewers, work item linking, build validation
+- **Security Restrictions**: BA group cannot push/create PRs
+- **Work Item Templates**: Complete Agile template set (User Story, Task, Bug, Epic, Feature, Test Case)
+- **Project Wiki**: Automated setup with conventions documentation
+- **Test Plan**: 4 test suites (Regression, Smoke, Integration, UAT)
+- **QA Queries**: 8 specialized queries for testing workflow
+- **QA Dashboard**: Comprehensive testing metrics with 8 widgets
+- **Test Configurations**: 13 browser/OS/environment configurations
 
-├── adapters/               # External system adapters- **Step 2**: Azure DevOps project creation with full organizational setup
-
-│   ├── AzureDevOps.psm1   # ADO adapter (aggregates sub-modules)- **Step 3**: Repository migration with all refs, branches, and Git LFS support
-
-│   ├── GitLab.psm1        # GitLab adapter
-
-│   └── AzureDevOps/       # ADO sub-modules### 📊 **Project Analysis & Reporting**
-
-│       ├── Core.psm1      # REST foundation- Repository size analysis and LFS detection
-
-│       ├── Security.psm1  # Token masking- Comprehensive preflight reports (JSON format)
-
-│       ├── Projects.psm1  # Project management- Migration logs with detailed timestamps
-
-│       ├── Repositories.psm1  # Repository operations- Success/failure tracking with error diagnostics
-
-│       ├── Wikis.psm1     # Wiki management
-
-│       ├── WorkItems.psm1 # Work item operations### 🏢 **Enterprise-Ready Setup**
-
-│       └── Dashboards.psm1 # Dashboard creation- **RBAC Groups**: Dev, QA, BA, Release Approvers, Pipeline Maintainers
-
-├── core/                  # Core infrastructure- **Branch Policies**: Required reviewers, work item linking, build validation
-
-│   ├── ConfigLoader.psm1  # JSON configuration loader- **Security Restrictions**: BA group cannot push/create PRs
-
-│   ├── Core.Rest.psm1     # REST API with curl fallback- **Work Item Templates**: Complete Agile template set (User Story, Task, Bug, Epic, Feature, Test Case)
-
-│   ├── EnvLoader.psm1     # Environment loader- **Project Wiki**: Automated setup with conventions documentation
-
-│   └── Logging.psm1       # Logging and reporting- **Test Plan**: 4 test suites (Regression, Smoke, Integration, UAT)
-
-├── dev/                   # Development utilities- **QA Queries**: 8 specialized queries for testing workflow
-
-│   ├── DryRunPreview.psm1 # Migration preview- **QA Dashboard**: Comprehensive testing metrics with 8 widgets
-
-│   ├── HtmlReporting.psm1 # HTML report generation- **Test Configurations**: 13 browser/OS/environment configurations
-
-│   ├── ProgressTracking.psm1 # Progress tracking
-
-│   └── Telemetry.psm1     # Telemetry collection### 📚 **Team Initialization Packs** ⭐ NEW in v2.1.0
-
-├── Migration/             # Migration workflows- **Business Init**: 10 wiki pages (Welcome, Decision Log, Risks, Glossary, Ways of Working, KPIs, Training, Communication Templates, Cutover Timeline, Post-Cutover Summary) + 8 queries + dashboard
-
-│   ├── Initialization/    # Project initialization- **Dev Init**: 7 wiki pages (ADR, Dev Setup, API Docs, Git Workflow, Code Review, Troubleshooting, Dependencies) + technical documentation
-
-│   ├── TeamPacks/         # Team-specific templates- **Security Init**: 7 wiki pages (Security Policies, Threat Modeling, Security Testing, Incident Response, Compliance, Secret Management, Security Champions) + security queries + dashboard
-
-│   └── Workflows/         # Migration workflows- **Management Init**: 8 wiki pages (Program Overview, Sprint Planning, Capacity Planning, Roadmap, RAID Log, Stakeholder Communications, Retrospectives, Metrics Dashboard) + 6 program management queries + executive dashboard
-
-└── templates/             # Configuration templates- **Best Practices**: 6 wiki pages (Code Standards, Performance Optimization, Error Handling, Logging Standards, Testing Strategies, Documentation Guidelines)
-
-```- **QA Guidelines**: 5 wiki pages (QA Overview, Test Strategy, Test Data Management, Automation Framework, Bug Lifecycle)
-
+### 📚 **Team Initialization Packs** ⭐ NEW in v2.1.0
+- **Business Init**: 10 wiki pages (Welcome, Decision Log, Risks, Glossary, Ways of Working, KPIs, Training, Communication Templates, Cutover Timeline, Post-Cutover Summary) + 8 queries + dashboard
+- **Dev Init**: 7 wiki pages (ADR, Dev Setup, API Docs, Git Workflow, Code Review, Troubleshooting, Dependencies) + technical documentation
+- **Security Init**: 7 wiki pages (Security Policies, Threat Modeling, Security Testing, Incident Response, Compliance, Secret Management, Security Champions) + security queries + dashboard
+- **Management Init**: 8 wiki pages (Program Overview, Sprint Planning, Capacity Planning, Roadmap, RAID Log, Stakeholder Communications, Retrospectives, Metrics Dashboard) + 6 program management queries + executive dashboard
+- **Best Practices**: 6 wiki pages (Code Standards, Performance Optimization, Error Handling, Logging Standards, Testing Strategies, Documentation Guidelines)
+- **QA Guidelines**: 5 wiki pages (QA Overview, Test Strategy, Test Data Management, Automation Framework, Bug Lifecycle)
 - **Total**: 43 wiki templates with ~18,000 lines of production-ready content
 
-### Key Design Principles
-
 ### 📦 **Bulk Migration Support**
+- Multi-project preparation and analysis
+- Consolidated migration templates
+- Batch processing with individual project tracking
+- Automated error handling and recovery
 
-- **Modular Architecture**: Clear separation of concerns (adapters/core/workflows)- Multi-project preparation and analysis
-
-- **Adapter Pattern**: GitLab and AzureDevOps modules never depend on each other- Consolidated migration templates
-
-- **Idempotency**: All operations are safe to re-run- Batch processing with individual project tracking
-
-- **Error Resilience**: Automatic retry with exponential backoff, curl fallback- Automated error handling and recovery
-
-- **Security**: Token masking, credential cleanup, audit trails
-
-- **Observability**: Structured logs, detailed reports, progress tracking### 🔧 **Advanced Features**
-
+### 🔧 **Advanced Features**
 - Git LFS support with automatic detection
-
----- All Git refs migration (branches, tags, commit history)
-
+- All Git refs migration (branches, tags, commit history)
 - Build validation policy integration
-
-## 🧪 Testing- SonarQube status check support
-
+- SonarQube status check support
 - Customizable security policies
 
-```powershell
-
-# Run all tests## Prerequisites
-
-Invoke-Pester -Path '.\tests' -Output Detailed
+## Prerequisites
 
 ### Required Software
-
-# Run specific test suite- **PowerShell 5.1** or later
-
-Invoke-Pester -Path '.\tests\OfflineTests.ps1' -Output Detailed- **Git** (with git-lfs for LFS repositories)
-
+- **PowerShell 5.1** or later
+- **Git** (with git-lfs for LFS repositories)
+- **ImportExcel module** (for work items import): `Install-Module -Name ImportExcel -Scope CurrentUser`
 - **Network access** to both GitLab and Azure DevOps instances
 
-# Run with coverage
-
-Invoke-Pester -Configuration @{### Required Credentials
-
-    Run = @{ Path = '.\tests\*.Tests.ps1' }- **Azure DevOps Personal Access Token (PAT)** with:
-
-    CodeCoverage = @{   - Project and team: Read, write, & manage
-
-        Enabled = $true  - Code: Full
-
-        Path = '.\modules\*.psm1'  - Work items: Read, write, & manage
-
-    }  - Graph: Read
-
-}  - Security: Manage
-
-```
+### Required Credentials
+- **Azure DevOps Personal Access Token (PAT)** with:
+  - Project and team: Read, write, & manage
+  - Code: Full
+  - Work items: Read, write, & manage
+  - Graph: Read
+  - Security: Manage
 
 - **GitLab Personal Access Token** with:
-
-**Current Test Status**: 29/29 passing (100%) ✅  - `api` scope for project access
-
+  - `api` scope for project access
   - `read_repository` scope for Git operations
-
----
 
 ## Installation
 
-## 🛡️ Security Best Practices
-
 ### Quick Install
 
-1. **Never commit credentials**: Use `.env` file (git-ignored by default)
-
-2. **Use PATs with minimal scope**: 1. **Clone the repository**:
-
-   - GitLab: `read_api`, `read_repository`   ```powershell
-
-   - Azure DevOps: `Code (Read & Write)`, `Project and Team (Read, Write, & Manage)`   git clone https://github.com/your-org/gitlab-to-azuredevops-migration.git
-
-3. **Rotate tokens regularly**: Best practice is 90-day rotation   cd gitlab-to-azuredevops-migration
-
-4. **Review audit logs**: Check `logs/` directory after each migration   ```
-
-5. **Clean up credentials**: Tool automatically clears Git credentials after use
-
-2. **Verify prerequisites**:
-
----   ```powershell
-
-   # Check PowerShell version (should be 5.1+)
-
-## 🤝 Contributing   $PSVersionTable.PSVersion
-
-   
-
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.   # Check Git installation
-
-   git --version
-
-### Quick Contribution Guide   
-
-   # Check Git LFS (optional, but recommended)
-
-1. Fork the repository   git lfs version
-
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)   ```
-
-3. Make your changes
-
-4. Run tests (`Invoke-Pester -Path '.\tests' -Output Detailed`)3. **Set up credentials**:
-
-5. Commit with conventional commits (`feat:`, `fix:`, `docs:`, etc.)   ```powershell
-
-6. Push to your fork   # Copy the environment template
-
-7. Open a Pull Request   cp setup-env.template.ps1 setup-env.ps1
-
-   
-
----   # Edit setup-env.ps1 with your credentials (use notepad, VS Code, etc.)
-
-   notepad setup-env.ps1
-
-## 📝 Changelog   
-
-   # Load the environment variables
-
-See [CHANGELOG.md](CHANGELOG.md) for version history and release notes.   .\setup-env.ps1
-
+1. **Clone the repository**:
+   ```powershell
+   git clone https://github.com/your-org/gitlab-to-azuredevops-migration.git
+   cd gitlab-to-azuredevops-migration
    ```
 
-**Latest Release**: v2.1.0   
+2. **Verify prerequisites**:
+   ```powershell
+   # Check PowerShell version (should be 5.1+)
+   $PSVersionTable.PSVersion
+   
+   # Check Git installation
+   git --version
+   
+   # Check Git LFS (optional, but recommended)
+   git lfs version
+   ```
 
-- Self-contained folder structures   See [Configuration](#configuration) section for detailed credential setup.
+3. **Set up credentials**:
+   ```powershell
+   # Copy the environment template
+   cp setup-env.template.ps1 setup-env.ps1
+   
+   # Edit setup-env.ps1 with your credentials (use notepad, VS Code, etc.)
+   notepad setup-env.ps1
+   
+   # Load the environment variables
+   .\setup-env.ps1
+   ```
+   
+   See [Configuration](#configuration) section for detailed credential setup.
 
-- 43 wiki templates
-
-- 4 team initialization packs4. **Run your first migration**:
-
-- PowerShell approved verbs   ```powershell
-
-- 100% test pass rate   # Generate pre-flight report
-
+4. **Run your first migration**:
+   ```powershell
+   # Generate pre-flight report
    .\Gitlab2DevOps.ps1 -Mode Preflight -Source "mygroup/myproject"
+   ```
 
----   ```
+That's it! You're ready to start migrating.
 
+## Configuration
 
+### 1. Initial Setup
 
-## 📄 LicenseThat's it! You're ready to start migrating.
+You can configure the tool using **.env files** (recommended), **environment variables**, or **parameters**:
 
-
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.## Configuration
-
-
-
----### 1. Initial Setup
-
-
-
-## 🙏 AcknowledgmentsYou can configure the tool using **.env files** (recommended), **environment variables**, or **parameters**:
-
-
-
-- Built with ❤️ for DevOps teams migrating to Azure DevOps#### Option A: Using .env File (Recommended - Most Secure)
-
-- Designed for on-premise environments with SSL/TLS challenges```powershell
-
-- Inspired by real-world enterprise migration experiences# 1. Create .env file from template
-
+#### Option A: Using .env File (Recommended - Most Secure)
+```powershell
+# 1. Create .env file from template
 Copy-Item .env.example .env
 
----
-
 # 2. Edit .env with your credentials
-
-## 📞 Supportnotepad .env
-
+notepad .env
 # OR
+code .env
 
-- 📖 **Documentation**: Start with [Quick Start Guide](docs/quickstart.md)code .env
-
-- 🐛 **Bug Reports**: [Open an issue](https://github.com/magedfarag/Gitlab2DevOps/issues)
-
-- 💡 **Feature Requests**: [Open an issue](https://github.com/magedfarag/Gitlab2DevOps/issues)# 3. Run the script (automatically loads .env)
-
-- 💬 **Questions**: Check [API Error Reference](docs/api-errors.md) and documentation.\Gitlab2DevOps.ps1
-
+# 3. Run the script (automatically loads .env)
+.\Gitlab2DevOps.ps1
 ```
 
----
-
 Your `.env` file should look like:
-
-<div align="center">```bash
-
+```bash
 # Azure DevOps Configuration
-
-**⭐ Star this repo if it helped your migration! ⭐**ADO_COLLECTION_URL=https://dev.azure.com/your-org
-
+ADO_COLLECTION_URL=https://dev.azure.com/your-org
 ADO_PAT=your-azure-devops-pat-here
 
-Made with ❤️ by [Maged Farag](https://github.com/magedfarag)
-
 # GitLab Configuration
-
-</div>GITLAB_BASE_URL=https://gitlab.com
-
+GITLAB_BASE_URL=https://gitlab.com
 GITLAB_PAT=your-gitlab-pat-here
 ```
 

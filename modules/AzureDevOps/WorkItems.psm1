@@ -161,7 +161,7 @@ function Initialize-AdoTeamTemplates {
     }
     
     # Define comprehensive work item templates for all Agile types - load from JSON
-    $templateJsonPath = Join-Path $PSScriptRoot "..\..\templates\WorkItemTemplates.json"
+    $templateJsonPath = Join-Path $PSScriptRoot "..\templates\WorkItemTemplates.json"
     if (-not (Test-Path $templateJsonPath)) {
         Write-Error "[Initialize-AdoTeamTemplates] Template JSON file not found: $templateJsonPath"
         return
@@ -1375,6 +1375,331 @@ ORDER BY [Microsoft.VSTS.Scheduling.TargetDate], [System.WorkItemType], [Microso
     }
 }
 
+<#
+.SYNOPSIS
+    Import hierarchical requirements from Excel into Azure DevOps.
+
+.DESCRIPTION
+    Imports work items (Epic -> Feature -> User Story -> Test Case) from an Excel spreadsheet
+    into Azure DevOps Server. Preserves parent-child relationships and supports all standard
+    Agile process fields.
+
+.PARAMETER Project
+    Azure DevOps project name.
+
+.PARAMETER ExcelPath
+    Path to Excel file (.xlsx) containing requirements.
+    
+    Expected columns:
+    - LocalId: Unique identifier in Excel (for parent linking)
+    - WorkItemType: Epic, Feature, User Story, Test Case
+    - Title: Work item title (required)
+    - ParentLocalId: LocalId of parent work item (for hierarchy)
+    - AreaPath, IterationPath, State, Description, Priority
+    - StoryPoints, BusinessValue, ValueArea, Risk
+    - StartDate, FinishDate, TargetDate, DueDate
+    - OriginalEstimate, RemainingWork, CompletedWork
+    - TestSteps: For Test Cases (format: "step1|expected1;;step2|expected2")
+    - Tags: Semicolon-separated tags
+
+.PARAMETER WorksheetName
+    Name of the worksheet in Excel file. Default: "Requirements"
+
+.PARAMETER ApiVersion
+    Azure DevOps REST API version. Default: "7.0"
+    - Use "7.0" or "7.1" for Azure DevOps Server 2022+
+    - Use "6.0" for Azure DevOps Server 2020
+
+.EXAMPLE
+    Import-AdoWorkItemsFromExcel -Project "MyProject" -ExcelPath "C:\requirements.xlsx"
+
+.EXAMPLE
+    Import-AdoWorkItemsFromExcel -Project "MyProject" -ExcelPath "C:\reqs.xlsx" -WorksheetName "Sprint1" -ApiVersion "6.0"
+
+.NOTES
+    Requires ImportExcel module: Install-Module ImportExcel
+    Work items are created in hierarchical order (Epic -> Feature -> User Story -> Test Case)
+#>
+function Import-AdoWorkItemsFromExcel {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [ValidateScript({
+            if (-not (Test-Path $_)) {
+                throw "Excel file not found: $_"
+            }
+            if ($_ -notmatch '\.(xlsx|xls)$') {
+                throw "File must be Excel format (.xlsx or .xls): $_"
+            }
+            $true
+        })]
+        [string]$ExcelPath,
+        
+        [string]$WorksheetName = "Requirements",
+        
+        [ValidateSet("6.0", "7.0", "7.1")]
+        [string]$ApiVersion = "7.0"
+    )
+    
+    Write-Host "[INFO] Importing work items from Excel: $ExcelPath" -ForegroundColor Cyan
+    
+    # Check for ImportExcel module
+    if (-not (Get-Module -ListAvailable -Name ImportExcel)) {
+        Write-Host "[ERROR] ImportExcel module not found" -ForegroundColor Red
+        Write-Host "[INFO] Install with: Install-Module ImportExcel -Scope CurrentUser" -ForegroundColor Yellow
+        throw "ImportExcel module required"
+    }
+    
+    # Import Excel data
+    try {
+        Import-Module ImportExcel -ErrorAction Stop
+        Write-Verbose "Reading Excel file: $ExcelPath"
+        $rows = Import-Excel -Path $ExcelPath -WorksheetName $WorksheetName -ErrorAction Stop
+        
+        if (-not $rows -or $rows.Count -eq 0) {
+            Write-Warning "No data found in worksheet '$WorksheetName'"
+            return
+        }
+        
+        Write-Host "[INFO] Found $($rows.Count) rows in Excel" -ForegroundColor Cyan
+    }
+    catch {
+        Write-Host "[ERROR] Failed to read Excel file: $_" -ForegroundColor Red
+        throw
+    }
+    
+    # Define hierarchy order for correct parent-child creation
+    $hierarchyOrder = @{
+        "Epic"       = 1
+        "Feature"    = 2
+        "User Story" = 3
+        "Test Case"  = 4
+        "Task"       = 5
+        "Bug"        = 6
+        "Issue"      = 7
+    }
+    
+    # Sort by hierarchy to ensure parents are created before children
+    $orderedRows = $rows | Where-Object { $_.WorkItemType } | 
+                          Sort-Object { $hierarchyOrder[$_.WorkItemType] }
+    
+    Write-Host "[INFO] Processing $($orderedRows.Count) work items in hierarchical order" -ForegroundColor Cyan
+    
+    # Map Excel LocalId to Azure DevOps work item ID
+    $localToAdoMap = @{}
+    $successCount = 0
+    $errorCount = 0
+    
+    foreach ($row in $orderedRows) {
+        $wit = $row.WorkItemType
+        
+        try {
+            # Build JSON Patch operations array
+            $operations = @()
+            
+            # Required: Title
+            if ([string]::IsNullOrWhiteSpace($row.Title)) {
+                Write-Warning "Skipping row with missing title (LocalId: $($row.LocalId))"
+                continue
+            }
+            
+            $operations += @{
+                op    = "add"
+                path  = "/fields/System.Title"
+                value = $row.Title.ToString()
+            }
+            
+            # Optional standard fields
+            if ($row.AreaPath) {
+                $operations += @{ op="add"; path="/fields/System.AreaPath"; value=$row.AreaPath.ToString() }
+            }
+            if ($row.IterationPath) {
+                $operations += @{ op="add"; path="/fields/System.IterationPath"; value=$row.IterationPath.ToString() }
+            }
+            if ($row.State) {
+                $operations += @{ op="add"; path="/fields/System.State"; value=$row.State.ToString() }
+            }
+            if ($row.Description) {
+                $operations += @{ op="add"; path="/fields/System.Description"; value=$row.Description.ToString() }
+            }
+            if ($row.Priority) {
+                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Common.Priority"; value=[int]$row.Priority }
+            }
+            
+            # Work item type specific fields
+            if ($row.StoryPoints -and $wit -eq "User Story") {
+                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StoryPoints"; value=[double]$row.StoryPoints }
+            }
+            if ($row.BusinessValue) {
+                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Common.BusinessValue"; value=[int]$row.BusinessValue }
+            }
+            if ($row.ValueArea) {
+                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Common.ValueArea"; value=$row.ValueArea.ToString() }
+            }
+            if ($row.Risk) {
+                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Common.Risk"; value=$row.Risk.ToString() }
+            }
+            
+            # Scheduling fields
+            if ($row.StartDate) {
+                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StartDate"; value=[datetime]$row.StartDate }
+            }
+            if ($row.FinishDate) {
+                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.FinishDate"; value=[datetime]$row.FinishDate }
+            }
+            if ($row.TargetDate) {
+                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.TargetDate"; value=[datetime]$row.TargetDate }
+            }
+            if ($row.DueDate) {
+                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.DueDate"; value=[datetime]$row.DueDate }
+            }
+            
+            # Effort tracking
+            if ($row.OriginalEstimate) {
+                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.OriginalEstimate"; value=[double]$row.OriginalEstimate }
+            }
+            if ($row.RemainingWork) {
+                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.RemainingWork"; value=[double]$row.RemainingWork }
+            }
+            if ($row.CompletedWork) {
+                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.CompletedWork"; value=[double]$row.CompletedWork }
+            }
+            
+            # Test Case specific: Test Steps
+            if ($wit -eq "Test Case" -and $row.TestSteps) {
+                $stepsXml = ConvertTo-AdoTestStepsXml -StepsText $row.TestSteps
+                if ($stepsXml) {
+                    $operations += @{
+                        op    = "add"
+                        path  = "/fields/Microsoft.VSTS.TCM.Steps"
+                        value = $stepsXml
+                    }
+                }
+            }
+            
+            # Tags
+            if ($row.Tags) {
+                $operations += @{ op="add"; path="/fields/System.Tags"; value=$row.Tags.ToString() }
+            }
+            
+            # Parent relationship (if parent was already created)
+            if ($row.ParentLocalId) {
+                $parentAdoId = $localToAdoMap[[int]$row.ParentLocalId]
+                if ($parentAdoId) {
+                    $projEnc = [uri]::EscapeDataString($Project)
+                    $operations += @{
+                        op    = "add"
+                        path  = "/relations/-"
+                        value = @{
+                            rel        = "System.LinkTypes.Hierarchy-Reverse"
+                            url        = "$script:CollectionUrl/$projEnc/_apis/wit/workItems/$parentAdoId"
+                            attributes = @{ comment = "Imported from Excel" }
+                        }
+                    }
+                }
+                else {
+                    Write-Verbose "Parent LocalId $($row.ParentLocalId) not yet created for work item '$($row.Title)'"
+                }
+            }
+            
+            # Create work item via REST API
+            $witEncoded = [uri]::EscapeDataString($wit)
+            $projEnc = [uri]::EscapeDataString($Project)
+            
+            $workItem = Invoke-AdoRest POST "/$projEnc/_apis/wit/workitems/`$$witEncoded" `
+                                      -Body $operations `
+                                      -ApiVersion $ApiVersion `
+                                      -ContentType "application/json-patch+json"
+            
+            # Store mapping for child relationships
+            if ($row.LocalId) {
+                $localToAdoMap[[int]$row.LocalId] = $workItem.id
+            }
+            
+            Write-Host "  ✅ Created $wit #$($workItem.id): $($row.Title)" -ForegroundColor Gray
+            $successCount++
+        }
+        catch {
+            Write-Warning "Failed to create $wit '$($row.Title)': $_"
+            $errorCount++
+        }
+    }
+    
+    # Summary
+    Write-Host ""
+    Write-Host "[SUCCESS] Imported $successCount work items successfully" -ForegroundColor Green
+    if ($errorCount -gt 0) {
+        Write-Host "[WARN] $errorCount work items failed to import" -ForegroundColor Yellow
+    }
+    
+    return @{
+        SuccessCount = $successCount
+        ErrorCount   = $errorCount
+        WorkItemMap  = $localToAdoMap
+    }
+}
+
+<#
+.SYNOPSIS
+    Convert Excel test steps format to Azure DevOps XML format.
+
+.DESCRIPTION
+    Converts test steps from Excel format (step|expected;;step|expected) to 
+    Azure DevOps TCM XML format for Test Case work items.
+
+.PARAMETER StepsText
+    Test steps in format: "step1|expected1;;step2|expected2"
+    Use ";;" to separate steps, "|" to separate action from expected result.
+
+.EXAMPLE
+    ConvertTo-AdoTestStepsXml -StepsText "Login|User logged in;;Logout|User logged out"
+#>
+function ConvertTo-AdoTestStepsXml {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$StepsText
+    )
+    
+    if ([string]::IsNullOrWhiteSpace($StepsText)) {
+        return $null
+    }
+    
+    Add-Type -AssemblyName System.Web
+    
+    # Split by ;; delimiter
+    $steps = $StepsText -split ';;'
+    $stepCount = $steps.Count
+    
+    $xmlBuilder = New-Object System.Text.StringBuilder
+    [void]$xmlBuilder.Append("<steps id=`"0`" last=`"$stepCount`">")
+    
+    $stepId = 1
+    foreach ($step in $steps) {
+        $parts = $step -split '\|', 2
+        $action = [System.Web.HttpUtility]::HtmlEncode($parts[0].Trim())
+        $expected = if ($parts.Count -gt 1) { 
+            [System.Web.HttpUtility]::HtmlEncode($parts[1].Trim()) 
+        } else { 
+            "" 
+        }
+        
+        [void]$xmlBuilder.Append("<step id=`"$stepId`" type=`"ValidateStep`">")
+        [void]$xmlBuilder.Append("<parameterizedString isformatted=`"true`">$action</parameterizedString>")
+        [void]$xmlBuilder.Append("<parameterizedString isformatted=`"true`">$expected</parameterizedString>")
+        [void]$xmlBuilder.Append("<description />")
+        [void]$xmlBuilder.Append("</step>")
+        
+        $stepId++
+    }
+    
+    [void]$xmlBuilder.Append("</steps>")
+    return $xmlBuilder.ToString()
+}
+
 # Export functions
 Export-ModuleMember -Function @(
     'Initialize-AdoTeamTemplates',
@@ -1386,6 +1711,8 @@ Export-ModuleMember -Function @(
     'Measure-Adobusinessqueries',
     'Search-Adodevqueries',
     'New-AdoSecurityQueries',
-    'Measure-Adomanagementqueries'
+    'Measure-Adomanagementqueries',
+    'Import-AdoWorkItemsFromExcel',
+    'ConvertTo-AdoTestStepsXml'
 )
 

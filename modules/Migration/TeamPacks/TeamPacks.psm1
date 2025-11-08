@@ -153,7 +153,7 @@ function Initialize-DevInit {
     
     if ($repo) {
         Write-Host "[INFO] Adding enhanced repository files..." -ForegroundColor Cyan
-        Ensure-AdoRepoFiles -Project $DestProject -RepoId $repo.id -RepoName $repo.name -ProjectType $ProjectType
+        New-AdoRepoFiles -Project $DestProject -RepoId $repo.id -RepoName $repo.name -ProjectType $ProjectType
     }
     else {
         Write-Host "[WARN] No repository found - skipping repository files" -ForegroundColor Yellow
@@ -223,15 +223,15 @@ function Initialize-SecurityInit {
 
     # Provision security wiki pages
     Write-Host "[INFO] Provisioning security wiki pages..." -ForegroundColor Cyan
-    Ensure-AdoSecurityWiki -Project $DestProject -WikiId $wiki.id
+    New-AdoSecurityWiki -Project $DestProject -WikiId $wiki.id
 
     # Create security dashboard
     Write-Host "[INFO] Creating security dashboard..." -ForegroundColor Cyan
-    Ensure-AdoSecurityDashboard -Project $DestProject
+    New-AdoSecurityDashboard -Project $DestProject
 
     # Ensure security queries
     Write-Host "[INFO] Creating security-focused queries..." -ForegroundColor Cyan
-    Ensure-AdoSecurityQueries -Project $DestProject
+    New-AdoSecurityQueries -Project $DestProject
 
     # Get repository for adding security files
     $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($DestProject))/_apis/git/repositories"
@@ -239,7 +239,7 @@ function Initialize-SecurityInit {
     
     if ($repo) {
         Write-Host "[INFO] Adding security repository files..." -ForegroundColor Cyan
-        Ensure-AdoSecurityRepoFiles -Project $DestProject -RepoId $repo.id
+        New-AdoSecurityRepoFiles -Project $DestProject -RepoId $repo.id
     }
     else {
         Write-Host "[WARN] No repository found - skipping security repository files" -ForegroundColor Yellow

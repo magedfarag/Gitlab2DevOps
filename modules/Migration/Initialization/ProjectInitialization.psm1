@@ -98,7 +98,7 @@ $script:repo = $null
     Initialize-AdoProject "MyProject" "my-repo" -WhatIf
 #>
 function Initialize-AdoProject {
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+    [CmdletBinding(DefaultParameterSetName = 'Standard', SupportsShouldProcess = $true, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory)]
         [string]$DestProject,
@@ -142,6 +142,19 @@ function Initialize-AdoProject {
         [Parameter(ParameterSetName = 'Profile')]
         [ValidateSet('Minimal', 'Standard', 'Complete')]
         [string]$Profile = 'Standard',
+
+        [ValidateScript({
+            if ($_ -and -not (Test-Path $_)) {
+                throw "Excel file not found: $_"
+            }
+            if ($_ -and $_ -notmatch '\.(xlsx|xls)$') {
+                throw "File must be Excel format (.xlsx or .xls): $_"
+            }
+            $true
+        })]
+        [string]$ExcelRequirementsPath,
+
+        [string]$ExcelWorksheetName = "Requirements",
 
         [switch]$Resume,
 
@@ -228,7 +241,7 @@ function Initialize-AdoProject {
     catch {
         Write-Warning "Failed to load configuration: $_. Using embedded defaults."
         # Fallback to hardcoded defaults if ConfigLoader fails
-        $config = [PSCustomObject]@{
+        $config = @{
             areas = @(
                 @{ name = 'Frontend'; description = 'Frontend development' }
                 @{ name = 'Backend'; description = 'Backend development' }
@@ -303,7 +316,8 @@ function Initialize-AdoProject {
         
         Write-Host "Would create:" -ForegroundColor Yellow
         Write-Host "  ✓ 1 Azure DevOps project" -ForegroundColor White
-        Write-Host "  ✓ $($config.areas.Count) work item areas: $($config.areas.name -join ', ')" -ForegroundColor White
+        $areaNames = ($config.areas | ForEach-Object { $_.name }) -join ', '
+        Write-Host "  ✓ $($config.areas.Count) work item areas: $areaNames" -ForegroundColor White
         Write-Host "  ✓ $($config.iterations.sprintCount) sprint iterations ($($config.iterations.sprintDurationDays) days each)" -ForegroundColor White
         Write-Host "  ✓ 1 project wiki with home page" -ForegroundColor White
         Write-Host "  ✓ 7 work item templates (User Story, Task, Bug, Epic, Feature, Test Case, Issue)" -ForegroundColor White
@@ -735,11 +749,59 @@ This project was migrated from GitLab using automated tooling.
     if ($componentsToInitialize.templates) {
         Invoke-CheckpointedStep -StepName 'templates' -SuccessMessage "Work item templates created" `
             -ProgressStatus "Creating work item templates (3/$script:totalSteps)" -Action {
-            Ensure-AdoTeamTemplates $DestProject $effectiveTeamName
+            Initialize-AdoTeamTemplates $DestProject $effectiveTeamName
         }
     }
     else {
         Write-Host "[SKIP] Work item templates (disabled by selection)" -ForegroundColor DarkGray
+    }
+    
+    # Import work items from Excel (auto-detect or explicit path)
+    $excelFileToImport = $null
+    
+    if ($ExcelRequirementsPath) {
+        # Explicit path provided via parameter
+        $excelFileToImport = $ExcelRequirementsPath
+        Write-Host "[INFO] Using Excel file from parameter: $excelFileToImport" -ForegroundColor Cyan
+    }
+    else {
+        # Auto-detect requirements.xlsx in project directory
+        $migrationsDir = Join-Path $PSScriptRoot "..\..\..\migrations"
+        $projectExcelPath = Join-Path $migrationsDir "$DestProject\requirements.xlsx"
+        
+        if (Test-Path $projectExcelPath) {
+            $excelFileToImport = $projectExcelPath
+            Write-Host "[INFO] 🔍 Auto-detected Excel file in project directory: requirements.xlsx" -ForegroundColor Cyan
+        }
+    }
+    
+    if ($excelFileToImport) {
+        Write-Host ""
+        Write-Host "[INFO] 📊 Importing work items from Excel..." -ForegroundColor Cyan
+        Write-Host "[INFO] File: $excelFileToImport" -ForegroundColor Gray
+        
+        try {
+            $importResult = Import-AdoWorkItemsFromExcel -Project $DestProject `
+                                                          -ExcelPath $excelFileToImport `
+                                                          -WorksheetName $ExcelWorksheetName
+            
+            if ($importResult.SuccessCount -gt 0) {
+                Write-Host "[SUCCESS] ✅ Imported $($importResult.SuccessCount) work items from Excel" -ForegroundColor Green
+                Write-Host "[INFO] Work items created in project: $DestProject" -ForegroundColor Gray
+            }
+            if ($importResult.ErrorCount -gt 0) {
+                Write-Host "[WARN] ⚠️ $($importResult.ErrorCount) work items failed to import" -ForegroundColor Yellow
+            }
+        }
+        catch {
+            Write-Warning "Excel import failed: $_"
+            Write-Host "[INFO] Continuing with project initialization..." -ForegroundColor Yellow
+        }
+        Write-Host ""
+    }
+    else {
+        Write-Host "[INFO] No Excel requirements file found (checked: migrations\$DestProject\requirements.xlsx)" -ForegroundColor DarkGray
+        Write-Host "[TIP] Place requirements.xlsx in migrations\$DestProject\ for automatic import" -ForegroundColor DarkGray
     }
     
     # Create sprint iterations from configuration with checkpoint
@@ -759,7 +821,7 @@ This project was migrated from GitLab using automated tooling.
     if ($componentsToInitialize.queries) {
         Invoke-CheckpointedStep -StepName 'queries' -SuccessMessage "Shared queries created" `
             -ProgressStatus "Creating shared queries (5/$script:totalSteps)" -Action {
-            Ensure-AdoSharedQueries $DestProject $effectiveTeamName
+            New-AdoSharedQueries $DestProject $effectiveTeamName
         }
     }
     else {
@@ -770,7 +832,7 @@ This project was migrated from GitLab using automated tooling.
     if ($componentsToInitialize.teamSettings) {
         Invoke-CheckpointedStep -StepName 'teamSettings' -SuccessMessage "Team settings configured" `
             -ProgressStatus "Configuring team settings (6/$script:totalSteps)" -Action {
-            Ensure-AdoTeamSettings $DestProject $effectiveTeamName
+            Set-AdoTeamSettings $DestProject $effectiveTeamName
         }
     }
     else {
@@ -879,7 +941,7 @@ This project was migrated from GitLab using automated tooling.
             
             # Test Plan
             try {
-                $testPlan = Ensure-AdoTestPlan $DestProject
+                $testPlan = New-AdoTestPlan $DestProject
                 $qaResults.testPlan.success = $true
                 Write-Verbose "[Initialize-AdoProject] ✓ Test plan created successfully"
             }
@@ -894,7 +956,7 @@ This project was migrated from GitLab using automated tooling.
             
             # QA Queries
             try {
-                Ensure-AdoQAQueries $DestProject
+                New-AdoQAQueries $DestProject
                 $qaResults.queries.success = $true
                 Write-Verbose "[Initialize-AdoProject] ✓ QA queries created successfully"
             }
@@ -916,7 +978,7 @@ This project was migrated from GitLab using automated tooling.
             
             # Test Configurations
             try {
-                Ensure-AdoTestConfigurations $DestProject
+                New-AdoTestConfigurations $DestProject
                 $qaResults.configurations.success = $true
                 Write-Verbose "[Initialize-AdoProject] ✓ Test configurations created successfully"
             }
@@ -931,7 +993,7 @@ This project was migrated from GitLab using automated tooling.
             # QA Guidelines Wiki
             if ($wiki) {
                 try {
-                    Ensure-AdoQAGuidelinesWiki $DestProject $wiki.id
+                    New-AdoQAGuidelinesWiki $DestProject $wiki.id
                     $qaResults.guidelines.success = $true
                     Write-Verbose "[Initialize-AdoProject] ✓ QA guidelines wiki created successfully"
                 }
@@ -972,7 +1034,7 @@ This project was migrated from GitLab using automated tooling.
         } else {
             Invoke-CheckpointedStep -StepName 'repository' -SuccessMessage "Repository '$RepoName' created" `
                 -ProgressStatus "Creating repository (10/$script:totalSteps)" -Action {
-                $script:repo = Ensure-AdoRepository $DestProject $script:projId $RepoName
+                $script:repo = New-AdoRepository $DestProject $script:projId $RepoName
             }
         }
     }
@@ -1039,7 +1101,7 @@ This project was migrated from GitLab using automated tooling.
                 -ProgressStatus "Adding repository templates (12/$script:totalSteps)" -Action {
                 $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
                 if ($defaultRef) {
-                    Ensure-AdoRepositoryTemplates $DestProject $repo.id $RepoName
+                    New-AdoRepositoryTemplates $DestProject $repo.id $RepoName
                     Write-Host "[SUCCESS] Repository templates (README, PR template) added" -ForegroundColor Green
                 }
                 else {
@@ -1195,7 +1257,8 @@ This project was migrated from GitLab using automated tooling.
     # Work Item Configuration
     Write-Host ""
     Write-Host "📋 Work Item Configuration:" -ForegroundColor Cyan
-    Write-Host "   ✅ Areas: $($config.areas.name -join ', ')" -ForegroundColor Green
+    $areaNames = ($config.areas | ForEach-Object { $_.name }) -join ', '
+    Write-Host "   ✅ Areas: $areaNames" -ForegroundColor Green
     Write-Host "   ✅ Templates: 6 comprehensive templates (auto-default)" -ForegroundColor Green
     Write-Host "   ✅ Sprints: $($config.iterations.sprintCount) upcoming $($config.iterations.sprintDurationDays)-day iterations" -ForegroundColor Green
     Write-Host "   ✅ Queries: 5+ shared queries (My Work, Backlog, Bugs, etc.)" -ForegroundColor Green

@@ -6,6 +6,7 @@ Get started with Gitlab2DevOps in 5 minutes.
 
 - PowerShell 5.1 or later
 - Git 2.20+ installed and in PATH
+- ImportExcel module (for work items import): `Install-Module -Name ImportExcel -Scope CurrentUser`
 - Network access to GitLab and Azure DevOps instances
 
 ## Step 1: Obtain API Tokens

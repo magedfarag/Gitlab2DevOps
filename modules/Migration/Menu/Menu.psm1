@@ -161,6 +161,23 @@ function Show-MigrationMenu {
             $config | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 $paths.configFile
             Write-Host "[INFO] Migration config created: $($paths.configFile)" -ForegroundColor Green
             
+            # Extract documentation files
+            Write-Host ""
+            Write-Host "[INFO] Extracting documentation files..." -ForegroundColor Cyan
+            try {
+                $docStats = Export-GitLabDocumentation -AdoProject $DestProjectName
+                
+                if ($docStats -and $docStats.total_files -gt 0) {
+                    Write-Host "[SUCCESS] Extracted $($docStats.total_files) documentation files ($($docStats.total_size_MB) MB)" -ForegroundColor Green
+                }
+                else {
+                    Write-Host "[INFO] No documentation files found to extract" -ForegroundColor Gray
+                }
+            }
+            catch {
+                Write-Warning "[WARN] Documentation extraction failed: $_"
+            }
+            
             # Generate HTML report after preparation
             try {
                 $htmlReport = New-MigrationHtmlReport -ProjectPath (Split-Path $paths.configFile -Parent)
@@ -193,8 +210,39 @@ function Show-MigrationMenu {
                 if ($createNew -match '^[Yy]') {
                     $DestProjectName = Read-Host "Enter Azure DevOps project name (e.g., MyProject)"
                     $RepoName = Read-Host "Enter initial repository name (e.g., my-repo)"
+                    
+                    # Ask about Excel import
+                    Write-Host ""
+                    $importExcel = Read-Host "Import work items from Excel? (y/N)"
+                    $excelPath = $null
+                    $excelWorksheet = "Requirements"
+                    if ($importExcel -match '^[Yy]') {
+                        $excelPath = Read-Host "Enter path to Excel file (e.g., C:\requirements.xlsx)"
+                        if (Test-Path $excelPath) {
+                            $worksheetInput = Read-Host "Enter worksheet name (default: Requirements)"
+                            if (-not [string]::IsNullOrWhiteSpace($worksheetInput)) {
+                                $excelWorksheet = $worksheetInput
+                            }
+                        }
+                        else {
+                            Write-Host "[WARN] Excel file not found: $excelPath" -ForegroundColor Yellow
+                            $excelPath = $null
+                        }
+                    }
+                    
                     if (-not [string]::IsNullOrWhiteSpace($DestProjectName) -and -not [string]::IsNullOrWhiteSpace($RepoName)) {
-                        Initialize-AdoProject -DestProject $DestProjectName -RepoName $RepoName -BuildDefinitionId $script:BuildDefinitionId -SonarStatusContext $script:SonarStatusContext
+                        if ($excelPath) {
+                            Initialize-AdoProject -DestProject $DestProjectName -RepoName $RepoName `
+                                                 -ExcelRequirementsPath $excelPath `
+                                                 -ExcelWorksheetName $excelWorksheet `
+                                                 -BuildDefinitionId $script:BuildDefinitionId `
+                                                 -SonarStatusContext $script:SonarStatusContext
+                        }
+                        else {
+                            Initialize-AdoProject -DestProject $DestProjectName -RepoName $RepoName `
+                                                 -BuildDefinitionId $script:BuildDefinitionId `
+                                                 -SonarStatusContext $script:SonarStatusContext
+                        }
                         
                         # Offer team initialization packs after successful project creation
                         Invoke-TeamPackMenu -ProjectName $DestProjectName
@@ -231,8 +279,39 @@ function Show-MigrationMenu {
                     Write-Host "=== CREATE NEW INDEPENDENT PROJECT ===" -ForegroundColor Cyan
                     $DestProjectName = Read-Host "Enter Azure DevOps project name (e.g., MyProject)"
                     $RepoName = Read-Host "Enter initial repository name (e.g., my-repo)"
+                    
+                    # Ask about Excel import
+                    Write-Host ""
+                    $importExcel = Read-Host "Import work items from Excel? (y/N)"
+                    $excelPath = $null
+                    $excelWorksheet = "Requirements"
+                    if ($importExcel -match '^[Yy]') {
+                        $excelPath = Read-Host "Enter path to Excel file (e.g., C:\requirements.xlsx)"
+                        if (Test-Path $excelPath) {
+                            $worksheetInput = Read-Host "Enter worksheet name (default: Requirements)"
+                            if (-not [string]::IsNullOrWhiteSpace($worksheetInput)) {
+                                $excelWorksheet = $worksheetInput
+                            }
+                        }
+                        else {
+                            Write-Host "[WARN] Excel file not found: $excelPath" -ForegroundColor Yellow
+                            $excelPath = $null
+                        }
+                    }
+                    
                     if (-not [string]::IsNullOrWhiteSpace($DestProjectName) -and -not [string]::IsNullOrWhiteSpace($RepoName)) {
-                        Initialize-AdoProject -DestProject $DestProjectName -RepoName $RepoName -BuildDefinitionId $script:BuildDefinitionId -SonarStatusContext $script:SonarStatusContext
+                        if ($excelPath) {
+                            Initialize-AdoProject -DestProject $DestProjectName -RepoName $RepoName `
+                                                 -ExcelRequirementsPath $excelPath `
+                                                 -ExcelWorksheetName $excelWorksheet `
+                                                 -BuildDefinitionId $script:BuildDefinitionId `
+                                                 -SonarStatusContext $script:SonarStatusContext
+                        }
+                        else {
+                            Initialize-AdoProject -DestProject $DestProjectName -RepoName $RepoName `
+                                                 -BuildDefinitionId $script:BuildDefinitionId `
+                                                 -SonarStatusContext $script:SonarStatusContext
+                        }
                         
                         # Offer team initialization packs after successful project creation
                         Invoke-TeamPackMenu -ProjectName $DestProjectName

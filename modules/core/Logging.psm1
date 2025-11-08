@@ -87,65 +87,38 @@ function Get-ProjectPaths {
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory, ParameterSetName='Legacy')]
-        [string]$ProjectName,
-        
-        [Parameter(Mandatory, ParameterSetName='New')]
+        [Parameter(Mandatory)]
         [string]$AdoProject,
         
-        [Parameter(Mandatory, ParameterSetName='New')]
+        [Parameter(Mandatory)]
         [string]$GitLabProject
     )
     
     $migrationsDir = Get-MigrationsDirectory
     
-    if ($PSCmdlet.ParameterSetName -eq 'New') {
-        # New self-contained structure (v2.1.0+)
-        $containerDir = Join-Path $migrationsDir $AdoProject
-        $gitlabDir = Join-Path $containerDir $GitLabProject
-        $reportsDir = Join-Path $containerDir "reports"
-        $logsDir = Join-Path $containerDir "logs"
-        $repositoryDir = Join-Path $gitlabDir "repository"
-        $configFile = Join-Path $containerDir "migration-config.json"
-        
-        # Create directories if missing
-        @($containerDir, $reportsDir, $logsDir, $gitlabDir) | ForEach-Object {
-            if (-not (Test-Path $_)) {
-                New-Item -ItemType Directory -Path $_ -Force | Out-Null
-                Write-Verbose "[Logging] Created directory: $_"
-            }
-        }
-        
-        return @{
-            projectDir    = $containerDir
-            gitlabDir     = $gitlabDir
-            reportsDir    = $reportsDir
-            logsDir       = $logsDir
-            repositoryDir = $repositoryDir
-            configFile    = $configFile
+    # v2.1.0 self-contained structure
+    $containerDir = Join-Path $migrationsDir $AdoProject
+    $gitlabDir = Join-Path $containerDir $GitLabProject
+    $reportsDir = Join-Path $containerDir "reports"
+    $logsDir = Join-Path $containerDir "logs"
+    $repositoryDir = Join-Path $gitlabDir "repository"
+    $configFile = Join-Path $containerDir "migration-config.json"
+    
+    # Create directories if missing
+    @($containerDir, $reportsDir, $logsDir, $gitlabDir) | ForEach-Object {
+        if (-not (Test-Path $_)) {
+            New-Item -ItemType Directory -Path $_ -Force | Out-Null
+            Write-Verbose "[Logging] Created directory: $_"
         }
     }
-    else {
-        # Legacy flat structure (deprecated)
-        $projectDir = Join-Path $migrationsDir $ProjectName
-        $reportsDir = Join-Path $projectDir "reports"
-        $logsDir = Join-Path $projectDir "logs"
-        $repositoryDir = Join-Path $projectDir "repository"
-        
-        # Create directories if missing
-        @($projectDir, $reportsDir, $logsDir) | ForEach-Object {
-            if (-not (Test-Path $_)) {
-                New-Item -ItemType Directory -Path $_ -Force | Out-Null
-                Write-Verbose "[Logging] Created directory: $_"
-            }
-        }
-        
-        return @{
-            projectDir    = $projectDir
-            reportsDir    = $reportsDir
-            logsDir       = $logsDir
-            repositoryDir = $repositoryDir
-        }
+    
+    return @{
+        projectDir    = $containerDir
+        gitlabDir     = $gitlabDir
+        reportsDir    = $reportsDir
+        logsDir       = $logsDir
+        repositoryDir = $repositoryDir
+        configFile    = $configFile
     }
 }
 
@@ -1020,10 +993,21 @@ function New-MigrationHtmlReport {
             }
         }
         
+        # Determine project display name
+        $projectDisplayName = if ($config.PSObject.Properties['gitlab_project'] -and $config.gitlab_project) {
+            $config.gitlab_project
+        } elseif ($config.PSObject.Properties['gitlab_repo_name'] -and $config.gitlab_repo_name) {
+            $config.gitlab_repo_name
+        } elseif ($config.PSObject.Properties['ado_project'] -and $config.ado_project) {
+            $config.ado_project
+        } else {
+            "Unknown Project"
+        }
+        
         $projectCard = @"
 <div class="project-card">
     <div class="project-header">
-        <div class="project-name">$($config.gitlab_project)</div>
+        <div class="project-name">$projectDisplayName</div>
         <span class="status-badge $statusClass">$($config.status)</span>
     </div>
     
@@ -1054,9 +1038,20 @@ $errorHtml
 </div>
 '@
         
+        # Determine title display name
+        $titleDisplayName = if ($config.PSObject.Properties['gitlab_project'] -and $config.gitlab_project) {
+            $config.gitlab_project
+        } elseif ($config.PSObject.Properties['gitlab_repo_name'] -and $config.gitlab_repo_name) {
+            $config.gitlab_repo_name
+        } elseif ($config.PSObject.Properties['ado_project'] -and $config.ado_project) {
+            $config.ado_project
+        } else {
+            "Unknown Project"
+        }
+        
         # Replace template placeholders
         $html = $template `
-            -replace '{{REPORT_TITLE}}', "Migration Status: $($config.gitlab_project)" `
+            -replace '{{REPORT_TITLE}}', "Migration Status: $titleDisplayName" `
             -replace '{{REPORT_SUBTITLE}}', "Azure DevOps Project: $($config.ado_project)" `
             -replace '{{REFRESH_INFO}}', $backNavigation `
             -replace '{{SUMMARY_STATS}}', '' `
@@ -1250,14 +1245,14 @@ function New-MigrationsOverviewReport {
             <span class="icon">🔗</span>
             <div class="content">
                 <div class="label">Repository Name</div>
-                <div class="value">$($project.gitlab_repo_name)</div>
+                <div class="value">$(if ($project.PSObject.Properties['gitlab_repo_name'] -and $project.gitlab_repo_name) { $project.gitlab_repo_name } else { 'N/A' })</div>
             </div>
         </div>
         <div class="detail-item">
             <span class="icon">📊</span>
             <div class="content">
                 <div class="label">Migration Type</div>
-                <div class="value">$($project.migration_type)</div>
+                <div class="value">$(if ($project.PSObject.Properties['migration_type'] -and $project.migration_type) { $project.migration_type } else { 'N/A' })</div>
             </div>
         </div>
         <div class="detail-item">

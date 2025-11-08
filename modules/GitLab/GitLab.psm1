@@ -145,36 +145,31 @@ function Initialize-GitLab {
         preparation_time   = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     }
     
-    # Determine folder structure (single vs bulk mode)
+    # Determine folder structure
     $projectName = if ($CustomProjectName) { $CustomProjectName } else { $p.path }
     
-    if ($CustomBaseDir) {
-        # Bulk mode: repository inside CustomBaseDir/ProjectName/repository
-        $projectDir = Join-Path $CustomBaseDir $projectName
-        $reportsDir = Join-Path $projectDir "reports"
-        $logsDir = Join-Path $projectDir "logs"
-        $repoDir = Join-Path $projectDir "repository"
+    if (-not $CustomBaseDir) {
+        throw "[Initialize-GitLab] CustomBaseDir is required. This function only supports v2.1.0 self-contained structure."
     }
-    else {
-        # Single mode: standard migrations/{projectName} structure
-        $migrationsDir = Join-Path (Get-Location) "migrations"
-        $projectDir = Join-Path $migrationsDir $projectName
-        $reportsDir = Join-Path $projectDir "reports"
-        $logsDir = Join-Path $projectDir "logs"
-        $repoDir = Join-Path $projectDir "repository"
-    }
+    
+    # v2.1.0 self-contained mode: CustomBaseDir is ADO container, CustomProjectName is GitLab subfolder
+    # Structure: CustomBaseDir/{CustomProjectName}/reports/ and repository/
+    # Logs are at ADO container level: CustomBaseDir/logs/
+    $projectDir = Join-Path $CustomBaseDir $projectName
+    $reportsDir = Join-Path $projectDir "reports"
+    $logsDir = Join-Path $CustomBaseDir "logs"  # Container-level logs
+    $repoDir = Join-Path $projectDir "repository"
     
     if (-not (Test-Path $projectDir)) {
         New-Item -ItemType Directory -Path $projectDir -Force | Out-Null
-        Write-Host "[INFO] Created project directory: $projectDir"
+        Write-Host "[INFO] Created GitLab project directory: $projectDir"
     }
     
     # Create subdirectories for organization
-    
-    @($reportsDir, $logsDir) | ForEach-Object {
-        if (-not (Test-Path $_)) {
-            New-Item -ItemType Directory -Path $_ -Force | Out-Null
-        }
+    # In v2.1.0, only create reports/ in GitLab subfolder
+    # (logs/ is already created at container level by Get-ProjectPaths)
+    if (-not (Test-Path $reportsDir)) {
+        New-Item -ItemType Directory -Path $reportsDir -Force | Out-Null
     }
     
     # Save preflight report in project-specific reports folder
@@ -610,10 +605,164 @@ function Invoke-BulkPrepareGitLab {
     Write-Host "=================================" -ForegroundColor Cyan
 }
 
+<#
+.SYNOPSIS
+    Extracts documentation files from prepared GitLab repositories into a centralized docs folder.
+
+.DESCRIPTION
+    Scans all prepared GitLab project repositories and copies documentation files
+    (docx, pdf, xlsx, pptx) into a centralized docs folder at the Azure DevOps project level.
+    Creates subfolders for each repository to maintain organization.
+
+.PARAMETER AdoProject
+    Azure DevOps project name (container folder).
+
+.PARAMETER DocExtensions
+    Array of file extensions to extract (default: docx, pdf, xlsx, pptx).
+
+.OUTPUTS
+    Hashtable with extraction statistics.
+
+.EXAMPLE
+    Export-GitLabDocumentation -AdoProject "MyProject"
+#>
+function Export-GitLabDocumentation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$AdoProject,
+        
+        [Parameter()]
+        [string[]]$DocExtensions = @('docx', 'pdf', 'xlsx', 'pptx', 'doc', 'xls', 'ppt')
+    )
+    
+    Write-Host "[INFO] Starting documentation extraction for project: $AdoProject" -ForegroundColor Cyan
+    
+    # Get bulk project paths to find container directory
+    $bulkPaths = Get-BulkProjectPaths -AdoProject $AdoProject
+    $containerDir = $bulkPaths.containerDir
+    
+    if (-not (Test-Path $containerDir)) {
+        Write-Host "[ERROR] Container directory not found: $containerDir" -ForegroundColor Red
+        Write-Host "        Make sure the project has been prepared first." -ForegroundColor Yellow
+        return $null
+    }
+    
+    # Create docs folder at project level
+    $docsDir = Join-Path $containerDir "docs"
+    if (-not (Test-Path $docsDir)) {
+        New-Item -ItemType Directory -Path $docsDir -Force | Out-Null
+        Write-Host "[INFO] Created documentation folder: $docsDir" -ForegroundColor Green
+    }
+    
+    # Statistics
+    $stats = @{
+        total_files = 0
+        total_size_MB = 0
+        repositories_processed = 0
+        files_by_type = @{}
+    }
+    
+    # Find all repository directories
+    $repoDirs = @(Get-ChildItem -Path $containerDir -Directory | Where-Object {
+        $repoPath = Join-Path $_.FullName "repository"
+        Test-Path $repoPath
+    })
+    
+    if ($repoDirs.Count -eq 0) {
+        Write-Host "[WARN] No repository directories found in: $containerDir" -ForegroundColor Yellow
+        return $stats
+    }
+    
+    Write-Host "[INFO] Found $($repoDirs.Count) repository directories to scan" -ForegroundColor Cyan
+    
+    foreach ($repoDir in $repoDirs) {
+        $repoName = $repoDir.Name
+        $repositoryPath = Join-Path $repoDir.FullName "repository"
+        
+        Write-Host "[INFO] Scanning repository: $repoName" -ForegroundColor Gray
+        
+        # Create subfolder for this repository in docs
+        $repoDocsDir = Join-Path $docsDir $repoName
+        if (-not (Test-Path $repoDocsDir)) {
+            New-Item -ItemType Directory -Path $repoDocsDir -Force | Out-Null
+        }
+        
+        # Find documentation files
+        $docFiles = @(Get-ChildItem -Path $repositoryPath -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
+            $extension = $_.Extension.TrimStart('.').ToLower()
+            $DocExtensions -contains $extension
+        })
+        
+        if ($docFiles.Count -gt 0) {
+            Write-Host "  [INFO] Found $($docFiles.Count) documentation files" -ForegroundColor Cyan
+            
+            foreach ($file in $docFiles) {
+                try {
+                    # Preserve relative path structure
+                    $relativePath = $file.FullName.Substring($repositoryPath.Length).TrimStart('\', '/')
+                    $targetPath = Join-Path $repoDocsDir $relativePath
+                    $targetDir = Split-Path -Parent $targetPath
+                    
+                    # Create target directory if needed
+                    if (-not (Test-Path $targetDir)) {
+                        New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+                    }
+                    
+                    # Copy file
+                    Copy-Item -Path $file.FullName -Destination $targetPath -Force
+                    
+                    # Update statistics
+                    $stats.total_files++
+                    $stats.total_size_MB += [math]::Round(($file.Length / 1MB), 2)
+                    
+                    $extension = $file.Extension.TrimStart('.').ToLower()
+                    if (-not $stats.files_by_type.ContainsKey($extension)) {
+                        $stats.files_by_type[$extension] = 0
+                    }
+                    $stats.files_by_type[$extension]++
+                    
+                    Write-Host "    ✓ $relativePath" -ForegroundColor Green
+                }
+                catch {
+                    Write-Warning "    ✗ Failed to copy $($file.Name): $_"
+                }
+            }
+        }
+        else {
+            Write-Host "  [INFO] No documentation files found" -ForegroundColor Gray
+        }
+        
+        $stats.repositories_processed++
+    }
+    
+    # Display summary
+    Write-Host ""
+    Write-Host "=== DOCUMENTATION EXTRACTION SUMMARY ===" -ForegroundColor Cyan
+    Write-Host "Repositories scanned: $($stats.repositories_processed)"
+    Write-Host "Total files extracted: $($stats.total_files)"
+    Write-Host "Total size: $($stats.total_size_MB) MB"
+    
+    if ($stats.files_by_type.Count -gt 0) {
+        Write-Host ""
+        Write-Host "Files by type:" -ForegroundColor Cyan
+        foreach ($ext in $stats.files_by_type.Keys | Sort-Object) {
+            Write-Host "  .$ext : $($stats.files_by_type[$ext]) files" -ForegroundColor Gray
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "Documentation folder: $docsDir" -ForegroundColor Green
+    Write-Host "=========================================" -ForegroundColor Cyan
+    
+    return $stats
+}
+
 # Export public functions
 Export-ModuleMember -Function @(
     'Get-GitLabProject',
     'Test-GitLabAuth',
     'Initialize-GitLab',
-    'Invoke-BulkPrepareGitLab'
+    'Invoke-BulkPrepareGitLab',
+    'Export-GitLabDocumentation'
 )

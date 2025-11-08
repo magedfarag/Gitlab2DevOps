@@ -180,31 +180,24 @@ function Invoke-SingleMigration {
     # Extract repository name from path
     $repoName = ($SrcPath -split '/')[-1]
     
-    # Detect project structure (new v2.1.0+ vs legacy)
+    # Get v2.1.0 self-contained structure paths
     $migrationsDir = Get-MigrationsDirectory
-    $newConfigFile = Join-Path $migrationsDir "$DestProject\migration-config.json"
-    $legacyReportDir = Join-Path $migrationsDir "$repoName\reports"
+    $configFile = Join-Path $migrationsDir "$DestProject\migration-config.json"
     
-    if (Test-Path $newConfigFile) {
-        # New self-contained structure (v2.1.0+)
-        Write-Host "[INFO] Using v2.1.0+ self-contained structure" -ForegroundColor Cyan
-        $paths = Get-ProjectPaths -AdoProject $DestProject -GitLabProject $repoName
-        $reportsDir = $paths.reportsDir
-        $logsDir = $paths.logsDir
-        $repoDir = $paths.repositoryDir
-        
-        # Look for preflight report in GitLab project subfolder
-        $preflightFile = Join-Path $paths.gitlabDir "reports\preflight-report.json"
+    if (-not (Test-Path $configFile)) {
+        Write-Host "[ERROR] Project not prepared. Run Option 1 (Prepare GitLab Project) first." -ForegroundColor Red
+        Write-Host "        Expected config file: $configFile" -ForegroundColor Gray
+        return
     }
-    else {
-        # Legacy flat structure (deprecated but supported)
-        Write-Host "[INFO] Using legacy flat structure (consider re-preparing with v2.1.0+)" -ForegroundColor Yellow
-        $paths = Get-ProjectPaths -ProjectName $repoName
-        $reportsDir = $paths.reportsDir
-        $logsDir = $paths.logsDir
-        $repoDir = $paths.repositoryDir
-        $preflightFile = Join-Path $reportsDir "preflight-report.json"
-    }
+    
+    Write-Host "[INFO] Using v2.1.0 self-contained structure" -ForegroundColor Cyan
+    $paths = Get-ProjectPaths -AdoProject $DestProject -GitLabProject $repoName
+    $reportsDir = $paths.reportsDir
+    $logsDir = $paths.logsDir
+    $repoDir = $paths.repositoryDir
+    
+    # Look for preflight report in GitLab project subfolder
+    $preflightFile = Join-Path $paths.gitlabDir "reports\preflight-report.json"
     
     # Check for existing preflight report
     $useLocalRepo = $false
@@ -287,7 +280,7 @@ function Invoke-SingleMigration {
     
     # Ensure ADO repo exists
     $stepStart = Get-Date
-    $repo = Ensure-AdoRepository $DestProject $projId $repoName -AllowExisting:$AllowSync -Replace:$Replace
+    $repo = New-AdoRepository $DestProject $projId $repoName -AllowExisting:$AllowSync -Replace:$Replace
     $stepTiming['Repository Creation'] = ((Get-Date) - $stepStart).TotalSeconds
     
     $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
