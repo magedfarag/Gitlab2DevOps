@@ -91,7 +91,7 @@ BeforeAll {
         }
         return [PSCustomObject]@{ value = @() }
     }
-    Mock -ModuleName Wikis Ensure-AdoProjectWiki { 
+    Mock -ModuleName Wikis Measure-Adoprojectwiki { 
         return [PSCustomObject]@{ 
             id = "wiki-guid"
             name = "PesterDevProj.wiki"
@@ -113,9 +113,9 @@ BeforeAll {
         }
         return [PSCustomObject]@{ value = @() }
     }
-    Mock -ModuleName Wikis Ensure-AdoDevWiki { }
-    Mock -ModuleName Dashboards Ensure-AdoDevDashboard { }
-    Mock -ModuleName WorkItems Ensure-AdoDevQueries { }
+    Mock -ModuleName Wikis Measure-Adodevwiki { }
+    Mock -ModuleName Dashboards New-Adodevdashboard { }
+    Mock -ModuleName WorkItems Search-Adodevqueries { }
     Mock -ModuleName Repositories Ensure-AdoRepoFiles { }
     # Don't mock Write-MigrationReport - let it create the summary file for testing
     Mock -ModuleName Migration Invoke-AdoRest {
@@ -174,4 +174,5 @@ Describe "Initialize-DevInit idempotency" {
         }
     }
 }
+
 

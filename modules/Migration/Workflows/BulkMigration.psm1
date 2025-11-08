@@ -264,7 +264,7 @@ function Invoke-BulkMigrationWorkflow {
     }
     
     # Ensure Azure DevOps project exists
-    $proj = Ensure-AdoProject $AdoProject
+    $proj = Measure-Adoproject $AdoProject
     Write-Host "[SUCCESS] Azure DevOps project confirmed: $AdoProject" -ForegroundColor Green
     
     # Initialize bulk execution log
@@ -494,3 +494,4 @@ Export-ModuleMember -Function @(
     'Invoke-BulkMigrationWorkflow',
     'Show-BulkMigrationStatus'
 )
+

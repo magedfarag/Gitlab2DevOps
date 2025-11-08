@@ -875,7 +875,7 @@ function Ensure-AdoTestConfigurations {
 }
 
 #>
-function Ensure-AdoCommonTags {
+function Measure-Adocommontags {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -895,7 +895,7 @@ function Ensure-AdoCommonTags {
         try {
             $tagGuidelinesTemplate = Get-Content -Path $templatePath -Raw -Encoding UTF8
             $tagGuidelinesContent = $tagGuidelinesTemplate -replace '{{CURRENT_DATE}}', (Get-Date -Format 'yyyy-MM-dd')
-            Write-Verbose "[Ensure-AdoCommonTags] Loaded template from: $templatePath"
+            Write-Verbose "[Measure-Adocommontags] Loaded template from: $templatePath"
         }
         catch {
             Write-Warning "Failed to load template from '$templatePath': $_"
@@ -904,7 +904,7 @@ function Ensure-AdoCommonTags {
     
     # Fallback to embedded template if file not found or failed to load
     if (-not $tagGuidelinesContent) {
-        Write-Verbose "[Ensure-AdoCommonTags] Using embedded fallback template"
+        Write-Verbose "[Measure-Adocommontags] Using embedded fallback template"
         $currentDate = Get-Date -Format 'yyyy-MM-dd'
         $tagGuidelinesContent = @"
 # Tag Guidelines
@@ -958,7 +958,7 @@ Use these tags to categorize work items effectively:
         }
         catch {
             # Page doesn't exist, create it
-            Write-Verbose "[Ensure-AdoCommonTags] Creating Tag Guidelines page"
+            Write-Verbose "[Measure-Adocommontags] Creating Tag Guidelines page"
             $page = Upsert-AdoWikiPage $Project $WikiId "/Tag-Guidelines" $tagGuidelinesContent
             Write-Host "[SUCCESS] Created Tag Guidelines wiki page" -ForegroundColor Green
             Write-Host ""
@@ -978,7 +978,7 @@ Use these tags to categorize work items effectively:
 }
 
 #>
-function Ensure-AdoBusinessQueries {
+function Measure-Adobusinessqueries {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string]$Project
@@ -999,7 +999,7 @@ function Ensure-AdoBusinessQueries {
         if ($resp -and $resp.children) { $resp.children | ForEach-Object { $existing[$_.name] = $_ } }
     }
     catch {
-        Write-Verbose "[Ensure-AdoBusinessQueries] Could not retrieve existing queries: $_"
+        Write-Verbose "[Measure-Adobusinessqueries] Could not retrieve existing queries: $_"
     }
 
     $created = 0; $skipped = 0
@@ -1024,7 +1024,7 @@ function Ensure-AdoBusinessQueries {
 }
 
 #>
-function Ensure-AdoDevQueries {
+function Search-Adodevqueries {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -1042,11 +1042,11 @@ function Ensure-AdoDevQueries {
             isFolder = $true
         }
         Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" -Body $folderPayload | Out-Null
-        Write-Verbose "[Ensure-AdoDevQueries] Created Development queries folder"
+        Write-Verbose "[Search-Adodevqueries] Created Development queries folder"
     }
     catch {
         # Folder might already exist
-        Write-Verbose "[Ensure-AdoDevQueries] Development folder exists or creation skipped"
+        Write-Verbose "[Search-Adodevqueries] Development folder exists or creation skipped"
     }
     
     # Define queries
@@ -1260,7 +1260,7 @@ ORDER BY [Microsoft.VSTS.Common.Priority], [System.CreatedDate]
 }
 
 #>
-function Ensure-AdoManagementQueries {
+function Measure-Adomanagementqueries {
     param(
         [Parameter(Mandatory=$true)]
         [string]$Project
@@ -1382,9 +1382,10 @@ Export-ModuleMember -Function @(
     'Ensure-AdoTestPlan',
     'Ensure-AdoQAQueries',
     'Ensure-AdoTestConfigurations',
-    'Ensure-AdoCommonTags',
-    'Ensure-AdoBusinessQueries',
-    'Ensure-AdoDevQueries',
+    'Measure-Adocommontags',
+    'Measure-Adobusinessqueries',
+    'Search-Adodevqueries',
     'Ensure-AdoSecurityQueries',
-    'Ensure-AdoManagementQueries'
+    'Measure-Adomanagementqueries'
 )
+

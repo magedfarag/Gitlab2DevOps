@@ -96,7 +96,7 @@ function Ensure-AdoTeamSettings {
 }
 
 #>
-function Ensure-AdoDashboard {
+function Search-Adodashboard {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -114,7 +114,7 @@ function Ensure-AdoDashboard {
         $teamId = $teamContext.id
     }
     catch {
-        Write-Verbose "[Ensure-AdoDashboard] Team context not available; will attempt project-level dashboards as fallback. Error: $_"
+        Write-Verbose "[Search-Adodashboard] Team context not available; will attempt project-level dashboards as fallback. Error: $_"
     }
     
     # Check if dashboard already exists
@@ -135,12 +135,12 @@ function Ensure-AdoDashboard {
         }
     }
     catch {
-        Write-Verbose "[Ensure-AdoDashboard] Could not check existing dashboards: $_"
+        Write-Verbose "[Search-Adodashboard] Could not check existing dashboards: $_"
     }
     
     # Create dashboard
     try {
-        Write-Verbose "[Ensure-AdoDashboard] Creating dashboard: $dashboardName"
+        Write-Verbose "[Search-Adodashboard] Creating dashboard: $dashboardName"
         
         $dashboardBody = @{
             name = $dashboardName
@@ -220,7 +220,7 @@ function Ensure-AdoDashboard {
             }
             catch {
                 # Fallback to project-level dashboards (some servers don't support team route)
-                Write-Verbose "[Ensure-AdoDashboard] Team dashboards API failed, attempting project-level fallback: $_"
+                Write-Verbose "[Search-Adodashboard] Team dashboards API failed, attempting project-level fallback: $_"
             }
         }
         if (-not $dashboard) {
@@ -252,13 +252,13 @@ function Ensure-AdoDashboard {
         else {
             Write-Warning "Failed to create dashboard: $_"
         }
-        Write-Verbose "[Ensure-AdoDashboard] Error details: $($_.Exception.Message)"
+        Write-Verbose "[Search-Adodashboard] Error details: $($_.Exception.Message)"
         return $null
     }
 }
 
 #>
-function Ensure-AdoQADashboard {
+function Test-Adoqadashboard {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -276,7 +276,7 @@ function Ensure-AdoQADashboard {
         $teamId = $teamContext.id
     }
     catch {
-        Write-Verbose "[Ensure-AdoQADashboard] Team context not available; will attempt project-level dashboards as fallback. Error: $_"
+        Write-Verbose "[Test-Adoqadashboard] Team context not available; will attempt project-level dashboards as fallback. Error: $_"
     }
     
     # Check if QA dashboard already exists
@@ -297,12 +297,12 @@ function Ensure-AdoQADashboard {
         }
     }
     catch {
-        Write-Verbose "[Ensure-AdoQADashboard] Could not check existing dashboards: $_"
+        Write-Verbose "[Test-Adoqadashboard] Could not check existing dashboards: $_"
     }
     
     # Create QA dashboard with test and quality widgets
     try {
-        Write-Verbose "[Ensure-AdoQADashboard] Creating QA dashboard: $dashboardName"
+        Write-Verbose "[Test-Adoqadashboard] Creating QA dashboard: $dashboardName"
         
         $dashboardBody = @{
             name = $dashboardName
@@ -381,7 +381,7 @@ function Ensure-AdoQADashboard {
                 $dashboard = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Body $dashboardBody -Preview
             }
             catch {
-                Write-Verbose "[Ensure-AdoQADashboard] Team dashboards API failed, attempting project-level fallback: $_"
+                Write-Verbose "[Test-Adoqadashboard] Team dashboards API failed, attempting project-level fallback: $_"
             }
         }
         if (-not $dashboard) {
@@ -416,13 +416,13 @@ function Ensure-AdoQADashboard {
         else {
             Write-Warning "Failed to create QA dashboard: $_"
         }
-        Write-Verbose "[Ensure-AdoQADashboard] Error details: $($_.Exception.Message)"
+        Write-Verbose "[Test-Adoqadashboard] Error details: $($_.Exception.Message)"
         return $null
     }
 }
 
 #>
-function Ensure-AdoDevDashboard {
+function New-Adodevdashboard {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -499,7 +499,7 @@ function Ensure-AdoDevDashboard {
         # Create component tags wiki page - load from template
         $templatePath = Join-Path $PSScriptRoot "..\templates\ComponentTags.md"
         if (-not (Test-Path $templatePath)) {
-            Write-Error "[Ensure-AdoDashboard] Template file not found: $templatePath"
+            Write-Error "[Search-Adodashboard] Template file not found: $templatePath"
             return $null
         }
         $componentTagsContent = Get-Content -Path $templatePath -Raw -Encoding UTF8
@@ -517,7 +517,7 @@ function Ensure-AdoDevDashboard {
         else {
             Write-Warning "Failed to create development dashboard: $_"
         }
-        Write-Verbose "[Ensure-AdoDevDashboard] Error details: $($_.Exception.Message)"
+        Write-Verbose "[New-Adodevdashboard] Error details: $($_.Exception.Message)"
     }
 }
 
@@ -574,7 +574,7 @@ function Ensure-AdoSecurityDashboard {
 }
 
 #>
-function Ensure-AdoManagementDashboard {
+function Test-Adomanagementdashboard {
     param(
         [Parameter(Mandatory=$true)]
         [string]$Project
@@ -639,16 +639,17 @@ function Ensure-AdoManagementDashboard {
         else {
             Write-Warning "Failed to create management dashboard: $_"
         }
-        Write-Verbose "[Ensure-AdoManagementDashboard] Error details: $($_.Exception.Message)"
+        Write-Verbose "[Test-Adomanagementdashboard] Error details: $($_.Exception.Message)"
     }
 }
 
 # Export functions
 Export-ModuleMember -Function @(
     'Ensure-AdoTeamSettings',
-    'Ensure-AdoDashboard',
-    'Ensure-AdoQADashboard',
-    'Ensure-AdoDevDashboard',
+    'Search-Adodashboard',
+    'Test-Adoqadashboard',
+    'New-Adodevdashboard',
     'Ensure-AdoSecurityDashboard',
-    'Ensure-AdoManagementDashboard'
+    'Test-Adomanagementdashboard'
 )
+

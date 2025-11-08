@@ -1,85 +1,204 @@
-# Documentation
+# Documentation Index
 
-Comprehensive documentation for the GitLab to Azure DevOps Migration Tool.
-
-## 📚 Documentation Structure
-
-### 🚀 Getting Started
-Start here if you're new to the tool:
-- [Quickstart Guide](quickstart.md) - Get started in 5 minutes
-- [Quick Setup](QUICK_SETUP.md) - Detailed setup instructions
-- [Environment Configuration](env-configuration.md) - Configure credentials and settings
-
-### 📖 User Guides
-Step-by-step guides for common workflows:
-- [Team Productivity Guide](guides/TEAM_PRODUCTIVITY_GUIDE.md) - ⭐ All auto-configured productivity features (includes QA infrastructure!)
-- [Best Practices Alignment](BEST_PRACTICES_ALIGNMENT.md) - 🏆 How our configurations follow industry standards
-- [User Export/Import Guide](USER_EXPORT_IMPORT.md) - ⭐ **NEW** Export GitLab users/groups, import to Azure DevOps
-- [Sync Mode Guide](guides/SYNC_MODE_GUIDE.md) - Re-running migrations and keeping repositories in sync
-- [Bulk Migration Configuration](guides/BULK_MIGRATION_CONFIG.md) - Migrating multiple repositories at once
-- [Work Item Templates](WORK_ITEM_TEMPLATES.md) - Using standardized work item templates
-- [CLI Usage](cli-usage.md) - Command-line automation guide
-
-### 📋 Reference Documentation
-Detailed reference information:
-- [Quick Reference](reference/QUICK_REFERENCE.md) - Common commands and parameters at a glance
-- [Project Summary](reference/PROJECT_SUMMARY.md) - Architecture and technical overview
-- [API Errors](api-errors.md) - Common API errors and solutions
-
-### 🏗️ Architecture
-Technical architecture and design:
-- [Limitations](architecture/limitations.md) - What this tool does and doesn't do
-- Module architecture and design patterns
-
-### 👨‍💻 Development
-For contributors and maintainers:
-- [Implementation Roadmap](development/IMPLEMENTATION_ROADMAP.md) - Feature development progress
-- [Publishing Guide](development/PUBLISHING_GUIDE.md) - How to publish releases
-- [Sync Implementation Summary](development/SYNC_IMPLEMENTATION_SUMMARY.md) - Technical implementation details
-
-## 📝 Main Documentation Files
-
-### In Root Directory
-- **[README.md](../README.md)** - Main project documentation with complete usage guide
-- **[CHANGELOG.md](../CHANGELOG.md)** - Version history and migration guides
-- **[CONTRIBUTING.md](../CONTRIBUTING.md)** - How to contribute to this project
-- **[LICENSE](../LICENSE)** - MIT License
-
-## 🔍 Finding Documentation
-
-### By Task
-- **First time setup**: Start with [Quickstart Guide](quickstart.md)
-- **Understanding productivity features**: See [Team Productivity Guide](guides/TEAM_PRODUCTIVITY_GUIDE.md) ⭐
-- **Setting up QA infrastructure**: See [Team Productivity Guide](guides/TEAM_PRODUCTIVITY_GUIDE.md) → QA Infrastructure section 🧪
-- **Verifying best practices**: See [Best Practices Alignment](BEST_PRACTICES_ALIGNMENT.md) 🏆
-- **User identity migration**: See [User Export/Import Guide](USER_EXPORT_IMPORT.md) ⭐ **NEW**
-- **Single repository migration**: See [README.md](../README.md) → Single Project Migration
-- **Bulk migration**: See [Bulk Migration Configuration](guides/BULK_MIGRATION_CONFIG.md)
-- **Re-running migrations**: See [Sync Mode Guide](guides/SYNC_MODE_GUIDE.md)
-- **Automation**: See [CLI Usage](cli-usage.md)
-- **Troubleshooting**: See [API Errors](api-errors.md)
-
-### By Role
-- **New Users**: Quickstart Guide → README.md → Quick Reference
-- **DevOps Engineers**: CLI Usage → Bulk Migration Config → Sync Mode Guide
-- **QA Engineers**: Team Productivity Guide (QA Infrastructure section) → Test Plans → QA Dashboard 🧪
-- **Contributors**: CONTRIBUTING.md → Implementation Roadmap → Architecture docs
-- **Maintainers**: Publishing Guide → Development docs
-
-## 🆘 Getting Help
-
-1. **Check documentation** - Most questions are answered here
-2. **Review examples** - See [examples/](../examples/) directory
-3. **Common issues** - Check [API Errors](api-errors.md)
-4. **GitHub Issues** - Report bugs or request features
-
-## 📞 Support Channels
-
-- **Issues**: Use GitHub issue templates for bug reports
-- **Discussions**: Ask questions in GitHub Discussions
-- **Documentation**: Submit PRs to improve docs
+Welcome to the Gitlab2DevOps documentation! This directory contains comprehensive guides, references, and best practices for using the migration tool.
 
 ---
 
-**Version**: 2.1.0  
-**Last Updated**: November 7, 2025
+## 📚 Documentation Structure
+
+```
+docs/
+├── Getting Started
+│   ├── quickstart.md              # 5-minute quick start
+│   ├── QUICK_SETUP.md             # Detailed setup guide
+│   └── cli-usage.md               # CLI automation examples
+│
+├── Configuration
+│   ├── env-configuration.md       # Environment variables
+│   └── guides/
+│       ├── BULK_MIGRATION_CONFIG.md   # Bulk migration setup
+│       ├── SYNC_MODE_GUIDE.md         # Sync mode usage
+│       └── TEAM_PRODUCTIVITY_GUIDE.md # Team initialization
+│
+├── Reference
+│   ├── WORK_ITEM_TEMPLATES.md     # Work item reference
+│   ├── USER_EXPORT_IMPORT.md      # User import/export
+│   ├── api-errors.md              # API error reference
+│   └── reference/
+│       ├── QUICK_REFERENCE.md     # Command quick reference
+│       └── PROJECT_SUMMARY.md     # Project overview
+│
+└── Architecture
+    ├── architecture/limitations.md # Known limitations
+    └── BEST_PRACTICES_ALIGNMENT.md # Best practices
+```
+
+---
+
+## 🚀 Quick Links
+
+### For First-Time Users
+- **[Quick Start Guide](quickstart.md)** - Get up and running in 5 minutes
+- **[Installation Guide](QUICK_SETUP.md)** - Detailed setup instructions
+- **[Limitations](architecture/limitations.md)** - What this tool does NOT do
+
+### For Automation
+- **[CLI Usage Guide](cli-usage.md)** - Command-line examples
+- **[Bulk Migration Config](guides/BULK_MIGRATION_CONFIG.md)** - Bulk migration setup
+- **[Environment Configuration](env-configuration.md)** - Environment variables
+
+### For Team Setup
+- **[Team Productivity Guide](guides/TEAM_PRODUCTIVITY_GUIDE.md)** - Initialize teams
+- **[Work Item Templates](WORK_ITEM_TEMPLATES.md)** - Work item reference
+- **[User Import/Export](USER_EXPORT_IMPORT.md)** - User management
+
+### For Troubleshooting
+- **[API Error Reference](api-errors.md)** - Common API errors and solutions
+- **[Best Practices](BEST_PRACTICES_ALIGNMENT.md)** - Recommended approaches
+
+---
+
+## 📖 Documentation by Topic
+
+### Migration Workflows
+
+| Document | Description | Audience |
+|----------|-------------|----------|
+| [Quick Start](quickstart.md) | 5-minute quick start | Everyone |
+| [CLI Usage](cli-usage.md) | Automation examples | DevOps Engineers |
+| [Bulk Migration](guides/BULK_MIGRATION_CONFIG.md) | Multi-project migration | Administrators |
+
+### Configuration
+
+| Document | Description | Audience |
+|----------|-------------|----------|
+| [Environment Setup](env-configuration.md) | PATs, URLs, Git LFS | Administrators |
+| [Bulk Config](guides/BULK_MIGRATION_CONFIG.md) | JSON configuration | DevOps Engineers |
+
+### Team Management
+
+| Document | Description | Audience |
+|----------|-------------|----------|
+| [Team Productivity](guides/TEAM_PRODUCTIVITY_GUIDE.md) | Team initialization | Team Leads |
+| [Work Items](WORK_ITEM_TEMPLATES.md) | Work item templates | Product Owners |
+| [User Management](USER_EXPORT_IMPORT.md) | Import/export users | Administrators |
+
+### Reference
+
+| Document | Description | Audience |
+|----------|-------------|----------|
+| [Quick Reference](reference/QUICK_REFERENCE.md) | Command cheat sheet | Everyone |
+| [API Errors](api-errors.md) | Error troubleshooting | DevOps Engineers |
+| [Project Summary](reference/PROJECT_SUMMARY.md) | Project overview | Developers |
+
+### Architecture
+
+| Document | Description | Audience |
+|----------|-------------|----------|
+| [Limitations](architecture/limitations.md) | What's not supported | Everyone |
+| [Best Practices](BEST_PRACTICES_ALIGNMENT.md) | Recommended patterns | Developers |
+
+---
+
+## 🎯 Documentation by Use Case
+
+### "I want to migrate a single project"
+1. Read [Quick Start Guide](quickstart.md)
+2. Configure [Environment Variables](env-configuration.md)
+3. Run the migration
+4. Check [Limitations](architecture/limitations.md) if issues occur
+
+### "I want to migrate multiple projects"
+1. Read [Bulk Migration Config](guides/BULK_MIGRATION_CONFIG.md)
+2. Create bulk configuration JSON
+3. Run bulk preparation and execution
+4. Review [CLI Usage](cli-usage.md) for automation
+
+### "I want to set up a team workspace"
+1. Read [Team Productivity Guide](guides/TEAM_PRODUCTIVITY_GUIDE.md)
+2. Choose team pack (Business/Dev/Security/Management)
+3. Run team initialization
+4. Review [Work Item Templates](WORK_ITEM_TEMPLATES.md)
+
+### "I'm getting API errors"
+1. Check [API Error Reference](api-errors.md)
+2. Review [Best Practices](BEST_PRACTICES_ALIGNMENT.md)
+3. Verify environment configuration
+4. Check Azure DevOps/GitLab server status
+
+### "I want to automate migrations"
+1. Read [CLI Usage Guide](cli-usage.md)
+2. Create configuration files
+3. Set up environment variables
+4. Run in automation mode with `-Mode` parameter
+
+---
+
+## 💡 Tips for Reading Documentation
+
+### Icons and Conventions
+
+- 📘 **Getting Started** - Beginner-friendly guides
+- ⚙️ **Configuration** - Setup and configuration
+- 🔧 **Technical** - Developer documentation
+- ⚠️ **Important** - Critical information
+- 💡 **Tip** - Helpful suggestions
+- 🐛 **Troubleshooting** - Problem solving
+
+### Code Examples
+
+```powershell
+# Comments explain what the code does
+.\Gitlab2DevOps.ps1 -Mode Migrate -Source "group/project"
+```
+
+### Placeholders
+
+- `{YourValue}` - Replace with your actual value
+- `<required>` - Required parameter
+- `[optional]` - Optional parameter
+
+---
+
+## 🔄 Keeping Documentation Updated
+
+Documentation is updated with each release:
+
+- **Version 2.1.0** (Current) - November 8, 2025
+  - Self-contained folder structures
+  - 43 wiki templates
+  - 4 team initialization packs
+  - PowerShell approved verbs
+
+Check [CHANGELOG.md](../CHANGELOG.md) for version-specific documentation changes.
+
+---
+
+## 🤝 Contributing to Documentation
+
+Found a typo? Have a suggestion? See [CONTRIBUTING.md](../CONTRIBUTING.md) for how to contribute to documentation.
+
+**Documentation guidelines:**
+- Use clear, concise language
+- Include practical examples
+- Add screenshots where helpful
+- Keep formatting consistent
+- Update table of contents
+
+---
+
+## 📞 Getting Help
+
+- **Start here**: [Quick Start Guide](quickstart.md)
+- **API Issues**: [API Error Reference](api-errors.md)
+- **GitHub Issues**: [Report a bug or request documentation](https://github.com/magedfarag/Gitlab2DevOps/issues)
+
+---
+
+<div align="center">
+
+**Need something specific?** Check the [Quick Reference](reference/QUICK_REFERENCE.md) for a command cheat sheet.
+
+Made with ❤️ for DevOps teams
+
+</div>

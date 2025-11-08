@@ -1,37 +1,68 @@
-# Ignore migrations folder (contains repository data and logs)
+# ===================================
+# Gitlab2DevOps - Production .gitignore
+# ===================================
+
+# Migration Data (contains cloned repositories and sensitive data)
 migrations/
+!migrations/.gitkeep
 
-# Logs
+# Logs and Reports
+logs/
 *.log
+*.log.*
 
-# Temporary files
+# Temporary and Development Files
 *.tmp
 *.temp
 *.swp
 *~
+.devtools/
+tmp/
+Functions.csv
+testResults.xml
+META_UPDATES_SUMMARY.md
 
-# User-specific configuration files (may contain credentials)
+# User-Specific Configuration (may contain credentials)
 bulk-migration-config.json
 config.local.json
 setup-env.ps1
 *.local.ps1
+*.local.json
 
-# Environment files (contain secrets)
+# Environment Files (contain secrets - NEVER commit)
 .env
 .env.local
 .env.*.local
+.env.production
 
-# OS-specific files
+# Test Output
+coverage/
+TestResults/
+*.trx
+
+# OS-Specific Files
 .DS_Store
 Thumbs.db
 desktop.ini
+$RECYCLE.BIN/
 
-# IDE files
+# IDE and Editor Files
 .vscode/
 .idea/
 *.suo
 *.user
+*.userosscache
+*.sln.docstates
+.vs/
 
-# Backup files
+# Backup Files
 *.bak
 *.backup
+*.old
+*~.nib
+
+# Git Credential Cache
+.git-credentials
+
+# PowerShell Module Cache
+PSGetModuleInfo.xml

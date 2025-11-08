@@ -1312,9 +1312,9 @@ function Invoke-GitLabRest {
     Git remote name (default: "ado").
 
 .EXAMPLE
-    Clear-GitCredentials -RemoteName "origin"
+    Clear-Gitcredentials -RemoteName "origin"
 #>
-function Clear-GitCredentials {
+function Clear-Gitcredentials {
     [CmdletBinding()]
     param(
         [string]$RemoteName = "ado"
@@ -1357,5 +1357,5 @@ Export-ModuleMember -Function @(
     'Invoke-RestWithRetry',
     'Invoke-AdoRest',
     'Invoke-GitLabRest',
-    'Clear-GitCredentials'
+    'Clear-Gitcredentials'
 )

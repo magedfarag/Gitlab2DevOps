@@ -296,7 +296,7 @@ function Get-AdoRepoDefaultBranch {
 }
 
 #>
-function Ensure-AdoBranchPolicies {
+function New-Adobranchpolicies {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact='Medium')]
     param(
         [Parameter(Mandatory)]
@@ -315,7 +315,7 @@ function Ensure-AdoBranchPolicies {
         [string]$StatusContext = ""
     )
     
-    Write-Verbose "[Ensure-AdoBranchPolicies] Checking existing policies for ref '$Ref'..."
+    Write-Verbose "[New-Adobranchpolicies] Checking existing policies for ref '$Ref'..."
     
     $cfgs = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/policy/configurations"
     $scope = @{ repositoryId = $RepoId; refName = $Ref; matchKind = "exact" }
@@ -344,7 +344,7 @@ function Ensure-AdoBranchPolicies {
         }
     }
     else {
-        Write-Verbose "[Ensure-AdoBranchPolicies] Required reviewers policy already exists"
+        Write-Verbose "[New-Adobranchpolicies] Required reviewers policy already exists"
     }
     
     # Work item link policy
@@ -361,7 +361,7 @@ function Ensure-AdoBranchPolicies {
         }
     }
     else {
-        Write-Verbose "[Ensure-AdoBranchPolicies] Work item link policy already exists"
+        Write-Verbose "[New-Adobranchpolicies] Work item link policy already exists"
     }
     
     # Comment resolution policy
@@ -378,7 +378,7 @@ function Ensure-AdoBranchPolicies {
         }
     }
     else {
-        Write-Verbose "[Ensure-AdoBranchPolicies] Comment resolution policy already exists"
+        Write-Verbose "[New-Adobranchpolicies] Comment resolution policy already exists"
     }
     
     # Build validation policy
@@ -402,7 +402,7 @@ function Ensure-AdoBranchPolicies {
             }
         }
         else {
-            Write-Verbose "[Ensure-AdoBranchPolicies] Build validation policy already exists"
+            Write-Verbose "[New-Adobranchpolicies] Build validation policy already exists"
         }
     }
     
@@ -870,8 +870,9 @@ Export-ModuleMember -Function @(
     'Ensure-AdoRepositoryTemplates',
     'Ensure-AdoRepository',
     'Get-AdoRepoDefaultBranch',
-    'Ensure-AdoBranchPolicies',
+    'New-Adobranchpolicies',
     'Ensure-AdoRepoDeny',
     'Ensure-AdoRepoFiles',
     'Ensure-AdoSecurityRepoFiles'
 )
+

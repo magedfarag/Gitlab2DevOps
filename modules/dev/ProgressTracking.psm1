@@ -159,9 +159,9 @@ function Update-MigrationProgress {
     Progress context from Start-MigrationProgress.
 
 .EXAMPLE
-    Complete-MigrationProgress -Context $progress
+    Complete-Migrationprogress -Context $progress
 #>
-function Complete-MigrationProgress {
+function Complete-Migrationprogress {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -259,6 +259,6 @@ function Invoke-GitCloneWithProgress {
 Export-ModuleMember -Function @(
     'Start-MigrationProgress',
     'Update-MigrationProgress',
-    'Complete-MigrationProgress',
+    'Complete-Migrationprogress',
     'Invoke-GitCloneWithProgress'
 )

@@ -507,10 +507,10 @@ function Initialize-AdoProject {
     $script:projId = $null
     Invoke-CheckpointedStep -StepName 'project' -SuccessMessage "Project '$DestProject' ready" `
         -ProgressStatus "Creating Azure DevOps project (1/$($script:totalSteps))" -Action {
-        $script:proj = Ensure-AdoProject $DestProject
+        $script:proj = Measure-Adoproject $DestProject
 
         if (-not $script:proj) {
-            throw "Ensure-AdoProject did not return project data for '$DestProject'."
+            throw "Measure-Adoproject did not return project data for '$DestProject'."
         }
 
         if ($script:proj -is [array]) {
@@ -578,7 +578,7 @@ function Initialize-AdoProject {
                 try {
                     foreach ($area in $Areas) {
                         $areaName = if ($area -is [string]) { $area } else { $area.name }
-                        Ensure-AdoArea $DestProject $areaName | Out-Null
+                        Measure-Adoarea $DestProject $areaName | Out-Null
                         $results.count++
                     }
                 }
@@ -612,7 +612,7 @@ function Initialize-AdoProject {
                 }
                 
                 try {
-                    $wiki = Ensure-AdoProjectWiki $ProjId $DestProject
+                    $wiki = Measure-Adoprojectwiki $ProjId $DestProject
                     $results.wikiId = $wiki.id
                     
                     # Load welcome wiki template with fallback (inline for thread context)
@@ -748,7 +748,7 @@ This project was migrated from GitLab using automated tooling.
             -ProgressStatus "Setting up sprint iterations (4/$script:totalSteps)" -Action {
             $sprintCount = $config.iterations.sprintCount
             $sprintDays = $config.iterations.sprintDurationDays
-            Ensure-AdoIterations $DestProject $effectiveTeamName -SprintCount $sprintCount -SprintDurationDays $sprintDays
+            Measure-Adoiterations $DestProject $effectiveTeamName -SprintCount $sprintCount -SprintDurationDays $sprintDays
         }
     }
     else {
@@ -781,7 +781,7 @@ This project was migrated from GitLab using automated tooling.
     if ($componentsToInitialize.dashboard) {
         Invoke-CheckpointedStep -StepName 'dashboard' -SuccessMessage "Team dashboard created" `
             -ProgressStatus "Creating team dashboard (7/$script:totalSteps)" -Action {
-            Ensure-AdoDashboard $DestProject $effectiveTeamName
+            Search-Adodashboard $DestProject $effectiveTeamName
         }
     }
     else {
@@ -813,7 +813,7 @@ This project was migrated from GitLab using automated tooling.
                     }
             
                     try {
-                        Ensure-AdoCommonTags $DestProject $WikiId
+                        Measure-Adocommontags $DestProject $WikiId
                         return @{ success = $true; name = "Common Tags" }
                     }
                     catch {
@@ -834,7 +834,7 @@ This project was migrated from GitLab using automated tooling.
                     }
             
                     try {
-                        Ensure-AdoBestPracticesWiki $DestProject $WikiId
+                        Measure-Adobestpracticeswiki $DestProject $WikiId
                         return @{ success = $true; name = "Best Practices" }
                     }
                     catch {
@@ -905,7 +905,7 @@ This project was migrated from GitLab using automated tooling.
             
             # QA Dashboard
             try {
-                Ensure-AdoQADashboard $DestProject $effectiveTeamName
+                Test-Adoqadashboard $DestProject $effectiveTeamName
                 $qaResults.dashboard.success = $true
                 Write-Verbose "[Initialize-AdoProject] ✓ QA dashboard created successfully"
             }
@@ -1012,7 +1012,7 @@ This project was migrated from GitLab using automated tooling.
 
                 # Apply branch policies only if repository has a default branch
                 if ($defaultRef) {
-                    Ensure-AdoBranchPolicies `
+                    New-Adobranchpolicies `
                         -Project $DestProject `
                         -RepoId $repo.id `
                         -Ref $defaultRef `
@@ -1318,3 +1318,4 @@ This project was migrated from GitLab using automated tooling.
 Export-ModuleMember -Function @(
     'Initialize-AdoProject'
 )
+

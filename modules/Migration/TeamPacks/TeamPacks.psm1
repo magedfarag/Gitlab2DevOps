@@ -49,14 +49,14 @@ function Initialize-BusinessInit {
     # Get project and wiki
     $proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($DestProject))?includeCapabilities=true"
     $projId = $proj.id
-    $wiki = Ensure-AdoProjectWiki $projId $DestProject
+    $wiki = Measure-Adoprojectwiki $projId $DestProject
 
     # Provision business wiki pages
-    Ensure-AdoBusinessWiki -Project $DestProject -WikiId $wiki.id
+    Measure-Adobusinesswiki -Project $DestProject -WikiId $wiki.id
 
     # Ensure common tags/guidelines wiki page for consistent labeling (idempotent)
     try {
-        Ensure-AdoCommonTags $DestProject $wiki.id | Out-Null
+        Measure-Adocommontags $DestProject $wiki.id | Out-Null
     }
     catch {
         Write-Warning "[BusinessInit] Failed to ensure common tags wiki page: $_"
@@ -64,13 +64,13 @@ function Initialize-BusinessInit {
 
     # Ensure baseline shared queries + business queries
     Ensure-AdoSharedQueries -Project $DestProject -Team "$DestProject Team" | Out-Null
-    Ensure-AdoBusinessQueries -Project $DestProject | Out-Null
+    Measure-Adobusinessqueries -Project $DestProject | Out-Null
 
     # Seed short-term iterations (using default: 3 sprints of 2 weeks)
-    Ensure-AdoIterations -Project $DestProject -Team "$DestProject Team" -SprintCount 3 -SprintDurationDays 14 | Out-Null
+    Measure-Adoiterations -Project $DestProject -Team "$DestProject Team" -SprintCount 3 -SprintDurationDays 14 | Out-Null
 
     # Ensure dashboard
-    Ensure-AdoDashboard -Project $DestProject -Team "$DestProject Team" | Out-Null
+    Search-Adodashboard -Project $DestProject -Team "$DestProject Team" | Out-Null
 
     # Generate readiness summary report
     $paths = Get-ProjectPaths -ProjectName $DestProject
@@ -133,19 +133,19 @@ function Initialize-DevInit {
     # Get project and wiki
     $proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($DestProject))?includeCapabilities=true"
     $projId = $proj.id
-    $wiki = Ensure-AdoProjectWiki $projId $DestProject
+    $wiki = Measure-Adoprojectwiki $projId $DestProject
 
     # Provision development wiki pages
     Write-Host "[INFO] Provisioning development wiki pages..." -ForegroundColor Cyan
-    Ensure-AdoDevWiki -Project $DestProject -WikiId $wiki.id
+    Measure-Adodevwiki -Project $DestProject -WikiId $wiki.id
 
     # Create development dashboard
     Write-Host "[INFO] Creating development dashboard..." -ForegroundColor Cyan
-    Ensure-AdoDevDashboard -Project $DestProject -WikiId $wiki.id
+    New-Adodevdashboard -Project $DestProject -WikiId $wiki.id
 
     # Ensure development queries
     Write-Host "[INFO] Creating development-focused queries..." -ForegroundColor Cyan
-    Ensure-AdoDevQueries -Project $DestProject
+    Search-Adodevqueries -Project $DestProject
 
     # Get repository for adding files
     $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($DestProject))/_apis/git/repositories"
@@ -219,7 +219,7 @@ function Initialize-SecurityInit {
     # Get project and wiki
     $proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($DestProject))?includeCapabilities=true"
     $projId = $proj.id
-    $wiki = Ensure-AdoProjectWiki $projId $DestProject
+    $wiki = Measure-Adoprojectwiki $projId $DestProject
 
     # Provision security wiki pages
     Write-Host "[INFO] Provisioning security wiki pages..." -ForegroundColor Cyan
@@ -303,19 +303,19 @@ function Initialize-ManagementInit {
     # Get project and wiki
     $proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($DestProject))?includeCapabilities=true"
     $projId = $proj.id
-    $wiki = Ensure-AdoProjectWiki $projId $DestProject
+    $wiki = Measure-Adoprojectwiki $projId $DestProject
 
     # Provision management wiki pages
     Write-Host "[INFO] Provisioning management wiki pages..." -ForegroundColor Cyan
-    Ensure-AdoManagementWiki -Project $DestProject -WikiId $wiki.id
+    Measure-Adomanagementwiki -Project $DestProject -WikiId $wiki.id
 
     # Create management dashboard
     Write-Host "[INFO] Creating management dashboard..." -ForegroundColor Cyan
-    Ensure-AdoManagementDashboard -Project $DestProject
+    Test-Adomanagementdashboard -Project $DestProject
 
     # Ensure management queries
     Write-Host "[INFO] Creating management-focused queries..." -ForegroundColor Cyan
-    Ensure-AdoManagementQueries -Project $DestProject
+    Measure-Adomanagementqueries -Project $DestProject
 
     # Generate readiness summary report
     $paths = Get-ProjectPaths -ProjectName $DestProject

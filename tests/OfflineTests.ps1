@@ -98,9 +98,9 @@ Test-Module "Update-MigrationProgress calculates ETA" {
     if ($elapsed.TotalSeconds -lt 0.05) { throw "Time not elapsed properly" }
 }
 
-Test-Module "Complete-MigrationProgress clears progress" {
+Test-Module "Complete-Migrationprogress clears progress" {
     $progress = Start-MigrationProgress -Activity "Test" -TotalItems 10 -Status "Testing"
-    Complete-MigrationProgress -Context $progress
+    Complete-Migrationprogress -Context $progress
     # Should not throw
 }
 
@@ -494,7 +494,7 @@ Test-Module "Progress tracking with telemetry integration" {
         Record-TelemetryEvent -EventType "ItemProcessed" -Project "test" -Data @{ Item = $i }
     }
     
-    Complete-MigrationProgress -Context $progress
+    Complete-Migrationprogress -Context $progress
     
     $stats = Get-TelemetryStatistics
     if ($stats.EventCount -ne 5) { throw "Integration failed: expected 5 events, got $($stats.EventCount)" }

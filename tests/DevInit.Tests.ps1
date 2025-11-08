@@ -28,20 +28,21 @@ Describe "DevInit Module Exports" {
         $exports.Name | Should -Contain "Initialize-DevInit"
     }
     
-    It "Wikis sub-module exports Ensure-AdoDevWiki" {
-        Get-Command Ensure-AdoDevWiki -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
+    It "Wikis sub-module exports Measure-Adodevwiki" {
+        Get-Command Measure-Adodevwiki -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
     
-    It "Dashboards sub-module exports Ensure-AdoDevDashboard" {
-        Get-Command Ensure-AdoDevDashboard -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
+    It "Dashboards sub-module exports New-Adodevdashboard" {
+        Get-Command New-Adodevdashboard -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
     
-    It "WorkItems sub-module exports Ensure-AdoDevQueries" {
-        Get-Command Ensure-AdoDevQueries -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
+    It "WorkItems sub-module exports Search-Adodevqueries" {
+        Get-Command Search-Adodevqueries -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
     
     It "Repositories sub-module exports Ensure-AdoRepoFiles" {
         Get-Command Ensure-AdoRepoFiles -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
 }
+
 

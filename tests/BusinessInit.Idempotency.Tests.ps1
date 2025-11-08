@@ -32,15 +32,15 @@ Describe "Initialize-BusinessInit idempotency" {
         }
 
         # Mock wiki ensure to return a deterministic wiki id
-        Mock -ModuleName Migration Ensure-AdoProjectWiki { @{ id = "wiki-001" } }
+        Mock -ModuleName Migration Measure-Adoprojectwiki { @{ id = "wiki-001" } }
 
         # Mock business assets to be no-ops but track calls
-        Mock -ModuleName Migration Ensure-AdoBusinessWiki { }
-        Mock -ModuleName Migration Ensure-AdoBusinessQueries { }
-        Mock -ModuleName Migration Ensure-AdoIterations { }
-        Mock -ModuleName Migration Ensure-AdoDashboard { }
+        Mock -ModuleName Migration Measure-Adobusinesswiki { }
+        Mock -ModuleName Migration Measure-Adobusinessqueries { }
+        Mock -ModuleName Migration Measure-Adoiterations { }
+        Mock -ModuleName Migration Search-Adodashboard { }
         Mock -ModuleName Migration Ensure-AdoSharedQueries { }
-        Mock -ModuleName Migration Ensure-AdoCommonTags { }
+        Mock -ModuleName Migration Measure-Adocommontags { }
 
         # Mock reporting paths and writer
         Mock -ModuleName Migration Get-ProjectPaths {
@@ -55,12 +55,12 @@ Describe "Initialize-BusinessInit idempotency" {
     It "calls key ensure functions exactly once and writes a summary report" {
         Initialize-BusinessInit -DestProject "PesterBizProj"
 
-        Assert-MockCalled -ModuleName Migration Ensure-AdoProjectWiki -Times 1 -Exactly
-        Assert-MockCalled -ModuleName Migration Ensure-AdoBusinessWiki -Times 1 -Exactly
-        Assert-MockCalled -ModuleName Migration Ensure-AdoBusinessQueries -Times 1 -Exactly
-        Assert-MockCalled -ModuleName Migration Ensure-AdoIterations -Times 1 -Exactly
-        Assert-MockCalled -ModuleName Migration Ensure-AdoDashboard -Times 1 -Exactly
-        Assert-MockCalled -ModuleName Migration Ensure-AdoCommonTags -Times 1 -Exactly
+        Assert-MockCalled -ModuleName Migration Measure-Adoprojectwiki -Times 1 -Exactly
+        Assert-MockCalled -ModuleName Migration Measure-Adobusinesswiki -Times 1 -Exactly
+        Assert-MockCalled -ModuleName Migration Measure-Adobusinessqueries -Times 1 -Exactly
+        Assert-MockCalled -ModuleName Migration Measure-Adoiterations -Times 1 -Exactly
+        Assert-MockCalled -ModuleName Migration Search-Adodashboard -Times 1 -Exactly
+        Assert-MockCalled -ModuleName Migration Measure-Adocommontags -Times 1 -Exactly
 
         # Validate report was written under TestDrive
         $reportPath = Get-ChildItem -Path (Join-Path $TestDrive 'PesterBizProj\reports') -Filter 'business-init-summary.json' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -77,3 +77,4 @@ AfterAll {
     Remove-Module AzureDevOps -Force -ErrorAction SilentlyContinue
     Remove-Module Logging -Force -ErrorAction SilentlyContinue
 }
+

@@ -266,7 +266,7 @@ function Invoke-SingleMigration {
     $preReport = New-MigrationPreReport -GitLabPath $SrcPath -AdoProject $DestProject -AdoRepoName $repoName -AllowSync:$AllowSync -OutputPath (Join-Path $reportsDir "pre-migration-report.json")
     
     # Ensure Azure DevOps project exists
-    $proj = Ensure-AdoProject $DestProject
+    $proj = Measure-Adoproject $DestProject
     $projId = $proj.id
     $repoName = $gl.path
     
@@ -347,7 +347,7 @@ function Invoke-SingleMigration {
         
         # Clean up credentials
         git config --unset-all "http.$adoRemote.extraheader" 2>$null | Out-Null
-        Clear-GitCredentials -RemoteName "ado"
+        Clear-Gitcredentials -RemoteName "ado"
         
         Pop-Location
         
@@ -367,7 +367,7 @@ function Invoke-SingleMigration {
                 
                 if ($defaultRef) {
                     Write-Host "[INFO] Applying policies to branch: $defaultRef" -ForegroundColor Cyan
-                    Ensure-AdoBranchPolicies `
+                    New-Adobranchpolicies `
                         -Project $DestProject `
                         -RepoId $repo.id `
                         -Ref $defaultRef `
@@ -501,3 +501,4 @@ Export-ModuleMember -Function @(
     'New-MigrationPreReport',
     'Invoke-SingleMigration'
 )
+

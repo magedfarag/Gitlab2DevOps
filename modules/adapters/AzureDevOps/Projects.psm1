@@ -94,7 +94,7 @@ function Get-AdoProjectRepositories {
 }
 
 #>
-function Ensure-AdoProject {
+function Measure-Adoproject {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact='Medium')]
     param(
         [Parameter(Mandatory)]
@@ -103,7 +103,7 @@ function Ensure-AdoProject {
         [string]$ProcessTemplate = "Agile" # Default to Agile template
     )
     
-    Write-Verbose "[Ensure-AdoProject] Checking if project '$Name' exists..."
+    Write-Verbose "[Measure-Adoproject] Checking if project '$Name' exists..."
     
     # Force refresh cache to ensure we have latest project list
     # This prevents attempting to create projects that already exist
@@ -111,7 +111,7 @@ function Ensure-AdoProject {
     $p = $projects | Where-Object { $_.name -eq $Name }
     
     if ($p) {
-        Write-Verbose "[Ensure-AdoProject] Project '$Name' already exists (ID: $($p.id))"
+        Write-Verbose "[Measure-Adoproject] Project '$Name' already exists (ID: $($p.id))"
         Write-Host "[INFO] Project '$Name' already exists - no changes needed" -ForegroundColor Green
         return $p
     }
@@ -122,34 +122,34 @@ function Ensure-AdoProject {
         
         # If not a GUID, look up by name
         if ($ProcessTemplate -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
-            Write-Verbose "[Ensure-AdoProject] Resolving process template name '$ProcessTemplate' to GUID..."
+            Write-Verbose "[Measure-Adoproject] Resolving process template name '$ProcessTemplate' to GUID..."
             try {
                 $processes = Invoke-AdoRest GET "/_apis/process/processes"
                 $matchedProcess = $processes.value | Where-Object { $_.name -eq $ProcessTemplate }
                 
                 if ($matchedProcess) {
                     $processTemplateId = $matchedProcess.id
-                    Write-Verbose "[Ensure-AdoProject] Resolved '$ProcessTemplate' to GUID: $processTemplateId"
+                    Write-Verbose "[Measure-Adoproject] Resolved '$ProcessTemplate' to GUID: $processTemplateId"
                 } else {
-                    Write-Warning "[Ensure-AdoProject] Process template '$ProcessTemplate' not found. Using default."
+                    Write-Warning "[Measure-Adoproject] Process template '$ProcessTemplate' not found. Using default."
                     $defaultProcess = $processes.value | Where-Object { $_.isDefault -eq $true }
                     if ($defaultProcess) {
                         $processTemplateId = $defaultProcess.id
-                        Write-Verbose "[Ensure-AdoProject] Using default process: $($defaultProcess.name) ($processTemplateId)"
+                        Write-Verbose "[Measure-Adoproject] Using default process: $($defaultProcess.name) ($processTemplateId)"
                     } else {
                         throw "No default process template found on server"
                     }
                 }
             }
             catch {
-                Write-Warning "[Ensure-AdoProject] Failed to query process templates: $_"
-                Write-Warning "[Ensure-AdoProject] Using provided value as-is: $ProcessTemplate"
+                Write-Warning "[Measure-Adoproject] Failed to query process templates: $_"
+                Write-Warning "[Measure-Adoproject] Using provided value as-is: $ProcessTemplate"
                 $processTemplateId = $ProcessTemplate
             }
         }
         
         Write-Host "[INFO] Creating project '$Name' with $ProcessTemplate process template..." -ForegroundColor Cyan
-        Write-Verbose "[Ensure-AdoProject] Process Template ID: $processTemplateId"
+        Write-Verbose "[Measure-Adoproject] Process Template ID: $processTemplateId"
         
         $body = @{
             name         = $Name
@@ -160,30 +160,30 @@ function Ensure-AdoProject {
             }
         }
         
-        Write-Verbose "[Ensure-AdoProject] Sending POST request to create project..."
-        Write-Verbose "[Ensure-AdoProject] Request body: $($body | ConvertTo-Json -Depth 5)"
+        Write-Verbose "[Measure-Adoproject] Sending POST request to create project..."
+        Write-Verbose "[Measure-Adoproject] Request body: $($body | ConvertTo-Json -Depth 5)"
         $resp = Invoke-AdoRest POST "/_apis/projects" -Body $body
         
-        Write-Verbose "[Ensure-AdoProject] Project creation initiated, operation ID: $($resp.id)"
+        Write-Verbose "[Measure-Adoproject] Project creation initiated, operation ID: $($resp.id)"
         Write-Host "[INFO] Project creation operation started (ID: $($resp.id))" -ForegroundColor Cyan
         Write-Host "[INFO] Waiting for operation to complete..." -ForegroundColor Cyan
         
         $final = Wait-AdoOperation $resp.id
         
         if ($final.status -ne 'succeeded') {
-            Write-Error "[Ensure-AdoProject] Project creation failed with status: $($final.status)"
+            Write-Error "[Measure-Adoproject] Project creation failed with status: $($final.status)"
             throw "Project creation failed with status: $($final.status)"
         }
         
-        Write-Verbose "[Ensure-AdoProject] Project creation completed successfully"
+        Write-Verbose "[Measure-Adoproject] Project creation completed successfully"
         
         # Invalidate project cache after creating new project
-        Write-Verbose "[Ensure-AdoProject] Invalidating project cache after creation"
+        Write-Verbose "[Measure-Adoproject] Invalidating project cache after creation"
         Get-AdoProjectList -RefreshCache | Out-Null
         
         Write-Host "[SUCCESS] Project '$Name' created successfully" -ForegroundColor Green
         
-        Write-Verbose "[Ensure-AdoProject] Fetching project details..."
+        Write-Verbose "[Measure-Adoproject] Fetching project details..."
         return Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Name))"
     }
 }
@@ -313,7 +313,7 @@ function Get-AdoWorkItemTypes {
 }
 
 #>
-function Ensure-AdoArea {
+function Measure-Adoarea {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -336,7 +336,7 @@ function Ensure-AdoArea {
 }
 
 #>
-function Ensure-AdoIterations {
+function Measure-Adoiterations {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -372,7 +372,7 @@ function Ensure-AdoIterations {
         }
     }
     catch {
-        Write-Verbose "[Ensure-AdoIterations] Could not retrieve existing iterations: $_"
+        Write-Verbose "[Measure-Adoiterations] Could not retrieve existing iterations: $_"
     }
     
     $createdCount = 0
@@ -401,7 +401,7 @@ function Ensure-AdoIterations {
                 }
             }
             
-            Write-Verbose "[Ensure-AdoIterations] Creating iteration: $sprintName ($($sprintStart.ToString('yyyy-MM-dd')) to $($sprintEnd.ToString('yyyy-MM-dd')))"
+            Write-Verbose "[Measure-Adoiterations] Creating iteration: $sprintName ($($sprintStart.ToString('yyyy-MM-dd')) to $($sprintEnd.ToString('yyyy-MM-dd')))"
             $iteration = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/iterations" -Body $iterationBody
             
             # Assign iteration to team
@@ -441,9 +441,10 @@ function Ensure-AdoIterations {
 # Export functions
 Export-ModuleMember -Function @(
     'Get-AdoProjectRepositories',
-    'Ensure-AdoProject',
+    'Measure-Adoproject',
     'Get-AdoProjectProcessTemplate',
     'Get-AdoWorkItemTypes',
-    'Ensure-AdoArea',
-    'Ensure-AdoIterations'
+    'Measure-Adoarea',
+    'Measure-Adoiterations'
 )
+

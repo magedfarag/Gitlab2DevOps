@@ -11,7 +11,7 @@
 Set-StrictMode -Version Latest
 
 #>
-function Ensure-AdoProjectWiki {
+function Measure-Adoprojectwiki {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -144,7 +144,7 @@ function Ensure-AdoQAGuidelinesWiki {
 }
 
 #>
-function Ensure-AdoBestPracticesWiki {
+function Measure-Adobestpracticeswiki {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -188,7 +188,7 @@ function Ensure-AdoBestPracticesWiki {
 }
 
 #>
-function Ensure-AdoBusinessWiki {
+function Measure-Adobusinesswiki {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string]$Project,
@@ -221,7 +221,7 @@ function Ensure-AdoBusinessWiki {
 }
 
 #>
-function Ensure-AdoDevWiki {
+function Measure-Adodevwiki {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -348,7 +348,7 @@ function Ensure-AdoSecurityWiki {
 }
 
 #>
-function Ensure-AdoManagementWiki {
+function Measure-Adomanagementwiki {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -397,14 +397,14 @@ function Ensure-AdoManagementWiki {
 
 # Export functions
 Export-ModuleMember -Function @(
-    'Ensure-AdoProjectWiki',
+    'Measure-Adoprojectwiki',
     'Upsert-AdoWikiPage',
     'Ensure-AdoQAGuidelinesWiki',
-    'Ensure-AdoBestPracticesWiki',
-    'Ensure-AdoBusinessWiki',
-    'Ensure-AdoDevWiki',
+    'Measure-Adobestpracticeswiki',
+    'Measure-Adobusinesswiki',
+    'Measure-Adodevwiki',
     'Ensure-AdoSecurityWiki',
-    'Ensure-AdoManagementWiki'
+    'Measure-Adomanagementwiki'
 )
 
 
@@ -587,13 +587,14 @@ $repoSection
 }
 
 Export-ModuleMember -Function @(
-    'Ensure-AdoProjectWiki',
+    'Measure-Adoprojectwiki',
     'Upsert-AdoWikiPage',
     'Ensure-AdoQAGuidelinesWiki',
-    'Ensure-AdoBestPracticesWiki',
-    'Ensure-AdoBusinessWiki',
-    'Ensure-AdoDevWiki',
+    'Measure-Adobestpracticeswiki',
+    'Measure-Adobusinesswiki',
+    'Measure-Adodevwiki',
     'Ensure-AdoSecurityWiki',
-    'Ensure-AdoManagementWiki',
+    'Measure-Adomanagementwiki',
     'New-AdoProjectSummaryWikiPage'
 )
+

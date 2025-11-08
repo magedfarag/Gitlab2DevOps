@@ -66,7 +66,7 @@ function Get-AdoTeamMembers {
 }
 
 #>
-function Add-AdoTeamMember {
+function Add-Adoteammember {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -114,5 +114,5 @@ function Add-AdoTeamMember {
 Export-ModuleMember -Function @(
     'Get-AdoSecurityGroups',
     'Get-AdoTeamMembers',
-    'Add-AdoTeamMember'
+    'Add-Adoteammember'
 )
