@@ -145,7 +145,7 @@ function Show-MigrationMenu {
             Write-Host ""
             
             # Prepare using custom base directory
-            Prepare-GitLab -ProjectPath $SourceProjectPath -CustomBaseDir $paths.projectDir -CustomProjectName $gitlabProjectName
+            Initialize-GitLab -ProjectPath $SourceProjectPath -CustomBaseDir $paths.projectDir -CustomProjectName $gitlabProjectName
             
             # Create migration config
             $config = [pscustomobject]@{

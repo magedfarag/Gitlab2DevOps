@@ -38,7 +38,7 @@ function Measure-Adoprojectwiki {
 }
 
 #>
-function Upsert-AdoWikiPage {
+function Set-AdoWikiPage {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -102,7 +102,7 @@ function Upsert-AdoWikiPage {
 }
 
 #>
-function Ensure-AdoQAGuidelinesWiki {
+function New-AdoQAGuidelinesWiki {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -126,7 +126,7 @@ function Ensure-AdoQAGuidelinesWiki {
     foreach ($page in $pages) {
         try {
             $content = Get-WikiTemplate $page.template
-            Upsert-AdoWikiPage $Project $WikiId $page.path $content | Out-Null
+            Set-AdoWikiPage $Project $WikiId $page.path $content | Out-Null
             Write-Host "[SUCCESS] Created/updated wiki page: $($page.title)" -ForegroundColor Green
         }
         catch {
@@ -169,7 +169,7 @@ function Measure-Adobestpracticeswiki {
     foreach ($page in $pages) {
         try {
             $content = Get-WikiTemplate $page.template
-            Upsert-AdoWikiPage $Project $WikiId $page.path $content | Out-Null
+            Set-AdoWikiPage $Project $WikiId $page.path $content | Out-Null
             Write-Host "[SUCCESS] Created/updated wiki page: $($page.title)" -ForegroundColor Green
         }
         catch {
@@ -211,7 +211,7 @@ function Measure-Adobusinesswiki {
 
     foreach ($p in $pages) {
         try {
-            Upsert-AdoWikiPage -Project $Project -WikiId $WikiId -Path $p.path -Markdown $p.content | Out-Null
+            Set-AdoWikiPage -Project $Project -WikiId $WikiId -Path $p.path -Markdown $p.content | Out-Null
             Write-Host "[SUCCESS] Wiki page ensured: $($p.path)" -ForegroundColor Green
         }
         catch {
@@ -256,25 +256,25 @@ function Measure-Adodevwiki {
 
     # Create all wiki pages
     try {
-        Upsert-AdoWikiPage $Project $WikiId "/Development/Architecture-Decision-Records" $adrContent
+        Set-AdoWikiPage $Project $WikiId "/Development/Architecture-Decision-Records" $adrContent
         Write-Host "  ✅ Architecture Decision Records" -ForegroundColor Gray
         
-        Upsert-AdoWikiPage $Project $WikiId "/Development/Development-Setup" $devSetupContent
+        Set-AdoWikiPage $Project $WikiId "/Development/Development-Setup" $devSetupContent
         Write-Host "  ✅ Development Setup" -ForegroundColor Gray
         
-        Upsert-AdoWikiPage $Project $WikiId "/Development/API-Documentation" $apiDocsContent
+        Set-AdoWikiPage $Project $WikiId "/Development/API-Documentation" $apiDocsContent
         Write-Host "  ✅ API Documentation" -ForegroundColor Gray
         
-        Upsert-AdoWikiPage $Project $WikiId "/Development/Git-Workflow" $gitWorkflowContent
+        Set-AdoWikiPage $Project $WikiId "/Development/Git-Workflow" $gitWorkflowContent
         Write-Host "  ✅ Git Workflow" -ForegroundColor Gray
         
-        Upsert-AdoWikiPage $Project $WikiId "/Development/Code-Review-Checklist" $codeReviewContent
+        Set-AdoWikiPage $Project $WikiId "/Development/Code-Review-Checklist" $codeReviewContent
         Write-Host "  ✅ Code Review Checklist" -ForegroundColor Gray
         
-        Upsert-AdoWikiPage $Project $WikiId "/Development/Troubleshooting" $troubleshootingContent
+        Set-AdoWikiPage $Project $WikiId "/Development/Troubleshooting" $troubleshootingContent
         Write-Host "  ✅ Troubleshooting" -ForegroundColor Gray
         
-        Upsert-AdoWikiPage $Project $WikiId "/Development/Dependencies" $dependenciesContent
+        Set-AdoWikiPage $Project $WikiId "/Development/Dependencies" $dependenciesContent
         Write-Host "  ✅ Dependencies" -ForegroundColor Gray
         
         Write-Host "[SUCCESS] Development wiki pages created" -ForegroundColor Green
@@ -285,7 +285,7 @@ function Measure-Adodevwiki {
 }
 
 #>
-function Ensure-AdoSecurityWiki {
+function New-AdoSecurityWiki {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -310,34 +310,34 @@ function Ensure-AdoSecurityWiki {
     $incidentResponseContent = Get-WikiTemplate "Security/IncidentResponse"
 
     try {
-        Upsert-AdoWikiPage $Project $WikiId "/Security/Security-Policies" $securityPoliciesContent
+        Set-AdoWikiPage $Project $WikiId "/Security/Security-Policies" $securityPoliciesContent
         Write-Host "  ✅ Security Policies" -ForegroundColor Gray
         
-        Upsert-AdoWikiPage $Project $WikiId "/Security/Threat-Modeling-Guide" $threatModelingContent
+        Set-AdoWikiPage $Project $WikiId "/Security/Threat-Modeling-Guide" $threatModelingContent
         Write-Host "  ✅ Threat Modeling Guide" -ForegroundColor Gray
         
-        Upsert-AdoWikiPage $Project $WikiId "/Security/Security-Testing-Checklist" $securityTestingContent
+        Set-AdoWikiPage $Project $WikiId "/Security/Security-Testing-Checklist" $securityTestingContent
         Write-Host "  ✅ Security Testing Checklist" -ForegroundColor Gray
         
-        Upsert-AdoWikiPage $Project $WikiId "/Security/Incident-Response-Plan" $incidentResponseContent
+        Set-AdoWikiPage $Project $WikiId "/Security/Incident-Response-Plan" $incidentResponseContent
         Write-Host "  ✅ Incident Response Plan" -ForegroundColor Gray
         
         # Compliance Requirements
         $complianceContent = Get-WikiTemplate "Security/Compliance"
 
-        Upsert-AdoWikiPage $Project $WikiId "/Security/Compliance-Requirements" $complianceContent
+        Set-AdoWikiPage $Project $WikiId "/Security/Compliance-Requirements" $complianceContent
         Write-Host "  ✅ Compliance Requirements" -ForegroundColor Gray
         
         # Secret Management
         $secretManagementContent = Get-WikiTemplate "Security/SecretManagement"
 
-        Upsert-AdoWikiPage $Project $WikiId "/Security/Secret-Management" $secretManagementContent
+        Set-AdoWikiPage $Project $WikiId "/Security/Secret-Management" $secretManagementContent
         Write-Host "  ✅ Secret Management" -ForegroundColor Gray
         
         # Security Champions Program
         $securityChampionsContent = Get-WikiTemplate "Security/SecurityChampions"
 
-        Upsert-AdoWikiPage $Project $WikiId "/Security/Security-Champions-Program" $securityChampionsContent
+        Set-AdoWikiPage $Project $WikiId "/Security/Security-Champions-Program" $securityChampionsContent
         Write-Host "  ✅ Security Champions Program" -ForegroundColor Gray
         
         Write-Host "[SUCCESS] All 7 security wiki pages created" -ForegroundColor Green
@@ -375,7 +375,7 @@ function Measure-Adomanagementwiki {
     foreach ($page in $pages) {
         try {
             $content = Get-WikiTemplate $page.template
-            Upsert-AdoWikiPage $Project $WikiId $page.path $content | Out-Null
+            Set-AdoWikiPage $Project $WikiId $page.path $content | Out-Null
             Write-Host "[SUCCESS] Created/updated wiki page: $($page.title)" -ForegroundColor Green
         }
         catch {
@@ -398,12 +398,12 @@ function Measure-Adomanagementwiki {
 # Export functions
 Export-ModuleMember -Function @(
     'Measure-Adoprojectwiki',
-    'Upsert-AdoWikiPage',
-    'Ensure-AdoQAGuidelinesWiki',
+    'Set-AdoWikiPage',
+    'New-AdoQAGuidelinesWiki',
     'Measure-Adobestpracticeswiki',
     'Measure-Adobusinesswiki',
     'Measure-Adodevwiki',
-    'Ensure-AdoSecurityWiki',
+    'New-AdoSecurityWiki',
     'Measure-Adomanagementwiki'
 )
 
@@ -576,7 +576,7 @@ $repoSection
     $summary += "- Pipelines: $buildCount ([view pipelines]($adoUrl/$projEnc/_build))`n"
     $summary += "- Queries: $queryCount ([view queries]($adoUrl/$projEnc/_queries))`n"
 
-        Upsert-AdoWikiPage -Project $Project -WikiId $WikiId -Path "/Project-Summary" -Markdown $summary
+        Set-AdoWikiPage -Project $Project -WikiId $WikiId -Path "/Project-Summary" -Markdown $summary
         Write-Host "[SUCCESS] Project Summary wiki page created" -ForegroundColor Green
         return $true
     }
@@ -588,12 +588,12 @@ $repoSection
 
 Export-ModuleMember -Function @(
     'Measure-Adoprojectwiki',
-    'Upsert-AdoWikiPage',
-    'Ensure-AdoQAGuidelinesWiki',
+    'Set-AdoWikiPage',
+    'New-AdoQAGuidelinesWiki',
     'Measure-Adobestpracticeswiki',
     'Measure-Adobusinesswiki',
     'Measure-Adodevwiki',
-    'Ensure-AdoSecurityWiki',
+    'New-AdoSecurityWiki',
     'Measure-Adomanagementwiki',
     'New-AdoProjectSummaryWikiPage'
 )

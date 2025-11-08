@@ -14,8 +14,8 @@ BeforeAll {
 
     Import-Module (Join-Path $moduleRoot 'core\Core.Rest.psm1') -Force
     Import-Module (Join-Path $moduleRoot 'core\Logging.psm1') -Force
-    Import-Module (Join-Path $moduleRoot 'adapters\AzureDevOps.psm1') -Force
-    Import-Module (Join-Path $moduleRoot 'Migration\Migration.psm1') -Force
+    Import-Module (Join-Path $moduleRoot 'AzureDevOps\AzureDevOps.psm1') -Force
+    Import-Module (Join-Path $moduleRoot 'Migration.psm1') -Force
 }
 
 Describe "Initialize-BusinessInit idempotency" {

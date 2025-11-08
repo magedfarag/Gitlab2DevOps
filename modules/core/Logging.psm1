@@ -18,6 +18,12 @@ Set-StrictMode -Version Latest
 # Load System.Web for HTML encoding
 Add-Type -AssemblyName System.Web
 
+# Import Templates module for HTML generation
+$templatesPath = Join-Path (Split-Path $PSScriptRoot -Parent) "templates\Templates.psm1"
+if (Test-Path $templatesPath) {
+    Import-Module $templatesPath -Force -Global
+}
+
 <#
 .SYNOPSIS
     Gets the base migrations directory path.

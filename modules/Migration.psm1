@@ -16,47 +16,40 @@ Set-StrictMode -Version Latest
 
 # Import required modules
 Import-Module (Join-Path $PSScriptRoot "core\Core.Rest.psm1") -Force -Global
-Import-Module (Join-Path $PSScriptRoot "adapters\AzureDevOps.psm1") -Force -Global
-Import-Module (Join-Path $PSScriptRoot "adapters\GitLab.psm1") -Force -Global
+Import-Module (Join-Path $PSScriptRoot "AzureDevOps\AzureDevOps.psm1") -Force -Global
+Import-Module (Join-Path $PSScriptRoot "GitLab\GitLab.psm1") -Force -Global
 Import-Module (Join-Path $PSScriptRoot "core\Logging.psm1") -Force -Global
 Import-Module (Join-Path $PSScriptRoot "core\ConfigLoader.psm1") -Force -Global
 
 # Import Migration sub-modules
 $migrationModulePath = Join-Path $PSScriptRoot "Migration"
-Import-Module (Join-Path $migrationModulePath "Core\Core.psm1") -Force -Global
-Import-Module (Join-Path $migrationModulePath "Menu\Menu.psm1") -Force -Global
-Import-Module (Join-Path $migrationModulePath "Initialization\ProjectInitialization.psm1") -Force -Global
-Import-Module (Join-Path $migrationModulePath "TeamPacks\TeamPacks.psm1") -Force -Global
-Import-Module (Join-Path $migrationModulePath "Workflows\SingleMigration.psm1") -Force -Global
-Import-Module (Join-Path $migrationModulePath "Workflows\BulkMigration.psm1") -Force -Global
-
-# Re-export all functions from sub-modules for backward compatibility
-Export-ModuleMember -Function @(
-    # From Migration/Core/Core.psm1
-    'Get-PreparedProjects',
-    'Get-CoreRestConfig', 
-    'Get-CoreRestThreadParams',
-    'Get-WikiTemplateContent',
-    
-    # From Migration/Menu/Menu.psm1
-    'Show-MigrationMenu',
-    'Invoke-TeamPackMenu',
-    
-    # From Migration/Initialization/ProjectInitialization.psm1
-    'Initialize-AdoProject',
-    
-    # From Migration/TeamPacks/TeamPacks.psm1
-    'Initialize-BusinessInit',
-    'Initialize-DevInit',
-    'Initialize-SecurityInit',
-    'Initialize-ManagementInit',
-    
-    # From Migration/Workflows/SingleMigration.psm1
-    'New-MigrationPreReport',
-    'Invoke-SingleMigration',
-    
-    # From Migration/Workflows/BulkMigration.psm1
-    'Invoke-BulkPreparationWorkflow',
-    'Invoke-BulkMigrationWorkflow',
-    'Show-BulkMigrationStatus'
+$subModules = @(
+    @{ Path = "Core\Core.psm1"; Name = "Core" }
+    @{ Path = "Menu\Menu.psm1"; Name = "Menu" }
+    @{ Path = "Initialization\ProjectInitialization.psm1"; Name = "ProjectInitialization" }
+    @{ Path = "TeamPacks\TeamPacks.psm1"; Name = "TeamPacks" }
+    @{ Path = "Workflows\SingleMigration.psm1"; Name = "SingleMigration" }
+    @{ Path = "Workflows\BulkMigration.psm1"; Name = "BulkMigration" }
 )
+
+foreach ($module in $subModules) {
+    $modulePath = Join-Path $migrationModulePath $module.Path
+    if (Test-Path $modulePath) {
+        Import-Module $modulePath -Force -Global -ErrorAction Stop
+    }
+    else {
+        Write-Warning "Migration sub-module not found: $modulePath"
+    }
+}
+
+# Collect all exported functions from loaded sub-modules
+$allFunctions = @()
+foreach ($module in $subModules) {
+    $moduleObj = Get-Module -Name $module.Name -ErrorAction SilentlyContinue
+    if ($moduleObj) {
+        $allFunctions += $moduleObj.ExportedFunctions.Keys
+    }
+}
+
+# Re-export all functions from sub-modules
+Export-ModuleMember -Function $allFunctions

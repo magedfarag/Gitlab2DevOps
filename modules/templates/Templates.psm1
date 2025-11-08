@@ -312,8 +312,12 @@ function Get-HtmlTemplate {
         $TemplateName += '.html'
     }
     
-    # Try to load from template file
-    $templatePath = Join-Path $PSScriptRoot "templates\$TemplateName"
+    # Try to load from template file (check html subdirectory first)
+    $templatePath = Join-Path $PSScriptRoot "html\$TemplateName"
+    if (-not (Test-Path $templatePath)) {
+        # Fallback to root templates directory
+        $templatePath = Join-Path $PSScriptRoot $TemplateName
+    }
     
     if (-not (Test-Path $templatePath)) {
         Write-Warning "[Get-HtmlTemplate] Template not found: $templatePath"

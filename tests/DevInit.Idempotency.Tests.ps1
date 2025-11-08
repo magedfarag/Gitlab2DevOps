@@ -1,9 +1,9 @@
 BeforeAll {
     # Import required modules
-    Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Core.Rest.psm1") -Force
-    Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) "modules\AzureDevOps.psm1") -Force
+    Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) "modules\core\Core.Rest.psm1") -Force
+    Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) "modules\AzureDevOps\AzureDevOps.psm1") -Force
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Migration.psm1") -Force
-    Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Logging.psm1") -Force
+    Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) "modules\core\Logging.psm1") -Force
 
     # Initialize Core.Rest with mock credentials
     Initialize-CoreRest -CollectionUrl "https://dev.azure.com/test" -AdoPat "mockpat" -GitLabBaseUrl "https://gitlab.com" -GitLabToken "mocktoken"

@@ -27,13 +27,16 @@ $script:GIT_BITS = @{
     PullRequestContribute  = 262144
 }
 
-$subModuleDir = Join-Path $PSScriptRoot "AzureDevOps"
+$subModuleDir = $PSScriptRoot
 $subModules = @('Core.psm1', 'Security.psm1', 'Projects.psm1', 'Repositories.psm1', 'Wikis.psm1', 'WorkItems.psm1', 'Dashboards.psm1')
 
 foreach ($module in $subModules) {
     $modulePath = Join-Path $subModuleDir $module
     if (Test-Path $modulePath) {
         Import-Module $modulePath -Global -Force -ErrorAction Stop
+    }
+    else {
+        Write-Warning "Sub-module not found: $modulePath"
     }
 }
 

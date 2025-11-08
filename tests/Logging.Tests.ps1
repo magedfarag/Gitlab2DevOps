@@ -9,7 +9,7 @@
 
 BeforeAll {
     # Import the module to test
-    $modulePath = Join-Path $PSScriptRoot ".." "modules" "Logging.psm1"
+    $modulePath = Join-Path $PSScriptRoot ".." "modules" "core" "Logging.psm1"
     Import-Module $modulePath -Force
     
     # Create temp directory for test files

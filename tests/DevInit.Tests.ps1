@@ -3,9 +3,8 @@ BeforeAll {
     $mainScript = Join-Path (Split-Path $PSScriptRoot -Parent) "Gitlab2DevOps.ps1"
     $cliDocs = Join-Path (Split-Path $PSScriptRoot -Parent) "docs\cli-usage.md"
     
-    # Import Migration module to test exports
+    # Import Migration module to test exports (which imports AzureDevOps internally)
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Migration.psm1") -Force
-    Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) "modules\AzureDevOps.psm1") -Force
 }
 
 Describe "DevInit CLI Mode" {
@@ -40,8 +39,8 @@ Describe "DevInit Module Exports" {
         Get-Command Search-Adodevqueries -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
     
-    It "Repositories sub-module exports Ensure-AdoRepoFiles" {
-        Get-Command Ensure-AdoRepoFiles -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
+    It "Repositories sub-module exports New-AdoRepoFiles" {
+        Get-Command New-AdoRepoFiles -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
 }
 

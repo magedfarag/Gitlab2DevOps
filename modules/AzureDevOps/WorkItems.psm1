@@ -11,7 +11,7 @@
 Set-StrictMode -Version Latest
 
 #>
-function Ensure-AdoQueryFolder {
+function New-AdoQueryFolder {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -78,7 +78,7 @@ function Ensure-AdoQueryFolder {
 }
 
 #>
-function Ensure-AdoTeamTemplates {
+function Initialize-AdoTeamTemplates {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -163,7 +163,7 @@ function Ensure-AdoTeamTemplates {
     # Define comprehensive work item templates for all Agile types - load from JSON
     $templateJsonPath = Join-Path $PSScriptRoot "..\..\templates\WorkItemTemplates.json"
     if (-not (Test-Path $templateJsonPath)) {
-        Write-Error "[Ensure-AdoTeamTemplates] Template JSON file not found: $templateJsonPath"
+        Write-Error "[Initialize-AdoTeamTemplates] Template JSON file not found: $templateJsonPath"
         return
     }
     $templateDefinitions = Get-Content -Path $templateJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable
@@ -173,8 +173,8 @@ function Ensure-AdoTeamTemplates {
     $skippedCount = 0
     
     Write-Host "[INFO] Creating work item templates for $processTemplate process..." -ForegroundColor Cyan
-    Write-Verbose "[Ensure-AdoTeamTemplates] Available types in project: $($availableTypes -join ', ')"
-    Write-Verbose "[Ensure-AdoTeamTemplates] Template API endpoint: $base"
+    Write-Verbose "[Initialize-AdoTeamTemplates] Available types in project: $($availableTypes -join ', ')"
+    Write-Verbose "[Initialize-AdoTeamTemplates] Template API endpoint: $base"
     
     foreach ($workItemType in $availableTypes) {
         if ($templateDefinitions.ContainsKey($workItemType)) {
@@ -192,8 +192,8 @@ function Ensure-AdoTeamTemplates {
                         fields = $template.fields
                     }
                     
-                    Write-Verbose "[Ensure-AdoTeamTemplates] Creating template: $($template.name)"
-                    Write-Verbose "[Ensure-AdoTeamTemplates] Template body: $($templateBody | ConvertTo-Json -Depth 5)"
+                    Write-Verbose "[Initialize-AdoTeamTemplates] Creating template: $($template.name)"
+                    Write-Verbose "[Initialize-AdoTeamTemplates] Template body: $($templateBody | ConvertTo-Json -Depth 5)"
                     
                     Invoke-AdoRest POST $base -Body $templateBody | Out-Null
                     Write-Host "[SUCCESS] Created $workItemType template: $($template.name)" -ForegroundColor Green
@@ -249,7 +249,7 @@ function Ensure-AdoTeamTemplates {
 }
 
 #>
-function Ensure-AdoSharedQueries {
+function New-AdoSharedQueries {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -297,7 +297,7 @@ function Ensure-AdoSharedQueries {
         }
     }
     catch {
-        Write-Verbose "[Ensure-AdoSharedQueries] Could not retrieve existing queries: $_"
+        Write-Verbose "[New-AdoSharedQueries] Could not retrieve existing queries: $_"
     }
     
     $createdCount = 0
@@ -317,7 +317,7 @@ function Ensure-AdoSharedQueries {
                 wiql = $queryDef.wiql
             }
             
-            Write-Verbose "[Ensure-AdoSharedQueries] Creating query: $($queryDef.name)"
+            Write-Verbose "[New-AdoSharedQueries] Creating query: $($queryDef.name)"
             $query = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" -Body $queryBody
             Write-Host "[SUCCESS] Created query: $($queryDef.name)" -ForegroundColor Green
             $createdQueries += $query
@@ -341,7 +341,7 @@ function Ensure-AdoSharedQueries {
 }
 
 #>
-function Ensure-AdoTestPlan {
+function New-AdoTestPlan {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -371,16 +371,16 @@ function Ensure-AdoTestPlan {
             $teamIterations = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($teamName))/_apis/work/teamsettings/iterations?``$timeframe=current"
             if ($teamIterations -and $teamIterations.value -and $teamIterations.value.Count -gt 0) {
                 $Iteration = $teamIterations.value[0].path
-                Write-Verbose "[Ensure-AdoTestPlan] Using current iteration: $Iteration"
+                Write-Verbose "[New-AdoTestPlan] Using current iteration: $Iteration"
             } else {
                 # Fallback to project root iteration
                 $Iteration = $Project
-                Write-Verbose "[Ensure-AdoTestPlan] No current iteration found, using project root: $Iteration"
+                Write-Verbose "[New-AdoTestPlan] No current iteration found, using project root: $Iteration"
             }
         }
         catch {
             $Iteration = $Project
-            Write-Verbose "[Ensure-AdoTestPlan] Error getting current iteration, using project root: $Iteration"
+            Write-Verbose "[New-AdoTestPlan] Error getting current iteration, using project root: $Iteration"
         }
     }
     
@@ -393,7 +393,7 @@ function Ensure-AdoTestPlan {
         }
     }
     catch {
-        Write-Verbose "[Ensure-AdoTestPlan] Could not retrieve existing test plans: $_"
+        Write-Verbose "[New-AdoTestPlan] Could not retrieve existing test plans: $_"
     }
     
     $testPlan = $null
@@ -413,7 +413,7 @@ function Ensure-AdoTestPlan {
                 state = "Active"
             }
             
-            Write-Verbose "[Ensure-AdoTestPlan] Creating test plan with body: $($testPlanBody | ConvertTo-Json -Depth 5)"
+            Write-Verbose "[New-AdoTestPlan] Creating test plan with body: $($testPlanBody | ConvertTo-Json -Depth 5)"
             $testPlan = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/testplan/plans" -Body $testPlanBody
             Write-Host "[SUCCESS] Created test plan '$Name' (ID: $($testPlan.id))" -ForegroundColor Green
         }
@@ -452,7 +452,7 @@ function Ensure-AdoTestPlan {
         }
     }
     catch {
-        Write-Verbose "[Ensure-AdoTestPlan] Could not retrieve existing test suites: $_"
+        Write-Verbose "[New-AdoTestPlan] Could not retrieve existing test suites: $_"
     }
     
     $createdCount = 0
@@ -480,7 +480,7 @@ function Ensure-AdoTestPlan {
                 inheritDefaultConfigurations = $true
             }
             
-            Write-Verbose "[Ensure-AdoTestPlan] Creating suite: $($suiteDef.name)"
+            Write-Verbose "[New-AdoTestPlan] Creating suite: $($suiteDef.name)"
             $suite = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/testplan/plans/$($testPlan.id)/suites" -Body $suiteBody
             Write-Host "[SUCCESS] Created test suite '$($suiteDef.name)' (ID: $($suite.id))" -ForegroundColor Green
             $createdSuites += $suite
@@ -513,7 +513,7 @@ function Ensure-AdoTestPlan {
 }
 
 #>
-function Ensure-AdoQAQueries {
+function New-AdoQAQueries {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -603,7 +603,7 @@ function Ensure-AdoQAQueries {
         }
     }
     catch {
-        Write-Verbose "[Ensure-AdoQAQueries] Could not retrieve existing queries: $_"
+        Write-Verbose "[New-AdoQAQueries] Could not retrieve existing queries: $_"
     }
     
     $createdCount = 0
@@ -661,7 +661,7 @@ function Ensure-AdoQAQueries {
 }
 
 #>
-function Ensure-AdoTestConfigurations {
+function New-AdoTestConfigurations {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -703,7 +703,7 @@ function Ensure-AdoTestConfigurations {
             Write-Host "✓ Found $($existingVariables.Count) existing test variable(s)" -ForegroundColor Green
         }
         catch {
-            Write-Verbose "[Ensure-AdoTestConfigurations] Could not retrieve existing variables: $_"
+            Write-Verbose "[New-AdoTestConfigurations] Could not retrieve existing variables: $_"
         }
         
         # Create test variables
@@ -726,7 +726,7 @@ function Ensure-AdoTestConfigurations {
                         $existingVar = $updated
                     }
                     catch {
-                        Write-Verbose "[Ensure-AdoTestConfigurations] Failed to update variable '$($varDef.Name)': $_"
+                        Write-Verbose "[New-AdoTestConfigurations] Failed to update variable '$($varDef.Name)': $_"
                     }
                 }
 
@@ -777,7 +777,7 @@ function Ensure-AdoTestConfigurations {
             Write-Host "✓ Found $($existingConfigurations.Count) existing test configuration(s)" -ForegroundColor Green
         }
         catch {
-            Write-Verbose "[Ensure-AdoTestConfigurations] Could not retrieve existing configurations: $_"
+            Write-Verbose "[New-AdoTestConfigurations] Could not retrieve existing configurations: $_"
         }
         
         # Create test configurations
@@ -817,7 +817,7 @@ function Ensure-AdoTestConfigurations {
 
                     $allowedNames = $allowedEntries | ForEach-Object { $_.name }
                     if ($allowedNames -and ($varValue -notin $allowedNames)) {
-                        Write-Verbose "[Ensure-AdoTestConfigurations] Skipping value '$varValue' for variable '$varName' (not in allowed values)"
+                        Write-Verbose "[New-AdoTestConfigurations] Skipping value '$varValue' for variable '$varName' (not in allowed values)"
                         continue
                     }
 
@@ -866,7 +866,7 @@ function Ensure-AdoTestConfigurations {
     }
     catch {
         Write-Warning "Failed to create test configurations: $_"
-        Write-Verbose "[Ensure-AdoTestConfigurations] Error details: $($_.Exception.Message)"
+        Write-Verbose "[New-AdoTestConfigurations] Error details: $($_.Exception.Message)"
         return @{
             variables = @()
             configurations = @()
@@ -959,7 +959,7 @@ Use these tags to categorize work items effectively:
         catch {
             # Page doesn't exist, create it
             Write-Verbose "[Measure-Adocommontags] Creating Tag Guidelines page"
-            $page = Upsert-AdoWikiPage $Project $WikiId "/Tag-Guidelines" $tagGuidelinesContent
+            $page = Set-AdoWikiPage $Project $WikiId "/Tag-Guidelines" $tagGuidelinesContent
             Write-Host "[SUCCESS] Created Tag Guidelines wiki page" -ForegroundColor Green
             Write-Host ""
             Write-Host "[INFO] Common tags documented:" -ForegroundColor Cyan
@@ -1143,7 +1143,7 @@ ORDER BY [System.ChangedDate] DESC
 }
 
 #>
-function Ensure-AdoSecurityQueries {
+function New-AdoSecurityQueries {
     param(
         [Parameter(Mandatory=$true)]
         [string]$Project
@@ -1234,7 +1234,7 @@ ORDER BY [Microsoft.VSTS.Common.Priority], [System.CreatedDate]
     try {
         # Ensure "Security" folder exists
         $folderPath = "Shared Queries/Security"
-        Ensure-AdoQueryFolder -Project $Project -Path $folderPath
+        New-AdoQueryFolder -Project $Project -Path $folderPath
 
         # Create queries
         Upsert-AdoQuery -Project $Project -Path "$folderPath/Security Bugs (Priority 0-1)" -Wiql $securityBugsQuery
@@ -1347,7 +1347,7 @@ ORDER BY [Microsoft.VSTS.Scheduling.TargetDate], [System.WorkItemType], [Microso
     try {
         # Ensure "Management" folder exists
         $folderPath = "Shared Queries/Management"
-        Ensure-AdoQueryFolder -Project $Project -Path $folderPath
+        New-AdoQueryFolder -Project $Project -Path $folderPath
 
         # Create queries
         Upsert-AdoQuery -Project $Project -Path "$folderPath/Program Status" -Wiql $programStatusQuery
@@ -1377,15 +1377,15 @@ ORDER BY [Microsoft.VSTS.Scheduling.TargetDate], [System.WorkItemType], [Microso
 
 # Export functions
 Export-ModuleMember -Function @(
-    'Ensure-AdoTeamTemplates',
-    'Ensure-AdoSharedQueries',
-    'Ensure-AdoTestPlan',
-    'Ensure-AdoQAQueries',
-    'Ensure-AdoTestConfigurations',
+    'Initialize-AdoTeamTemplates',
+    'New-AdoSharedQueries',
+    'New-AdoTestPlan',
+    'New-AdoQAQueries',
+    'New-AdoTestConfigurations',
     'Measure-Adocommontags',
     'Measure-Adobusinessqueries',
     'Search-Adodevqueries',
-    'Ensure-AdoSecurityQueries',
+    'New-AdoSecurityQueries',
     'Measure-Adomanagementqueries'
 )
 

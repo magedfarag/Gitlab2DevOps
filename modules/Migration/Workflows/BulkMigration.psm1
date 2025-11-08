@@ -96,9 +96,9 @@ function Invoke-BulkPreparationWorkflow {
                 New-Item -ItemType Directory -Path $projectPaths.reportsDir -Force | Out-Null
             }
             
-            # Use Prepare-GitLab with custom directory structure
+            # Use Initialize-GitLab with custom directory structure
             Write-Host "[INFO] Downloading repository..." -ForegroundColor Cyan
-            $result = Prepare-GitLab -ProjectPath $gitlabPath -CustomBaseDir $bulkPaths.containerDir -CustomProjectName $repoName
+            $result = Initialize-GitLab -ProjectPath $gitlabPath -CustomBaseDir $bulkPaths.containerDir -CustomProjectName $repoName
             
             # Create preflight report in the GitLab project subfolder
             $preflightFile = Join-Path $projectPaths.reportsDir "preflight-report.json"

@@ -34,15 +34,27 @@
 
 ## Architecture Overview
 
-This is an **enterprise-grade GitLab-to-Azure DevOps migration toolkit** for on-premise Azure DevOps Server with SSL/TLS challenges. The codebase uses **modular PowerShell architecture** with strict separation of concerns:
+This is an **enterprise-grade GitLab-to-Azure DevOps migration toolkit** for on-premise Azure DevOps Server with SSL/TLS challenges. The codebase uses **clean greenfield PowerShell architecture** with clear separation of concerns:
 
-- **`Core.Rest.psm1`**: Foundation REST API layer with **curl fallback** for SSL/TLS issues. When PowerShell `Invoke-RestMethod` fails with certificate errors, automatically falls back to `curl -k` with retry logic.
-- **`GitLab.psm1`**: Source system adapter (no Azure DevOps knowledge)
-- **`AzureDevOps.psm1`**: Destination system adapter (no GitLab knowledge)  
-- **`Migration.psm1`**: Orchestration layer coordinating GitLab → Azure DevOps workflow
-- **`Logging.psm1`**: Structured logging, reports, and audit trails
+### Core Modules (Foundation)
+- **`core/Core.Rest.psm1`**: REST API foundation with **curl fallback** for SSL/TLS issues. When PowerShell `Invoke-RestMethod` fails with certificate errors, automatically falls back to `curl -k` with retry logic.
+- **`core/Logging.psm1`**: Structured logging, reports, and audit trails
 
-**Critical**: These modules are **intentionally decoupled**. GitLab and AzureDevOps modules never import each other.
+### Integration Modules (Clean, Direct)
+- **`GitLab/GitLab.psm1`**: GitLab API integration (no Azure DevOps knowledge)
+- **`AzureDevOps/AzureDevOps.psm1`**: Azure DevOps operations (no GitLab knowledge)
+  - `Core.psm1`: REST API helpers
+  - `Projects.psm1`: Project management
+  - `Repositories.psm1`: Repository operations
+  - `Wikis.psm1`: Wiki management (43 templates)
+  - `WorkItems.psm1`: Work items & queries
+  - `Dashboards.psm1`: Dashboards & teams
+  - `Security.psm1`: Security & permissions
+
+### Orchestration
+- **`Migration.psm1`**: High-level migration workflows coordinating GitLab → Azure DevOps
+
+**Critical**: These modules are **intentionally decoupled**. GitLab and AzureDevOps modules never import each other. This is a **greenfield architecture** with no legacy patterns or backward compatibility layers.
 
 ## SSL/TLS Handling (CRITICAL)
 
@@ -373,20 +385,32 @@ migrations/
 
 ```
 modules/
-  ├── Core.Rest.psm1         # REST foundation + curl fallback
-  ├── GitLab.psm1            # Source adapter
-  ├── AzureDevOps.psm1       # Destination adapter
-  ├── Migration.psm1         # Orchestration + menu
-  ├── Logging.psm1           # Reports + audit trails (with Get-BulkProjectPaths)
-  └── AzureDevOps/           # Sub-modules (7 focused modules)
-      ├── Core.psm1          # 256 lines - REST foundation
-      ├── Security.psm1      # 84 lines - Token masking
-      ├── Projects.psm1      # 415 lines - Project creation
-      ├── Repositories.psm1  # 905 lines - Repo management
-      ├── Wikis.psm1         # 318 lines - Wiki creation
-      ├── WorkItems.psm1     # 1,507 lines - Work items
-      ├── Dashboards.psm1    # 676 lines - Dashboards
-      └── WikiTemplates/     # 43 external markdown templates
+  ├── GitLab/                # GitLab integration (clean, direct)
+  │   └── GitLab.psm1        # GitLab API client
+  ├── AzureDevOps/           # Azure DevOps operations (clean, direct)
+  │   ├── AzureDevOps.psm1   # Main module
+  │   ├── Core.psm1          # 256 lines - REST foundation
+  │   ├── Security.psm1      # 84 lines - Token masking
+  │   ├── Projects.psm1      # 415 lines - Project creation
+  │   ├── Repositories.psm1  # 905 lines - Repo management
+  │   ├── Wikis.psm1         # 318 lines - Wiki creation
+  │   ├── WorkItems.psm1     # 1,507 lines - Work items
+  │   ├── Dashboards.psm1    # 676 lines - Dashboards
+  │   ├── config/            # JSON configurations
+  │   └── WikiTemplates/     # 43 external markdown templates
+  ├── Migration/             # Migration workflows & orchestration
+  │   ├── Core/              # Core utilities
+  │   ├── Menu/              # Interactive menus
+  │   ├── Initialization/    # Project initialization
+  │   ├── TeamPacks/         # Team setup packs
+  │   └── Workflows/         # Migration workflows
+  ├── core/                  # Foundation modules
+  │   ├── Core.Rest.psm1     # REST client with curl fallback
+  │   └── Logging.psm1       # Logging, reports, audit trails
+  ├── dev/                   # Development utilities
+  │   └── templates/         # HTML templates
+  ├── templates/             # Shared templates
+  └── Migration.psm1         # Main migration orchestrator
 ```
 
 ### Migration Config Formats (v2.1.0)

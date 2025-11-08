@@ -108,9 +108,9 @@ function Test-GitLabAuth {
     GitLab project path (e.g., "group/project").
 
 .EXAMPLE
-    Prepare-GitLab "my-group/my-project"
+    Initialize-GitLab "my-group/my-project"
 #>
-function Prepare-GitLab {
+function Initialize-GitLab {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, Position=0)]
@@ -444,7 +444,7 @@ function Invoke-BulkPrepareGitLab {
             }
             
             # Run preparation for this project using bulk-specific path
-            Prepare-GitLab -ProjectPath $projectPath -CustomBaseDir $bulkPrepDir -CustomProjectName $projectName
+            Initialize-GitLab -ProjectPath $projectPath -CustomBaseDir $bulkPrepDir -CustomProjectName $projectName
             
             # Read the generated preflight report from bulk structure
             $preflightFile = Join-Path $projectDir "reports" "preflight-report.json"
@@ -614,6 +614,6 @@ function Invoke-BulkPrepareGitLab {
 Export-ModuleMember -Function @(
     'Get-GitLabProject',
     'Test-GitLabAuth',
-    'Prepare-GitLab',
+    'Initialize-GitLab',
     'Invoke-BulkPrepareGitLab'
 )

@@ -561,7 +561,7 @@ function Initialize-AdoProject {
                 
                 # Re-import required modules in thread context
                 $modulesRoot = Split-Path (Split-Path $ModulePath -Parent) -Parent
-                Import-Module (Join-Path $modulesRoot "adapters\AzureDevOps.psm1") -Force
+                Import-Module (Join-Path $modulesRoot "AzureDevOps\AzureDevOps.psm1") -Force
                 Import-Module (Join-Path $modulesRoot "core\Core.Rest.psm1") -Force
 
                 # Rehydrate Core.Rest context for this runspace
@@ -598,7 +598,7 @@ function Initialize-AdoProject {
                 
                 # Re-import required modules in thread context
                 $modulesRoot = Split-Path (Split-Path $ModulePath -Parent) -Parent
-                Import-Module (Join-Path $modulesRoot "adapters\AzureDevOps.psm1") -Force
+                Import-Module (Join-Path $modulesRoot "AzureDevOps\AzureDevOps.psm1") -Force
                 Import-Module (Join-Path $modulesRoot "core\Core.Rest.psm1") -Force
 
                 if ($CoreRestParams) {
@@ -664,7 +664,7 @@ This project was migrated from GitLab using automated tooling.
                         $welcomeContent = $embeddedWelcome
                     }
                     
-                    Upsert-AdoWikiPage $DestProject $wiki.id "/Home" $welcomeContent
+                    Set-AdoWikiPage $DestProject $wiki.id "/Home" $welcomeContent
                 }
                 catch {
                     $results.success = $false
@@ -805,7 +805,7 @@ This project was migrated from GitLab using automated tooling.
                     param($DestProject, $WikiId, $ModulePath, $CoreRestParams)
             
                     $modulesRoot = Split-Path (Split-Path $ModulePath -Parent) -Parent
-                    Import-Module (Join-Path $modulesRoot "adapters\AzureDevOps.psm1") -Force
+                    Import-Module (Join-Path $modulesRoot "AzureDevOps\AzureDevOps.psm1") -Force
                     Import-Module (Join-Path $modulesRoot "core\Core.Rest.psm1") -Force
 
                     if ($CoreRestParams) {
@@ -826,7 +826,7 @@ This project was migrated from GitLab using automated tooling.
                     param($DestProject, $WikiId, $ModulePath, $CoreRestParams)
             
                     $modulesRoot = Split-Path (Split-Path $ModulePath -Parent) -Parent
-                    Import-Module (Join-Path $modulesRoot "adapters\AzureDevOps.psm1") -Force
+                    Import-Module (Join-Path $modulesRoot "AzureDevOps\AzureDevOps.psm1") -Force
                     Import-Module (Join-Path $modulesRoot "core\Core.Rest.psm1") -Force
 
                     if ($CoreRestParams) {

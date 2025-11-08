@@ -11,7 +11,7 @@
 Set-StrictMode -Version Latest
 
 #>
-function Ensure-AdoTeamSettings {
+function Set-AdoTeamSettings {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -26,7 +26,7 @@ function Ensure-AdoTeamSettings {
     
     # Configure backlog levels (show Epics and Features)
     try {
-        Write-Verbose "[Ensure-AdoTeamSettings] Configuring backlog visibility"
+        Write-Verbose "[Set-AdoTeamSettings] Configuring backlog visibility"
         $backlogBody = @{
             backlogVisibilities = @{
                 "Microsoft.EpicCategory" = $true
@@ -46,7 +46,7 @@ function Ensure-AdoTeamSettings {
     
     # Configure working days (Monday-Friday)
     try {
-        Write-Verbose "[Ensure-AdoTeamSettings] Configuring working days"
+        Write-Verbose "[Set-AdoTeamSettings] Configuring working days"
         $workingDaysBody = @{
             workingDays = @("monday", "tuesday", "wednesday", "thursday", "friday")
         }
@@ -65,7 +65,7 @@ function Ensure-AdoTeamSettings {
         if ($iterations -and $iterations.value -and $iterations.value.Count -gt 0) {
             $firstSprint = $iterations.value[0]
             
-            Write-Verbose "[Ensure-AdoTeamSettings] Setting default iteration to: $($firstSprint.name)"
+            Write-Verbose "[Set-AdoTeamSettings] Setting default iteration to: $($firstSprint.name)"
             $defaultIterationBody = @{
                 backlogIteration = $firstSprint.id
                 defaultIteration = $firstSprint.id
@@ -80,7 +80,7 @@ function Ensure-AdoTeamSettings {
         }
     }
     catch {
-        Write-Verbose "[Ensure-AdoTeamSettings] Could not set default iteration: $_"
+        Write-Verbose "[Set-AdoTeamSettings] Could not set default iteration: $_"
         Write-Host "[INFO] Default iteration not set (will use current date)" -ForegroundColor Yellow
     }
     
@@ -504,7 +504,7 @@ function New-Adodevdashboard {
         }
         $componentTagsContent = Get-Content -Path $templatePath -Raw -Encoding UTF8
         
-        Upsert-AdoWikiPage $Project $WikiId "/Development/Component-Tags" $componentTagsContent
+        Set-AdoWikiPage $Project $WikiId "/Development/Component-Tags" $componentTagsContent
         Write-Host "  ✅ Component Tags wiki page created" -ForegroundColor Gray
         
         Write-Host "[SUCCESS] Development dashboard created" -ForegroundColor Green
@@ -522,7 +522,7 @@ function New-Adodevdashboard {
 }
 
 #>
-function Ensure-AdoSecurityDashboard {
+function New-AdoSecurityDashboard {
     param(
         [Parameter(Mandatory=$true)]
         [string]$Project
@@ -569,7 +569,7 @@ function Ensure-AdoSecurityDashboard {
         else {
             Write-Warning "Failed to create security dashboard: $_"
         }
-        Write-Verbose "[Ensure-AdoSecurityDashboard] Error details: $($_.Exception.Message)"
+        Write-Verbose "[New-AdoSecurityDashboard] Error details: $($_.Exception.Message)"
     }
 }
 
@@ -645,11 +645,11 @@ function Test-Adomanagementdashboard {
 
 # Export functions
 Export-ModuleMember -Function @(
-    'Ensure-AdoTeamSettings',
+    'Set-AdoTeamSettings',
     'Search-Adodashboard',
     'Test-Adoqadashboard',
     'New-Adodevdashboard',
-    'Ensure-AdoSecurityDashboard',
+    'New-AdoSecurityDashboard',
     'Test-Adomanagementdashboard'
 )
 

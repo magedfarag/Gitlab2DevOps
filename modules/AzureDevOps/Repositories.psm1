@@ -11,7 +11,7 @@
 Set-StrictMode -Version Latest
 
 #>
-function Ensure-AdoRepositoryTemplates {
+function New-AdoRepositoryTemplates {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -33,7 +33,7 @@ function Ensure-AdoRepositoryTemplates {
         $hasCommits = $commits.count -gt 0
     }
     catch {
-        Write-Verbose "[Ensure-AdoRepositoryTemplates] Could not check commits: $_"
+        Write-Verbose "[New-AdoRepositoryTemplates] Could not check commits: $_"
     }
     
     if (-not $hasCommits) {
@@ -55,7 +55,7 @@ function Ensure-AdoRepositoryTemplates {
     # Define template files - load from external templates
     $readmeTemplatePath = Join-Path $PSScriptRoot "..\templates\README.template.md"
     if (-not (Test-Path $readmeTemplatePath)) {
-        Write-Error "[Ensure-AdoRepositoryTemplates] README template not found: $readmeTemplatePath"
+        Write-Error "[New-AdoRepositoryTemplates] README template not found: $readmeTemplatePath"
         return
     }
     $readmeTemplate = Get-Content -Path $readmeTemplatePath -Raw -Encoding UTF8
@@ -64,7 +64,7 @@ function Ensure-AdoRepositoryTemplates {
     # Load PR template
     $prTemplatePath = Join-Path $PSScriptRoot "..\templates\PullRequestTemplate.md"
     if (-not (Test-Path $prTemplatePath)) {
-        Write-Error "[Ensure-AdoRepositoryTemplates] PR template not found: $prTemplatePath"
+        Write-Error "[New-AdoRepositoryTemplates] PR template not found: $prTemplatePath"
         return
     }
     $prTemplateContent = Get-Content -Path $prTemplatePath -Raw -Encoding UTF8
@@ -84,7 +84,7 @@ function Ensure-AdoRepositoryTemplates {
     catch {
         # File doesn't exist, create it
         try {
-            Write-Verbose "[Ensure-AdoRepositoryTemplates] Creating README.md"
+            Write-Verbose "[New-AdoRepositoryTemplates] Creating README.md"
             $pushBody = @{
                 refUpdates = @(
                     @{
@@ -130,7 +130,7 @@ function Ensure-AdoRepositoryTemplates {
     catch {
         # File doesn't exist, create it
         try {
-            Write-Verbose "[Ensure-AdoRepositoryTemplates] Creating .azuredevops/pull_request_template.md"
+            Write-Verbose "[New-AdoRepositoryTemplates] Creating .azuredevops/pull_request_template.md"
             $pushBody = @{
                 refUpdates = @(
                     @{
@@ -177,7 +177,7 @@ function Ensure-AdoRepositoryTemplates {
 }
 
 #>
-function Ensure-AdoRepository {
+function New-AdoRepository {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact='High')]
     param(
         [Parameter(Mandatory)]
@@ -198,13 +198,13 @@ function Ensure-AdoRepository {
         [switch]$Replace
     )
     
-    Write-Verbose "[Ensure-AdoRepository] Checking if repository '$RepoName' exists..."
+    Write-Verbose "[New-AdoRepository] Checking if repository '$RepoName' exists..."
     
     $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories"
     $existing = $repos.value | Where-Object { $_.name -eq $RepoName }
     
     if ($existing) {
-        Write-Verbose "[Ensure-AdoRepository] Repository '$RepoName' exists (ID: $($existing.id))"
+        Write-Verbose "[New-AdoRepository] Repository '$RepoName' exists (ID: $($existing.id))"
         
         # Check if repository has commits
         try {
@@ -216,7 +216,7 @@ function Ensure-AdoRepository {
         }
         
         if ($hasCommits) {
-            Write-Verbose "[Ensure-AdoRepository] Repository has $($commits.count) commit(s)"
+            Write-Verbose "[New-AdoRepository] Repository has $($commits.count) commit(s)"
             
             if ($Replace) {
                 if ($PSCmdlet.ShouldProcess($RepoName, "DELETE and recreate repository (has existing commits)")) {
@@ -423,7 +423,7 @@ function New-Adobranchpolicies {
 }
 
 #>
-function Ensure-AdoRepoDeny {
+function Set-AdoRepoDeny {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -471,7 +471,7 @@ function Ensure-AdoRepoDeny {
 }
 
 #>
-function Ensure-AdoRepoFiles {
+function New-AdoRepoFiles {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -502,7 +502,7 @@ function Ensure-AdoRepoFiles {
     # .gitignore content - load from template
     $gitignoreTemplatePath = Join-Path $PSScriptRoot "..\templates\gitignore.template"
     if (-not (Test-Path $gitignoreTemplatePath)) {
-        Write-Error "[Ensure-AdoRepoFiles] Gitignore template not found: $gitignoreTemplatePath"
+        Write-Error "[New-AdoRepoFiles] Gitignore template not found: $gitignoreTemplatePath"
         return
     }
     $gitignoreTemplate = Get-Content -Path $gitignoreTemplatePath -Raw -Encoding UTF8
@@ -511,7 +511,7 @@ function Ensure-AdoRepoFiles {
     # .editorconfig content - load from template
     $editorconfigTemplatePath = Join-Path $PSScriptRoot "..\templates\editorconfig.template"
     if (-not (Test-Path $editorconfigTemplatePath)) {
-        Write-Error "[Ensure-AdoRepoFiles] Editorconfig template not found: $editorconfigTemplatePath"
+        Write-Error "[New-AdoRepoFiles] Editorconfig template not found: $editorconfigTemplatePath"
         return
     }
     $editorconfigContent = Get-Content -Path $editorconfigTemplatePath -Raw -Encoding UTF8
@@ -594,7 +594,7 @@ function Ensure-AdoRepoFiles {
 }
 
 #>
-function Ensure-AdoSecurityRepoFiles {
+function New-AdoSecurityRepoFiles {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -867,12 +867,12 @@ language-settings: {}
 
 # Export functions
 Export-ModuleMember -Function @(
-    'Ensure-AdoRepositoryTemplates',
-    'Ensure-AdoRepository',
+    'New-AdoRepositoryTemplates',
+    'New-AdoRepository',
     'Get-AdoRepoDefaultBranch',
     'New-Adobranchpolicies',
-    'Ensure-AdoRepoDeny',
-    'Ensure-AdoRepoFiles',
-    'Ensure-AdoSecurityRepoFiles'
+    'Set-AdoRepoDeny',
+    'New-AdoRepoFiles',
+    'New-AdoSecurityRepoFiles'
 )
 

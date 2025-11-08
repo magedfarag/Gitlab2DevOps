@@ -264,8 +264,8 @@ if ([string]::IsNullOrWhiteSpace($GitLabToken)) {
 Write-Host "[INFO] Loading migration modules..."
 Import-Module "$scriptRoot\modules\core\Core.Rest.psm1" -Force
 Import-Module "$scriptRoot\modules\core\Logging.psm1" -Force
-Import-Module "$scriptRoot\modules\adapters\GitLab.psm1" -Force
-Import-Module "$scriptRoot\modules\adapters\AzureDevOps.psm1" -Force
+Import-Module "$scriptRoot\modules\GitLab\GitLab.psm1" -Force
+Import-Module "$scriptRoot\modules\AzureDevOps\AzureDevOps.psm1" -Force
 Import-Module "$scriptRoot\modules\Migration.psm1" -Force
 Write-Host "[INFO] Modules loaded successfully"
 Write-Host ""
@@ -327,7 +327,7 @@ if ($PSCmdlet.ParameterSetName -eq 'CLI') {
             }
             
             Write-Host "[INFO] Preparing GitLab project: $Source" -ForegroundColor Cyan
-            Prepare-GitLab -SrcPath $Source
+            Initialize-GitLab -SrcPath $Source
         }
         
         'Initialize' {

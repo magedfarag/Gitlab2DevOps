@@ -57,7 +57,14 @@ Describe "export-gitlab-identity.ps1 - Parameter Validation" {
     }
     
     It "Should reject invalid Profile values" {
-        { [scriptblock]::Create("param([ValidateSet('Minimal','Standard','Complete')][string]`$P='Invalid')") } | Should -Throw
+        # ValidateSet should throw when parsing a scriptblock with invalid value
+        $scriptblock = { 
+            param(
+                [ValidateSet('Minimal','Standard','Complete')]
+                [string]$P = 'Invalid'
+            )
+        }
+        { & $scriptblock } | Should -Throw
     }
     
     It "Should accept valid ApiVersion values" {
@@ -150,15 +157,16 @@ Describe "export-gitlab-identity.ps1 - Profile Presets" {
 Describe "export-gitlab-identity.ps1 - Since Date Filtering" {
     It "Should filter users created before Since date" {
         $since = [datetime]'2024-01-01'
-        $user1 = @{ id = 1; username = 'old'; created_at = '2023-01-01T00:00:00Z' }
+        $user1 = @{ id = 1; username = 'old'; created_at = '2023-06-01T00:00:00Z' }
         $user2 = @{ id = 2; username = 'new'; created_at = '2024-06-01T00:00:00Z' }
         
-        $filtered = @($user1, $user2) | Where-Object { 
-            if ($_.created_at) {
-                $createdDate = [datetime]::Parse($_.created_at)
-                $createdDate -ge $since
+        $filtered = @(@($user1, $user2) | Where-Object { 
+            if (-not $_.created_at) {
+                return $false
             }
-        }
+            $createdDate = [datetime]::Parse($_.created_at)
+            return ($createdDate -ge $since)
+        })
         
         $filtered.Count | Should -Be 1
         $filtered[0].username | Should -Be 'new'
@@ -368,8 +376,9 @@ Describe "export-gitlab-identity.ps1 - Validation" {
             @{ id = 1; username = 'test2' }
         )
         
-        $valid = $users | Where-Object { $_.id -ne $null }
+        $valid = @($users | Where-Object { $_.id })
         $valid.Count | Should -Be 1
+        $valid[0].id | Should -Be 1
     }
     
     It "Should skip users with empty username" {
@@ -378,8 +387,9 @@ Describe "export-gitlab-identity.ps1 - Validation" {
             @{ id = 2; username = 'test' }
         )
         
-        $valid = $users | Where-Object { -not [string]::IsNullOrWhiteSpace($_.username) }
+        $valid = @($users | Where-Object { $_.username -and (-not [string]::IsNullOrWhiteSpace($_.username)) })
         $valid.Count | Should -Be 1
+        $valid[0].id | Should -Be 2
     }
 }
 
