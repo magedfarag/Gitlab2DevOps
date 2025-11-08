@@ -88,6 +88,10 @@ function Initialize-BusinessInit {
     Write-MigrationReport -ReportFile $reportFile -Data $summary
     Write-Host "[SUCCESS] Business Initialization Pack complete" -ForegroundColor Green
     Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
+    
+    # Update project summary page
+    Write-Host "[INFO] Updating Project Summary wiki page..." -ForegroundColor Cyan
+    New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wiki.id
 }
 
 <#
@@ -173,6 +177,10 @@ function Initialize-DevInit {
     Write-MigrationReport -ReportFile $reportFile -Data $summary
     Write-Host "[SUCCESS] Development Initialization Pack complete" -ForegroundColor Green
     Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
+    
+    # Update project summary page
+    Write-Host "[INFO] Updating Project Summary wiki page..." -ForegroundColor Cyan
+    New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wiki.id
 }
 
 <#
@@ -254,6 +262,10 @@ function Initialize-SecurityInit {
     Write-MigrationReport -ReportFile $reportFile -Data $summary
     Write-Host "[SUCCESS] Security Initialization Pack complete" -ForegroundColor Green
     Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
+    
+    # Update project summary page
+    Write-Host "[INFO] Updating Project Summary wiki page..." -ForegroundColor Cyan
+    New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wiki.id
 }
 
 <#
@@ -320,6 +332,10 @@ function Initialize-ManagementInit {
     Write-MigrationReport -ReportFile $reportFile -Data $summary
     Write-Host "[SUCCESS] Management Initialization Pack complete" -ForegroundColor Green
     Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
+    
+    # Update project summary page
+    Write-Host "[INFO] Updating Project Summary wiki page..." -ForegroundColor Cyan
+    New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wiki.id
 }
 
 # Export public functions

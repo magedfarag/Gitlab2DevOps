@@ -406,3 +406,194 @@ Export-ModuleMember -Function @(
     'Ensure-AdoSecurityWiki',
     'Ensure-AdoManagementWiki'
 )
+
+
+function New-AdoProjectSummaryWikiPage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$Project,
+        [Parameter(Mandatory)] [string]$WikiId
+    )
+
+    Write-Host "[INFO] Creating Project Summary wiki page..." -ForegroundColor Cyan
+
+    try {
+        $proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))?includeCapabilities=true"
+        $adoUrl = $script:coreRestConfig.AdoCollectionUrl
+
+        # repositories
+        $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories"
+        $repoCount = 0; if ($repos -and $repos.value) { $repoCount = $repos.value.Count }
+
+        # work item types
+        $witypes = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/workitemtypes"
+        $workItemTypes = '' ; if ($witypes -and $witypes.value) { $workItemTypes = ($witypes.value | Select-Object -ExpandProperty name) -join ', ' }
+
+        # areas and iterations
+        $areas = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/areas?``$depth=2"
+        $areaCount = 0; if ($areas -and $areas.children) { $areaCount = $areas.children.Count }
+        $iterations = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/iterations?``$depth=2"
+        $iterationCount = 0; if ($iterations -and $iterations.children) { $iterationCount = $iterations.children.Count }
+
+        # wiki pages
+        $wikiPages = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis/$WikiId/pages?recursionLevel=full"
+        $wikiPageCount = 0; if ($wikiPages -and $wikiPages.subPages) { $wikiPageCount = $wikiPages.subPages.Count }
+
+        # queries
+        $queries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?``$depth=2"
+        $queryCount = 0; if ($queries -and $queries.children) { $queryCount = $queries.children.Count }
+
+    # dashboards/builds/policies (best-effort)
+    try { $dash = Invoke-AdoRest GET "/$projEnc/_apis/dashboard/dashboards" } catch { $dash = $null }
+        $dashboardCount = 0; if ($dash -and $dash.value) { $dashboardCount = $dash.value.Count }
+    try { $builddefs = Invoke-AdoRest GET "/$projEnc/_apis/build/definitions" } catch { $builddefs = $null }
+        $buildCount = 0; if ($builddefs -and $builddefs.value) { $buildCount = $builddefs.value.Count }
+    try { $pol = Invoke-AdoRest GET "/$projEnc/_apis/policy/configurations" } catch { $pol = $null }
+        $policyCount = 0; if ($pol -and $pol.value) { $policyCount = $pol.value.Count }
+
+        $projEnc = [uri]::EscapeDataString($Project)
+
+        # build repository list with default branch and last commit (best-effort)
+        $repoLines = @()
+        if ($repoCount -gt 0) {
+            foreach ($r in $repos.value) {
+                $default = if ($r.defaultBranch) { $r.defaultBranch -replace '^refs/heads/', '' } else { 'none' }
+                try {
+                    $comm = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$($r.id)/commits?``$top=1"
+                    $last = if ($comm -and $comm.value -and $comm.value.Count -gt 0) { ([DateTime]$comm.value[0].committer.date).ToString('yyyy-MM-dd HH:mm') } else { 'No commits' }
+                } catch { $last = 'Unknown' }
+                $repoUrl = "$adoUrl/$([uri]::EscapeDataString($Project))/_git/$([uri]::EscapeDataString($r.name))"
+                # badge by recency: green if <30 days, yellow if <90, red otherwise
+                $badge = '🔴'
+                try {
+                    if ($last -ne 'No commits' -and $last -ne 'Unknown') {
+                        $dt = [DateTime]::ParseExact($last,'yyyy-MM-dd HH:mm',[System.Globalization.CultureInfo]::InvariantCulture)
+                        $age = (Get-Date) - $dt
+                        if ($age.TotalDays -le 30) { $badge = '🟢' }
+                        elseif ($age.TotalDays -le 90) { $badge = '🟡' }
+                    }
+                } catch { $badge = '🔴' }
+
+                # count branch policies for this repo (best-effort)
+                $repoPolicyCount = 0
+                if ($pol -and $pol.value) {
+                    $repoPolicyCount = ($pol.value | Where-Object {
+                        $_.settings -and $_.settings.scope -and ($_.settings.scope | Where-Object { $_.repositoryId -eq $r.id })
+                    }).Count
+                }
+
+                $repoLines += "- $badge [$($r.name)]($repoUrl) - Default: ``$default`` - Last commit: ``$last`` - Policies: $repoPolicyCount"
+            }
+        }
+        $repoSection = if ($repoLines.Count -gt 0) { $repoLines -join "`n" } else { 'No repositories have been created yet. Repositories will be added during migration.' }
+
+        # pipeline summary: last run status per definition (best-effort)
+        $pipelineLines = @()
+        if ($buildCount -gt 0) {
+            foreach ($def in $builddefs.value) {
+                try {
+                    $lastBuild = Invoke-AdoRest GET "/$projEnc/_apis/build/builds?definitions=$($def.id)&``$top=1"
+                } catch { $lastBuild = $null }
+                $status = 'N/A'
+                $result = ''
+                $link = "$adoUrl/$projEnc/_build?definitionId=$($def.id)"
+                $runLink = $link
+                $branch = 'n/a'
+                $sha = ''
+                $duration = ''
+
+                if ($lastBuild -and $lastBuild.value -and $lastBuild.value.Count -gt 0) {
+                    $b = $lastBuild.value[0]
+                    $status = $b.status
+                    $result = $b.result
+                    $runLink = "$adoUrl/$projEnc/_build/results?buildId=$($b.id)"
+
+                    # Trigger branch and commit SHA (best-effort)
+                    if ($b.sourceBranch) { $branch = ($b.sourceBranch -replace '^refs/heads/', '') }
+                    if ($b.sourceVersion) { $sha = $b.sourceVersion }
+
+                    # Duration calculation
+                    try {
+                        if ($b.startTime -and $b.finishTime) {
+                            $st = [DateTime]$b.startTime
+                            $fn = [DateTime]$b.finishTime
+                            $ts = $fn - $st
+                            $duration = ([int]$ts.TotalMinutes).ToString() + 'm'
+                        }
+                        elseif ($b.startTime -and -not $b.finishTime) {
+                            $st = [DateTime]$b.startTime
+                            $ts = (Get-Date) - $st
+                            $duration = ([int]$ts.TotalMinutes).ToString() + 'm (running)'
+                        }
+                    } catch { $duration = '' }
+                }
+
+                # small badge
+                $pBadge = '⚪'
+                if ($result -eq 'succeeded') { $pBadge = '🟢' }
+                elseif ($result -in @('partiallySucceeded','succeededWithIssues')) { $pBadge = '🟡' }
+                elseif ($result -in @('failed','canceled')) { $pBadge = '🔴' }
+
+                $pipelineLines += "- $pBadge [$($def.name)]($link) - Branch: `$branch` - Commit: `$($sha.Substring(0,([Math]::Min(7,$sha.Length)) ) )` - Duration: $duration - Result: $result ([view run]($runLink))"
+            }
+        }
+        $pipelineSection = if ($pipelineLines.Count -gt 0) { $pipelineLines -join "`n" } else { 'No pipeline definitions found.' }
+
+        $summary = @"
+# $Project - Project Summary
+
+> **Last Updated**: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  
+> **Project ID**: ``$($proj.id)``  
+> **Process Template**: $($proj.capabilities.processTemplate.templateName)
+
+---
+
+## Project Overview
+
+| Resource | Count |
+|---|---:|
+| Repositories | $repoCount |
+| Work Item Types | $($witypes.value.Count) |
+| Areas | $areaCount |
+| Iterations | $iterationCount |
+| Wiki Pages | $wikiPageCount |
+| Shared Queries | $queryCount |
+| Dashboards | $dashboardCount |
+| Build definitions | $buildCount |
+| Branch policies | $policyCount |
+
+---
+
+## Repositories
+
+$repoSection
+
+"@
+
+    $summary += "`n---`n## Pipelines`n`n" + $pipelineSection + "`n"
+    $summary += "`n---`n## Dashboards & Links`n`n"
+    $summary += "- Dashboards: $dashboardCount ([view dashboards]($adoUrl/$projEnc/_dashboards))`n"
+    $summary += "- Pipelines: $buildCount ([view pipelines]($adoUrl/$projEnc/_build))`n"
+    $summary += "- Queries: $queryCount ([view queries]($adoUrl/$projEnc/_queries))`n"
+
+        Upsert-AdoWikiPage -Project $Project -WikiId $WikiId -Path "/Project-Summary" -Markdown $summary
+        Write-Host "[SUCCESS] Project Summary wiki page created" -ForegroundColor Green
+        return $true
+    }
+    catch {
+        Write-Warning "Failed to create Project Summary wiki page: $_"
+        return $false
+    }
+}
+
+Export-ModuleMember -Function @(
+    'Ensure-AdoProjectWiki',
+    'Upsert-AdoWikiPage',
+    'Ensure-AdoQAGuidelinesWiki',
+    'Ensure-AdoBestPracticesWiki',
+    'Ensure-AdoBusinessWiki',
+    'Ensure-AdoDevWiki',
+    'Ensure-AdoSecurityWiki',
+    'Ensure-AdoManagementWiki',
+    'New-AdoProjectSummaryWikiPage'
+)

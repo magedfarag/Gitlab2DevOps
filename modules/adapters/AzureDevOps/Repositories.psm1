@@ -593,6 +593,278 @@ function Ensure-AdoRepoFiles {
     }
 }
 
+#>
+function Ensure-AdoSecurityRepoFiles {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$RepoId
+    )
+    
+    Write-Host "[INFO] Adding security repository files..." -ForegroundColor Cyan
+    
+    # Get default branch
+    try {
+        $repo = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId"
+        $defaultBranch = $repo.defaultBranch -replace '^refs/heads/', ''
+    }
+    catch {
+        Write-Warning "Could not determine default branch, using 'main'"
+        $defaultBranch = 'main'
+    }
+    
+    # SECURITY.md content
+    $securityMdContent = @"
+# Security Policy
+
+## Reporting Security Vulnerabilities
+
+**DO NOT** create public issues for security vulnerabilities.
+
+Instead, please report security issues to: **security@example.com**
+
+### What to Include
+- Description of the vulnerability
+- Steps to reproduce
+- Potential impact
+- Suggested fix (if available)
+
+## Supported Versions
+
+| Version | Supported          |
+| ------- | ------------------ |
+| Latest  | :white_check_mark: |
+| < Latest| :x:                |
+
+## Security Best Practices
+
+### Code Review
+- All code changes require review
+- Security-sensitive changes require security team review
+- Check for common vulnerabilities (SQL injection, XSS, CSRF, etc.)
+
+### Dependency Management
+- Keep dependencies up to date
+- Run security scans regularly
+- Review dependency licenses
+- Use Dependabot/Renovate for automated updates
+
+### Authentication & Authorization
+- Never hardcode credentials
+- Use Azure Key Vault for secrets
+- Implement least privilege access
+- Use multi-factor authentication
+
+### Data Protection
+- Encrypt sensitive data at rest and in transit
+- Implement proper input validation
+- Sanitize user inputs
+- Use parameterized queries
+
+## Security Scanning
+
+This repository uses automated security scanning:
+- **Trivy**: Container and dependency scanning
+- **Snyk**: Vulnerability detection
+- **CodeQL**: Static analysis (if enabled)
+
+## Incident Response
+
+In case of a security incident:
+1. Report immediately to security team
+2. Do not discuss publicly
+3. Preserve evidence
+4. Follow incident response plan
+"@
+
+    # security-scan-config.yml content
+    $securityScanConfigContent = @"
+# Security Scanning Configuration
+# Used by CI/CD pipelines for automated security checks
+
+scan_types:
+  - dependency_check
+  - secret_scan
+  - container_scan
+  - static_analysis
+
+severity_threshold: MEDIUM  # Fail on MEDIUM, HIGH, CRITICAL
+
+trivy:
+  enabled: true
+  ignore_unfixed: false
+  scan_refs: main,develop,release/*
+  
+snyk:
+  enabled: true
+  fail_on_issues: true
+  monitor: true
+  
+secret_scanning:
+  enabled: true
+  patterns:
+    - api[_-]?key
+    - password
+    - secret
+    - token
+    - private[_-]?key
+  exclude_paths:
+    - "**/*.md"
+    - "**/test/**"
+    - "**/tests/**"
+
+reporting:
+  upload_to_defect_dojo: false
+  create_work_items: true
+  notify_security_team: true
+"@
+
+    # .trivyignore content
+    $trivyIgnoreContent = @"
+# Trivy Ignore File
+# Add CVE IDs or vulnerability IDs to suppress false positives
+# Format: CVE-YYYY-NNNN or GHSA-xxxx-xxxx-xxxx
+
+# Example: Suppress known false positive
+# CVE-2024-12345
+
+# Example: Suppress vulnerability with mitigation in place
+# GHSA-1234-5678-9abc  # Mitigated by WAF rules
+"@
+
+    # .snyk content
+    $snykContent = @"
+# Snyk configuration file
+# Learn more: https://docs.snyk.io/snyk-cli/test-for-vulnerabilities/the-.snyk-file
+
+version: v1.25.0
+
+# Ignore specific vulnerabilities
+ignore: {}
+
+# Example:
+# ignore:
+#   'npm:lodash:20210201':
+#     - '*':
+#         reason: 'Mitigated in our usage context'
+#         expires: '2025-12-31'
+
+# Patch specific vulnerabilities
+patch: {}
+
+# Language-specific settings
+language-settings: {}
+"@
+
+    # Check repository has commits
+    try {
+        $refs = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/refs?filter=heads/$defaultBranch"
+        if ($refs.value.Count -eq 0) {
+            Write-Warning "Repository has no commits yet. Security files will be added after first push."
+            return
+        }
+        
+        $latestCommit = $refs.value[0].objectId
+        
+        # Prepare push with security files
+        $changes = @()
+        
+        # Add SECURITY.md if not exists
+        try {
+            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/SECURITY.md"
+            Write-Host "  ✓ SECURITY.md already exists" -ForegroundColor Gray
+        }
+        catch {
+            $changes += @{
+                changeType = "add"
+                item = @{ path = "/SECURITY.md" }
+                newContent = @{
+                    content = $securityMdContent
+                    contentType = "rawtext"
+                }
+            }
+        }
+        
+        # Add security-scan-config.yml if not exists
+        try {
+            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/security-scan-config.yml"
+            Write-Host "  ✓ security-scan-config.yml already exists" -ForegroundColor Gray
+        }
+        catch {
+            $changes += @{
+                changeType = "add"
+                item = @{ path = "/security-scan-config.yml" }
+                newContent = @{
+                    content = $securityScanConfigContent
+                    contentType = "rawtext"
+                }
+            }
+        }
+        
+        # Add .trivyignore if not exists
+        try {
+            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.trivyignore"
+            Write-Host "  ✓ .trivyignore already exists" -ForegroundColor Gray
+        }
+        catch {
+            $changes += @{
+                changeType = "add"
+                item = @{ path = "/.trivyignore" }
+                newContent = @{
+                    content = $trivyIgnoreContent
+                    contentType = "rawtext"
+                }
+            }
+        }
+        
+        # Add .snyk if not exists
+        try {
+            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.snyk"
+            Write-Host "  ✓ .snyk already exists" -ForegroundColor Gray
+        }
+        catch {
+            $changes += @{
+                changeType = "add"
+                item = @{ path = "/.snyk" }
+                newContent = @{
+                    content = $snykContent
+                    contentType = "rawtext"
+                }
+            }
+        }
+        
+        # Push all changes if any
+        if ($changes.Count -gt 0) {
+            $pushPayload = @{
+                refUpdates = @(
+                    @{
+                        name = "refs/heads/$defaultBranch"
+                        oldObjectId = $latestCommit
+                    }
+                )
+                commits = @(
+                    @{
+                        comment = "Add security repository files (SECURITY.md, scanning configs)"
+                        changes = $changes
+                    }
+                )
+            }
+            
+            Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/pushes" -Body $pushPayload | Out-Null
+            Write-Host "[SUCCESS] Created security files: $($changes.Count) file(s)" -ForegroundColor Green
+        }
+        else {
+            Write-Host "[INFO] All security files already exist" -ForegroundColor Gray
+        }
+    }
+    catch {
+        Write-Warning "Failed to create security repository files: $_"
+    }
+}
+
 # Export functions
 Export-ModuleMember -Function @(
     'Ensure-AdoRepositoryTemplates',
@@ -600,5 +872,6 @@ Export-ModuleMember -Function @(
     'Get-AdoRepoDefaultBranch',
     'Ensure-AdoBranchPolicies',
     'Ensure-AdoRepoDeny',
-    'Ensure-AdoRepoFiles'
+    'Ensure-AdoRepoFiles',
+    'Ensure-AdoSecurityRepoFiles'
 )

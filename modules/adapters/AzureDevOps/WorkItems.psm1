@@ -11,6 +11,73 @@
 Set-StrictMode -Version Latest
 
 #>
+function Ensure-AdoQueryFolder {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+    
+    # Parse the path to get folder hierarchy (e.g., "Shared Queries/Development" -> ["Shared Queries", "Development"])
+    $pathParts = $Path -split '/'
+    $currentPath = ""
+    
+    foreach ($part in $pathParts) {
+        if ([string]::IsNullOrWhiteSpace($part)) { continue }
+        
+        if ($currentPath) {
+            $currentPath += "/$part"
+        }
+        else {
+            $currentPath = $part
+        }
+        
+        # Check if folder exists
+        $encoded = [uri]::EscapeDataString($currentPath)
+        $projEnc = [uri]::EscapeDataString($Project)
+        
+        try {
+            $existing = Invoke-AdoRest GET "/$projEnc/_apis/wit/queries/$encoded"
+            if ($existing -and $existing.isFolder) {
+                Write-Verbose "[WorkItems] Query folder '$currentPath' already exists"
+                continue
+            }
+        }
+        catch {
+            # Folder doesn't exist, create it
+            Write-Verbose "[WorkItems] Creating query folder: $currentPath"
+        }
+        
+        # Determine parent folder
+        $parentPath = ""
+        if ($currentPath.Contains('/')) {
+            $parentPath = $currentPath.Substring(0, $currentPath.LastIndexOf('/'))
+        }
+        
+        # Create the folder
+        try {
+            $parentEnc = if ($parentPath) { [uri]::EscapeDataString($parentPath) } else { "My%20Queries" }
+            
+            $folderBody = @{
+                name     = $part
+                isFolder = $true
+            }
+            
+            Invoke-AdoRest POST "/$projEnc/_apis/wit/queries/$parentEnc" -Body $folderBody | Out-Null
+            Write-Verbose "[WorkItems] Successfully created query folder: $currentPath"
+        }
+        catch {
+            if ($_ -notmatch 'already exists|409') {
+                Write-Warning "[WorkItems] Failed to create query folder '$currentPath': $_"
+            }
+        }
+    }
+}
+
+#>
 function Ensure-AdoTeamTemplates {
     [CmdletBinding()]
     param(
