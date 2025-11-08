@@ -158,7 +158,7 @@ function Get-AdoProjectList {
     
     # Fetch fresh data from API
     Write-Verbose "[Get-AdoProjectList] Fetching project list from Azure DevOps API..."
-    $list = Invoke-AdoRest GET "/_apis/projects?``$top=5000"
+    $list = Invoke-AdoRest GET "/_apis/projects?`$top=5000"
     $projects = $list.value
     
     # Update cache
@@ -195,14 +195,28 @@ function Test-AdoProjectExists {
     )
     
     try {
-        $projects = Get-AdoProjectList
-        $project = $projects | Where-Object { $_.name -eq $ProjectName } | Select-Object -First 1
+        # Defensive normalization: trim whitespace and remove zero-width/invisible chars
+        $normalized = ($ProjectName -replace '\p{C}', '').Trim()
+
+        # Always refresh cache first to reduce false-negatives during concurrent operations
+        $projects = Get-AdoProjectList -RefreshCache
+
+        # Case-insensitive compare and trim project names returned by API
+        $project = $projects | Where-Object { ($_.name -as [string]) -and ($_.name.Trim() -ieq $normalized) } | Select-Object -First 1
         if ($project) { return $true }
 
-        # If not found, refresh the cache once in case the project was just created
-        $projects = Get-AdoProjectList -RefreshCache
-        $project = $projects | Where-Object { $_.name -eq $ProjectName } | Select-Object -First 1
-        return $null -ne $project
+        # As a final fallback, try the direct GET-by-name endpoint. Some servers may not return
+        # the project in the aggregated list immediately, but the direct endpoint will succeed
+        # if the project exists.
+        try {
+            $proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($normalized))"
+            if ($proj -and $proj.id) { return $true }
+        }
+        catch {
+            Write-Verbose "[Test-AdoProjectExists] Direct GET-by-name returned: $_"
+        }
+
+        return $false
     }
     catch {
         Write-Verbose "[Test-AdoProjectExists] Error checking project: $_"

@@ -106,10 +106,12 @@ function Show-MigrationMenu {
     Write-Host "  6) Import User Information  " -ForegroundColor White -NoNewline
     Write-Host "│ Import JSON data to Azure DevOps" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  7) Exit" -ForegroundColor Yellow
+    Write-Host "  7) Add Team Packs           " -ForegroundColor White -NoNewline
+    Write-Host "│ Enhance existing project with team resources" -ForegroundColor Gray
+    Write-Host "  8) Exit" -ForegroundColor Yellow
     Write-Host ""
     
-    $choice = Read-Host "Select option (1-7)"
+    $choice = Read-Host "Select option (1-8)"
     
     switch ($choice) {
         '1' {
@@ -554,6 +556,86 @@ function Show-MigrationMenu {
             }
         }
         '7' {
+            # Add Team Packs to Existing Project
+            Write-Host ""
+            Write-Host "=== ADD TEAM PACKS TO EXISTING PROJECT ===" -ForegroundColor Cyan
+            Write-Host "Select an existing Azure DevOps project to enhance with team resources."
+            Write-Host ""
+            
+            try {
+                # Get all Azure DevOps projects
+                Write-Host "[INFO] Fetching Azure DevOps projects..." -ForegroundColor Cyan
+                $allProjects = Get-AdoProjectList -RefreshCache
+                
+                if ($allProjects.Count -eq 0) {
+                    Write-Host "[ERROR] No Azure DevOps projects found." -ForegroundColor Red
+                    Write-Host "[TIP] Create a project first using Option 3." -ForegroundColor Yellow
+                    return
+                }
+                
+                Write-Host "[INFO] Found $($allProjects.Count) project(s)" -ForegroundColor Green
+                Write-Host ""
+                
+                # Display projects
+                for ($i = 0; $i -lt [Math]::Min($allProjects.Count, 20); $i++) {
+                    $proj = $allProjects[$i]
+                    Write-Host "  $($i + 1)) $($proj.name)" -ForegroundColor White
+                    
+                    # Safely access description property
+                    $desc = $null
+                    if ($proj.PSObject.Properties['description']) {
+                        $desc = $proj.description
+                    }
+                    
+                    if ($desc -and -not [string]::IsNullOrWhiteSpace($desc)) {
+                        Write-Host "      $desc" -ForegroundColor Gray
+                    }
+                }
+                
+                if ($allProjects.Count -gt 20) {
+                    Write-Host ""
+                    Write-Host "[INFO] Showing first 20 projects. Enter project name directly if not listed." -ForegroundColor Yellow
+                }
+                
+                Write-Host ""
+                $projectSelection = Read-Host "Select project number or enter project name"
+                
+                $selectedProjectName = $null
+                
+                # Check if it's a number (project selection)
+                $selectionNum = 0
+                if ([int]::TryParse($projectSelection, [ref]$selectionNum) -and $selectionNum -ge 1 -and $selectionNum -le [Math]::Min($allProjects.Count, 20)) {
+                    $selectedProjectName = $allProjects[$selectionNum - 1].name
+                }
+                elseif (-not [string]::IsNullOrWhiteSpace($projectSelection)) {
+                    # User entered a project name directly
+                    $selectedProjectName = $projectSelection
+                }
+                else {
+                    Write-Host "[ERROR] Invalid selection." -ForegroundColor Red
+                    return
+                }
+                
+                # Verify project exists
+                Write-Host ""
+                Write-Host "[INFO] Verifying project '$selectedProjectName'..." -ForegroundColor Cyan
+                if (-not (Test-AdoProjectExists -ProjectName $selectedProjectName)) {
+                    Write-Host "[ERROR] Project '$selectedProjectName' not found." -ForegroundColor Red
+                    return
+                }
+                
+                Write-Host "[SUCCESS] Project found: $selectedProjectName" -ForegroundColor Green
+                
+                # Show team pack menu
+                Invoke-TeamPackMenu -ProjectName $selectedProjectName
+            }
+            catch {
+                Write-Host "[ERROR] Failed to load projects: $_" -ForegroundColor Red
+                Write-Host ""
+                Write-Host "[TIP] Verify your Azure DevOps connection and try again." -ForegroundColor Yellow
+            }
+        }
+        '8' {
             Write-Host ""
             Write-Host "Thank you for using GitLab → Azure DevOps Migration Tool" -ForegroundColor Cyan
             Write-Host "Goodbye! 👋" -ForegroundColor Green
@@ -562,7 +644,7 @@ function Show-MigrationMenu {
         }
         default {
             Write-Host ""
-            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 7." -ForegroundColor Red
+            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 8." -ForegroundColor Red
             Write-Host ""
         }
     }
