@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Migration Preview Report</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+        
+        .header .timestamp {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 40px;
+        }
+        
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        
+        .summary-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            transition: transform 0.2s;
+        }
+        
+        .summary-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .summary-card .label {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }
+        
+        .summary-card .value {
+            font-size: 2em;
+            font-weight: bold;
+        }
+        
+        .section {
+            margin-bottom: 40px;
+        }
+        
+        .section h2 {
+            font-size: 1.8em;
+            margin-bottom: 20px;
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+        
+        .warnings, .prerequisites {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 20px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .warnings h3, .prerequisites h3 {
+            color: #856404;
+            margin-bottom: 10px;
+        }
+        
+        .warnings ul, .prerequisites ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .warnings li, .prerequisites li {
+            padding: 8px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+        
+        .warnings li:before {
+            content: "⚠️";
+            position: absolute;
+            left: 0;
+        }
+        
+        .prerequisites li:before {
+            content: "📋";
+            position: absolute;
+            left: 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        th {
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.95em;
+        }
+        
+        td {
+            padding: 15px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        tbody tr:hover {
+            background: #f5f5f5;
+        }
+        
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .success {
+            background: rgba(76, 175, 80, 0.05);
+        }
+        
+        .warning {
+            background: rgba(255, 193, 7, 0.1);
+        }
+        
+        .footer {
+            background: #f8f9fa;
+            padding: 30px;
+            text-align: center;
+            color: #666;
+            border-top: 1px solid #e0e0e0;
+        }
+        
+        .footer p {
+            margin: 5px 0;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+            background: #667eea;
+            color: white;
+        }
+        
+        .operations-list {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .operations-list ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .operations-list li {
+            padding: 10px;
+            margin: 5px 0;
+            background: white;
+            border-radius: 4px;
+            border-left: 3px solid #667eea;
+        }
+        
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            
+            .container {
+                box-shadow: none;
+            }
+            
+            .summary-card:hover {
+                transform: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 GitLab to Azure DevOps Migration Preview</h1>
+            <p class="timestamp">Generated: {{TIMESTAMP}}</p>
+        </div>
+        
+        <div class="content">
+            <div class="summary">
+                <div class="summary-card">
+                    <div class="label">Destination Project</div>
+                    <div class="value">{{DESTINATION_PROJECT}}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Projects to Migrate</div>
+                    <div class="value">{{PROJECT_COUNT}}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Total Size</div>
+                    <div class="value">{{TOTAL_SIZE}} MB</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">LFS Data</div>
+                    <div class="value">{{TOTAL_LFS_SIZE}} MB</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Estimated Duration</div>
+                    <div class="value">{{ESTIMATED_DURATION}} min</div>
+                </div>
+            </div>
+            
+            {{PREREQUISITES_HTML}}
+            
+            {{WARNINGS_HTML}}
+            
+            <div class="section">
+                <h2>📦 Projects to Migrate</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>GitLab Project</th>
+                            <th>Azure DevOps Repository</th>
+                            <th>Size</th>
+                            <th>LFS Data</th>
+                            <th>Default Branch</th>
+                            <th>Est. Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{PROJECT_ROWS}}
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="section">
+                <h2>📋 Operations Summary</h2>
+                <div class="operations-list">
+                    <ul>
+                        <li>✅ Ensure Azure DevOps project exists</li>
+                        <li>✅ Create repositories with proper settings</li>
+                        <li>✅ Clone from GitLab (including LFS objects)</li>
+                        <li>✅ Push to Azure DevOps with full history</li>
+                        <li>✅ Configure branch policies on default branch</li>
+                        <li>✅ Verify repository integrity</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p><strong>Gitlab2DevOps Migration Tool v2.1.0</strong></p>
+            <p>Automated GitLab to Azure DevOps migration with full history preservation</p>
+            <p>Generated by DryRunPreview module</p>
+        </div>
+    </div>
+</body>
+</html>
