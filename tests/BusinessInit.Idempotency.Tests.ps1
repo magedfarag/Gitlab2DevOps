@@ -39,7 +39,7 @@ Describe "Initialize-BusinessInit idempotency" {
         Mock -ModuleName Migration Measure-Adobusinessqueries { }
         Mock -ModuleName Migration Measure-Adoiterations { }
         Mock -ModuleName Migration Search-Adodashboard { }
-        Mock -ModuleName Migration Ensure-AdoSharedQueries { }
+        Mock -ModuleName Migration New-AdoSharedQueries { }
         Mock -ModuleName Migration Measure-Adocommontags { }
 
         # Mock reporting paths and writer

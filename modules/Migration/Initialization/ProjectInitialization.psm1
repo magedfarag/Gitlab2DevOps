@@ -18,7 +18,7 @@ Set-StrictMode -Version Latest
 
 # Import required modules
 $migrationRoot = Split-Path $PSScriptRoot -Parent
-Import-Module (Join-Path $migrationRoot "Core\Core.psm1") -Force -Global
+Import-Module (Join-Path $migrationRoot "Core\MigrationCore.psm1") -Force -Global
 
 # Progress tracking defaults (avoids StrictMode complaints before initialization)
 $script:totalSteps = 0

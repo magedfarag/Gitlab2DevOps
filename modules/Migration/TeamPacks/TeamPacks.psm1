@@ -63,7 +63,7 @@ function Initialize-BusinessInit {
     }
 
     # Ensure baseline shared queries + business queries
-    Ensure-AdoSharedQueries -Project $DestProject -Team "$DestProject Team" | Out-Null
+    New-AdoSharedQueries -Project $DestProject -Team "$DestProject Team" | Out-Null
     Measure-Adobusinessqueries -Project $DestProject | Out-Null
 
     # Seed short-term iterations (using default: 3 sprints of 2 weeks)

@@ -21,10 +21,10 @@ Import-Module (Join-Path $PSScriptRoot "GitLab\GitLab.psm1") -Force -Global
 Import-Module (Join-Path $PSScriptRoot "core\Logging.psm1") -Force -Global
 Import-Module (Join-Path $PSScriptRoot "core\ConfigLoader.psm1") -Force -Global
 
-# Import Migration sub-modules
+# Import Migration sub-modules (without -Global to allow re-exporting)
 $migrationModulePath = Join-Path $PSScriptRoot "Migration"
 $subModules = @(
-    @{ Path = "Core\Core.psm1"; Name = "Core" }
+    @{ Path = "Core\MigrationCore.psm1"; Name = "MigrationCore" }
     @{ Path = "Menu\Menu.psm1"; Name = "Menu" }
     @{ Path = "Initialization\ProjectInitialization.psm1"; Name = "ProjectInitialization" }
     @{ Path = "TeamPacks\TeamPacks.psm1"; Name = "TeamPacks" }
@@ -32,24 +32,32 @@ $subModules = @(
     @{ Path = "Workflows\BulkMigration.psm1"; Name = "BulkMigration" }
 )
 
+$allFunctions = @()
 foreach ($module in $subModules) {
     $modulePath = Join-Path $migrationModulePath $module.Path
     if (Test-Path $modulePath) {
-        Import-Module $modulePath -Force -Global -ErrorAction Stop
+        # Import in current scope (not Global) so we can re-export
+        Import-Module $modulePath -Force -ErrorAction Stop
+        
+        # Collect functions from this module
+        $moduleObj = Get-Module -Name $module.Name
+        if ($moduleObj) {
+            foreach ($funcName in $moduleObj.ExportedFunctions.Keys) {
+                if ($allFunctions -notcontains $funcName) {
+                    $allFunctions += $funcName
+                }
+            }
+        }
     }
     else {
         Write-Warning "Migration sub-module not found: $modulePath"
     }
 }
 
-# Collect all exported functions from loaded sub-modules
-$allFunctions = @()
-foreach ($module in $subModules) {
-    $moduleObj = Get-Module -Name $module.Name -ErrorAction SilentlyContinue
-    if ($moduleObj) {
-        $allFunctions += $moduleObj.ExportedFunctions.Keys
-    }
+# Re-export all collected functions
+if ($allFunctions.Count -gt 0) {
+    Export-ModuleMember -Function $allFunctions
 }
-
-# Re-export all functions from sub-modules
-Export-ModuleMember -Function $allFunctions
+else {
+    Write-Warning "No functions collected from Migration sub-modules"
+}
