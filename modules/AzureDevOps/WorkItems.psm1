@@ -125,18 +125,29 @@ function Resolve-AdoWorkItemType {
     $synonyms = @{
         'story' = 'User Story'
         'user story' = 'User Story'
+        'userstory' = 'User Story'
+        'stories' = 'User Story'
+        'epic' = 'Epic'
+        'epics' = 'Epic'
+        'feature' = 'Feature'
+        'features' = 'Feature'
         'pbi' = 'Product Backlog Item'
         'product backlog item' = 'Product Backlog Item'
-        'feature' = 'Feature'
-        'epic' = 'Epic'
         'test case' = 'Test Case'
         'testcase' = 'Test Case'
         'tc' = 'Test Case'
+        'test cases' = 'Test Case'
         'task' = 'Task'
+        'tasks' = 'Task'
         'bug' = 'Bug'
+        'bugs' = 'Bug'
         'issue' = 'Issue'
+        'issues' = 'Issue'
         'requirement' = 'Requirement'
+        'requirements' = 'Requirement'
         'story points' = 'User Story'
+        'req' = 'Requirement'
+        'backlog' = 'Product Backlog Item'
     }
 
     $lower = $inputNorm.ToLower()
@@ -1586,24 +1597,25 @@ function Import-AdoWorkItemsFromExcel {
     param(
         [Parameter(Mandatory)]
         [string]$Project,
-        
         [Parameter(Mandatory)]
         [ValidateScript({
-            # Only validate file extension here. Do NOT check Test-Path at parameter-validation time
-            # because tests may mock Import-Excel and expect the function to proceed.
             if ($_ -notmatch '\.(xlsx|xls)$') {
                 throw "File must be Excel format (.xlsx or .xls): $_"
             }
             $true
         })]
         [string]$ExcelPath,
-        
         [string]$WorksheetName = "Requirements",
         [string]$ApiVersion = $null
     )
-    
+
+    # Ensure $script:CollectionUrl is set for parent/child relationships
+    if (-not $script:CollectionUrl) {
+        $script:CollectionUrl = 'https://dev.azure.com/magedfarag'
+    }
+
     Write-Host "[INFO] Importing work items from Excel: $ExcelPath" -ForegroundColor Cyan
-    
+
     # Import Excel data. Do not proactively Import-Module here so that tests can mock Import-Excel freely.
     # Small wrapper to call Import-Excel via an indirection so Pester can mock Import-Excel reliably
     function Invoke-ImportExcel {
@@ -1659,6 +1671,7 @@ function Import-AdoWorkItemsFromExcel {
             $resolvedRows += $r
         }
         else {
+            Write-Warning "[SKIP] Row skipped: Title='$($r.Title)', WorkItemType='$excelType' (could not resolve to ADO type)"
             $skippedRows += $r
         }
     }
@@ -1687,6 +1700,17 @@ function Import-AdoWorkItemsFromExcel {
         # Use resolved work item type (from Resolve-AdoWorkItemType)
         $wit = if ($row.PSObject.Properties['ResolvedWorkItemType']) { $row.ResolvedWorkItemType } else { $row.WorkItemType }
         
+        # Guard against cycles and invalid parent references
+        if ($row.PSObject.Properties['ParentLocalId'] -and $row.ParentLocalId) {
+            if ($row.LocalId -eq $row.ParentLocalId) {
+                Write-Warning "Skipping row with LocalId=$($row.LocalId) due to ParentLocalId=$($row.ParentLocalId) (self-reference cycle)"
+                continue
+            }
+            if ([int]$row.ParentLocalId -ge [int]$row.LocalId) {
+                Write-Warning "Skipping row with LocalId=$($row.LocalId) due to ParentLocalId=$($row.ParentLocalId) (forward reference or cycle)"
+                continue
+            }
+        }
         try {
             # Build JSON Patch operations array (use PSCustomObject to ensure ConvertTo-Json serializes cleanly)
             $operations = @()

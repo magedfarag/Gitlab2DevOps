@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE report PUBLIC "-//JACOCO//DTD Report 1.1//EN" "report.dtd"[]>
+<report name="Pester (11/09/2025 10:14:37)">
+  <sessioninfo id="this" start="1762683153195" dump="1762683277200" />
+  <package name="modules">
+    <class name="modules/Migration" sourcefilename="Migration.psm1">
+      <method name="&lt;script&gt;" desc="()" line="15">
+        <counter type="INSTRUCTION" missed="2" covered="43" />
+        <counter type="LINE" missed="2" covered="26" />
+        <counter type="METHOD" missed="0" covered="1" />
+      </method>
+      <counter type="INSTRUCTION" missed="2" covered="43" />
+      <counter type="LINE" missed="2" covered="26" />
+      <counter type="METHOD" missed="0" covered="1" />
+      <counter type="CLASS" missed="0" covered="1" />
+    </class>
+    <sourcefile name="Migration.psm1">
+      <line nr="15" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="18" mi="0" ci="2" mb="0" cb="0" />
+      <line nr="19" mi="0" ci="2" mb="0" cb="0" />
+      <line nr="20" mi="0" ci="2" mb="0" cb="0" />
+      <line nr="21" mi="0" ci="2" mb="0" cb="0" />
+      <line nr="22" mi="0" ci="2" mb="0" cb="0" />
+      <line nr="25" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="26" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="27" mi="0" ci="3" mb="0" cb="0" />
+      <line nr="28" mi="0" ci="3" mb="0" cb="0" />
+      <line nr="29" mi="0" ci="3" mb="0" cb="0" />
+      <line nr="30" mi="0" ci="3" mb="0" cb="0" />
+      <line nr="31" mi="0" ci="3" mb="0" cb="0" />
+      <line nr="32" mi="0" ci="3" mb="0" cb="0" />
+      <line nr="35" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="36" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="37" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="38" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="40" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="43" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="44" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="45" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="46" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="47" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="53" mi="1" ci="0" mb="0" cb="0" />
+      <line nr="58" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="59" mi="0" ci="1" mb="0" cb="0" />
+      <line nr="62" mi="1" ci="0" mb="0" cb="0" />
+      <counter type="INSTRUCTION" missed="2" covered="43" />
+      <counter type="LINE" missed="2" covered="26" />
+      <counter type="METHOD" missed="0" covered="1" />
+      <counter type="CLASS" missed="0" covered="1" />
+    </sourcefile>
+    <counter type="INSTRUCTION" missed="2" covered="43" />
+    <counter type="LINE" missed="2" covered="26" />
+    <counter type="METHOD" missed="0" covered="1" />
+    <counter type="CLASS" missed="0" covered="1" />
+  </package>
+  <counter type="INSTRUCTION" missed="2" covered="43" />
+  <counter type="LINE" missed="2" covered="26" />
+  <counter type="METHOD" missed="0" covered="1" />
+  <counter type="CLASS" missed="0" covered="1" />
+</report>

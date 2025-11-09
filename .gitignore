@@ -6,6 +6,8 @@
 migrations/
 !migrations/.gitkeep
 
+*.xlsx
+
 # Logs and Reports
 logs/
 *.log
