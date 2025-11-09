@@ -161,6 +161,26 @@ function Initialize-AdoProject {
         [switch]$Force
     )
     
+    # Initialize logging for project initialization
+    $migrationsDir = Join-Path $PSScriptRoot "..\..\..\migrations"
+    $projectDir = Join-Path $migrationsDir $DestProject
+    $logsDir = Join-Path $projectDir "logs"
+    if (-not (Test-Path $logsDir)) {
+        New-Item -Path $logsDir -ItemType Directory -Force | Out-Null
+    }
+    
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $logFile = Join-Path $logsDir "initialization-$timestamp.log"
+    
+    # Start transcript logging
+    try {
+        Start-Transcript -Path $logFile -Append -ErrorAction Stop
+        Write-Host "[INFO] Logging to: $logFile" -ForegroundColor Gray
+    }
+    catch {
+        Write-Warning "Could not start transcript logging: $_"
+    }
+    
     Write-Host "[INFO] Initializing Azure DevOps project: $DestProject" -ForegroundColor Cyan
     
     # Determine which components to initialize based on Profile or Only parameter
@@ -697,28 +717,41 @@ This project was migrated from GitLab using automated tooling.
             # Process results
             foreach ($job in $jobs) {
                 $result = Receive-Job -Job $job -ErrorAction SilentlyContinue
+                $jobErrors = Receive-Job -Job $job -ErrorAction SilentlyContinue -ErrorVariable jobErrVar
+                
+                Write-Verbose "[Initialize-AdoProject] Processing job: $($job.Name), State: $($job.State)"
+                
+                if ($job.State -eq 'Failed') {
+                    Write-Host "[ERROR] Job '$($job.Name)' failed with state: $($job.State)" -ForegroundColor Red
+                    if ($jobErrVar) {
+                        Write-Verbose "[Initialize-AdoProject] Job errors: $($jobErrVar | Out-String)"
+                    }
+                }
                 
                 if ($job.Name -eq "CreateAreas") {
-                    if ($result.success) {
+                    if ($result -and $result.success) {
                         $checkpoint['areas'] = $true
                         Write-Host "[SUCCESS] Work item areas configured ($($result.count) areas)" -ForegroundColor Green
                     }
                     else {
                         Write-Host "[ERROR] Areas creation failed: $($result.errors -join '; ')" -ForegroundColor Red
+                        Write-Verbose "[Initialize-AdoProject] Areas job result: $($result | ConvertTo-Json -Depth 3)"
                         throw "Areas creation failed in parallel job"
                     }
                 }
                 elseif ($job.Name -eq "CreateWiki") {
-                    if ($result.success) {
+                    if ($result -and $result.success) {
                         $checkpoint['wiki'] = $true
                         $wiki = @{ id = $result.wikiId }
                         Write-Host "[SUCCESS] Project wiki created" -ForegroundColor Green
+                        Write-Verbose "[Initialize-AdoProject] Wiki ID: $($result.wikiId)"
                     }
                     else {
                         $wiki = $null
-                        $wikiError = $result.errors -join '; '
-                        Write-Warning "[WARN] Project wiki could not be created automatically: $wikiError"
-                        Write-Warning "       Continuing without a wiki. Re-run Initialize-AdoProject '$DestProject' -Resume -Only wiki after addressing the server issue."
+                        $wikiError = if ($result.errors) { $result.errors -join '; ' } else { "Unknown error" }
+                        Write-Host "[ERROR] Project wiki creation failed: $wikiError" -ForegroundColor Red
+                        Write-Verbose "[Initialize-AdoProject] Wiki job result: $($result | ConvertTo-Json -Depth 3)"
+                        Write-Warning "       Continuing without a wiki. Re-run Initialize-AdoProject '$DestProject' -Resume -Only wiki after addressing the issue."
                     }
                 }
                 
@@ -759,6 +792,8 @@ This project was migrated from GitLab using automated tooling.
     # Import work items from Excel (auto-detect or explicit path)
     $excelFileToImport = $null
     
+    Write-Verbose "[Initialize-AdoProject] Checking Excel requirements import..."
+    
     if ($ExcelRequirementsPath) {
         # Explicit path provided via parameter
         $excelFileToImport = $ExcelRequirementsPath
@@ -769,9 +804,16 @@ This project was migrated from GitLab using automated tooling.
         $migrationsDir = Join-Path $PSScriptRoot "..\..\..\migrations"
         $projectExcelPath = Join-Path $migrationsDir "$DestProject\requirements.xlsx"
         
+        Write-Verbose "[Initialize-AdoProject] Auto-detection path: $projectExcelPath"
+        Write-Verbose "[Initialize-AdoProject] Checking if file exists..."
+        
         if (Test-Path $projectExcelPath) {
             $excelFileToImport = $projectExcelPath
             Write-Host "[INFO] 🔍 Auto-detected Excel file in project directory: requirements.xlsx" -ForegroundColor Cyan
+            Write-Host "[INFO] Full path: $projectExcelPath" -ForegroundColor Gray
+        }
+        else {
+            Write-Verbose "[Initialize-AdoProject] Excel file not found at: $projectExcelPath"
         }
     }
     
@@ -779,11 +821,15 @@ This project was migrated from GitLab using automated tooling.
         Write-Host ""
         Write-Host "[INFO] 📊 Importing work items from Excel..." -ForegroundColor Cyan
         Write-Host "[INFO] File: $excelFileToImport" -ForegroundColor Gray
+        Write-Host "[INFO] Worksheet: $ExcelWorksheetName" -ForegroundColor Gray
         
         try {
+            Write-Verbose "[Initialize-AdoProject] Calling Import-AdoWorkItemsFromExcel..."
             $importResult = Import-AdoWorkItemsFromExcel -Project $DestProject `
                                                           -ExcelPath $excelFileToImport `
                                                           -WorksheetName $ExcelWorksheetName
+            
+            Write-Verbose "[Initialize-AdoProject] Import completed. Result: $($importResult | ConvertTo-Json -Compress)"
             
             if ($importResult.SuccessCount -gt 0) {
                 Write-Host "[SUCCESS] ✅ Imported $($importResult.SuccessCount) work items from Excel" -ForegroundColor Green
@@ -791,10 +837,20 @@ This project was migrated from GitLab using automated tooling.
             }
             if ($importResult.ErrorCount -gt 0) {
                 Write-Host "[WARN] ⚠️ $($importResult.ErrorCount) work items failed to import" -ForegroundColor Yellow
+                if ($importResult.Errors) {
+                    foreach ($err in $importResult.Errors) {
+                        Write-Verbose "[Initialize-AdoProject] Excel import error: $err"
+                    }
+                }
+            }
+            
+            if ($importResult.SuccessCount -eq 0 -and $importResult.ErrorCount -eq 0) {
+                Write-Host "[WARN] No work items were imported from Excel" -ForegroundColor Yellow
             }
         }
         catch {
-            Write-Warning "Excel import failed: $_"
+            Write-Host "[ERROR] Excel import failed: $_" -ForegroundColor Red
+            Write-Verbose "[Initialize-AdoProject] Excel import exception: $($_.Exception | Format-List * | Out-String)"
             Write-Host "[INFO] Continuing with project initialization..." -ForegroundColor Yellow
         }
         Write-Host ""
@@ -1116,6 +1172,19 @@ This project was migrated from GitLab using automated tooling.
         else {
             Write-Host "[SKIP] Repository templates (disabled by selection)" -ForegroundColor DarkGray
         }
+        
+        # Repository-level security configuration reminder
+        if ($componentsToInitialize.repository -and $repo) {
+            Write-Host ""
+            Write-Host "[INFO] Repository-level security should be configured manually via Azure DevOps UI:" -ForegroundColor Cyan
+            Write-Host "  1. Navigate to: Project Settings > Repositories > $RepoName > Security" -ForegroundColor Gray
+            Write-Host "  2. Configure permissions for teams (Readers, Contributors, Build Admins)" -ForegroundColor Gray
+            Write-Host "  3. Set branch-level permissions if needed (protect main/develop branches)" -ForegroundColor Gray
+            Write-Host "  4. Review security best practices in wiki: /Security/Security-Policies" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "  Reference: https://learn.microsoft.com/azure/devops/repos/git/set-git-repository-permissions" -ForegroundColor DarkGray
+            Write-Host ""
+        }
     }
     else {
         Write-Host "[WARN] Repository '$RepoName' was not created. Skipping branch policies, templates, and repo-level security." -ForegroundColor Yellow
@@ -1374,6 +1443,14 @@ This project was migrated from GitLab using automated tooling.
             Write-Verbose "Could not generate HTML reports: $_"
             # Non-critical, continue
         }
+    }
+    
+    # Stop transcript logging
+    try {
+        Stop-Transcript -ErrorAction Stop
+    }
+    catch {
+        # Transcript might not be running
     }
 }
 

@@ -340,7 +340,7 @@ function Invoke-SingleMigration {
         
         # Clean up credentials
         git config --unset-all "http.$adoRemote.extraheader" 2>$null | Out-Null
-        Clear-Gitcredentials -RemoteName "ado"
+        Clear-GitCredentials -RemoteName "ado"
         
         Pop-Location
         

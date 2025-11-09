@@ -30,7 +30,7 @@ Set-StrictMode -Version Latest
     String content of the template file.
 
 .EXAMPLE
-    $content = Get-WikiTemplate "Security/SecurityPolicies"
+    $content = Get-WikiTemplate "Security/SecurityPolicies.md"
 
 .NOTES
     Templates are stored in modules/AzureDevOps/WikiTemplates/
@@ -45,7 +45,9 @@ function Get-WikiTemplate {
     )
     
     # WikiTemplates are in the same directory as this module (AzureDevOps/WikiTemplates)
-    $templatePath = Join-Path $PSScriptRoot "WikiTemplates\$TemplateName.md"
+    # Allow template names with or without the .md extension (e.g., "QA/QAGuidelines" or "QA/QAGuidelines.md")
+    if (-not $TemplateName.ToLower().EndsWith('.md')) { $TemplateName = "$TemplateName.md" }
+    $templatePath = Join-Path $PSScriptRoot "WikiTemplates\$TemplateName"
     
     if (Test-Path $templatePath) {
         try {

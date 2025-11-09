@@ -25,7 +25,9 @@ function Get-ProjectSettings {
         [string]$ConfigFile
     )
     
-    $defaultConfigPath = Join-Path $PSScriptRoot "AzureDevOps\config\project-settings.json"
+    # Build absolute path: modules/core -> modules/AzureDevOps/config
+    $modulesRoot = Split-Path $PSScriptRoot -Parent
+    $defaultConfigPath = Join-Path $modulesRoot "AzureDevOps\config\project-settings.json"
     $configPath = if ($ConfigFile) { $ConfigFile } else { $defaultConfigPath }
     
     if (-not (Test-Path $configPath)) {
@@ -83,7 +85,9 @@ function Get-BranchPolicySettings {
         [string]$ConfigFile
     )
     
-    $defaultConfigPath = Join-Path $PSScriptRoot "AzureDevOps\config\branch-policies.json"
+    # Build absolute path: modules/core -> modules/AzureDevOps/config
+    $modulesRoot = Split-Path $PSScriptRoot -Parent
+    $defaultConfigPath = Join-Path $modulesRoot "AzureDevOps\config\branch-policies.json"
     $configPath = if ($ConfigFile) { $ConfigFile } else { $defaultConfigPath }
     
     if (-not (Test-Path $configPath)) {

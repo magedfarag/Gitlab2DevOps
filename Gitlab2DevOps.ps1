@@ -260,6 +260,17 @@ if ([string]::IsNullOrWhiteSpace($GitLabToken)) {
     $GitLabToken = if ($env:GITLAB_PAT) { $env:GITLAB_PAT } else { "" }
 }
 
+# Start transcript logging to file
+$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$logDir = Join-Path $scriptRoot "logs"
+if (-not (Test-Path $logDir)) {
+    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+}
+$transcriptFile = Join-Path $logDir "session-$timestamp.log"
+Start-Transcript -Path $transcriptFile -Append
+Write-Host "📝 Session logging to: $transcriptFile" -ForegroundColor Cyan
+Write-Host ""
+
 # Import modules
 Write-Host "[INFO] Loading migration modules..."
 Import-Module "$scriptRoot\modules\core\Core.Rest.psm1" -Force
@@ -458,3 +469,8 @@ else {
         -BuildDefinitionId $BuildDefinitionId `
         -SonarStatusContext $SonarStatusContext
 }
+
+# Stop transcript logging
+Stop-Transcript
+Write-Host ""
+Write-Host "📝 Session log saved: $transcriptFile" -ForegroundColor Green

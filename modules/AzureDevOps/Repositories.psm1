@@ -319,6 +319,21 @@ function New-Adobranchpolicies {
     
     $cfgs = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/policy/configurations"
     $scope = @{ repositoryId = $RepoId; refName = $Ref; matchKind = "exact" }
+
+    # Ensure the target ref exists (repository has commits). If not, skip policies and log guidance.
+    try {
+        $refsCheck = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/refs?filter=$([uri]::EscapeDataString($Ref))"
+        if (-not $refsCheck -or -not $refsCheck.value -or $refsCheck.value.Count -eq 0) {
+            Write-Host "[INFO] Target ref '$Ref' not found - repository likely has no commits yet. Skipping branch policies until a default branch exists." -ForegroundColor Yellow
+            Write-Host "  ▶️ After pushing the initial commit, re-run branch policy configuration or call New-Adobranchpolicies with the repo default ref." -ForegroundColor Gray
+            return
+        }
+    }
+    catch {
+        Write-Verbose "[New-Adobranchpolicies] Could not verify ref existence: $_"
+        Write-Host "[INFO] Skipping branch policies due to inability to verify repository refs." -ForegroundColor Yellow
+        return
+    }
     
     function Test-PolicyExists([string]$id) {
         $cfgs.value | Where-Object { $_.type.id -eq $id -and $_.settings.scope[0].refName -eq $Ref }
@@ -492,7 +507,13 @@ function New-AdoRepoFiles {
     # Get default branch
     try {
         $repo = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId"
-        $defaultBranch = $repo.defaultBranch -replace '^refs/heads/', ''
+        if ($repo -and $repo.PSObject.Properties['defaultBranch'] -and $repo.defaultBranch) {
+            $defaultBranch = $repo.defaultBranch -replace '^refs/heads/', ''
+        }
+        else {
+            Write-Warning "Repository has no default branch set, using 'main'"
+            $defaultBranch = 'main'
+        }
     }
     catch {
         Write-Warning "Could not determine default branch, using 'main'"
@@ -593,6 +614,30 @@ function New-AdoRepoFiles {
     }
 }
 
+#
+# Backwards-compatible wrapper: Ensure-AdoRepoFiles
+# Some tests and older callers expect Ensure-AdoRepoFiles to exist. Delegate to New-AdoRepoFiles.
+#
+function Ensure-AdoRepoFiles {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+
+        [Parameter(Mandatory)]
+        [string]$RepoId,
+
+        [Parameter(Mandatory)]
+        [string]$RepoName,
+
+        [ValidateSet('dotnet', 'node', 'python', 'java', 'all')]
+        [string]$ProjectType = 'all'
+    )
+
+    Write-Verbose "[Ensure-AdoRepoFiles] Delegating to New-AdoRepoFiles"
+    return New-AdoRepoFiles -Project $Project -RepoId $RepoId -RepoName $RepoName -ProjectType $ProjectType
+}
+
 #>
 function New-AdoSecurityRepoFiles {
     [CmdletBinding()]
@@ -609,7 +654,13 @@ function New-AdoSecurityRepoFiles {
     # Get default branch
     try {
         $repo = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId"
-        $defaultBranch = $repo.defaultBranch -replace '^refs/heads/', ''
+        if ($repo -and $repo.PSObject.Properties['defaultBranch'] -and $repo.defaultBranch) {
+            $defaultBranch = $repo.defaultBranch -replace '^refs/heads/', ''
+        }
+        else {
+            Write-Warning "Repository has no default branch set, using 'main'"
+            $defaultBranch = 'main'
+        }
     }
     catch {
         Write-Warning "Could not determine default branch, using 'main'"

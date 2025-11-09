@@ -114,20 +114,44 @@ function New-AdoQAGuidelinesWiki {
     
     Write-Host "[INFO] Creating QA wiki pages..." -ForegroundColor Cyan
     
+    # Create parent QA folder
+    $qaParentContent = @"
+# Quality Assurance
+
+This section contains QA guidelines, testing strategies, and quality management practices.
+
+## Contents
+- QA Guidelines & Testing Standards
+- Test Strategy & Planning
+- Test Data Management
+- Automation Framework & Best Practices
+- Bug Lifecycle & Quality Metrics
+
+Use the subpages navigation to explore each topic.
+"@
+    
+    try {
+        Set-AdoWikiPage $Project $WikiId "/QA" $qaParentContent
+        Write-Host "  ✅ QA (parent page)" -ForegroundColor Gray
+    }
+    catch {
+        Write-Warning "Failed to create QA parent page: $_"
+    }
+    
     # Define all QA wiki pages
     $pages = @(
-        @{ path = '/QA-Guidelines'; template = 'QA/QAGuidelines'; title = 'QA Guidelines & Testing Standards' },
-        @{ path = '/Test-Strategy'; template = 'QA/TestStrategy'; title = 'Test Strategy & Planning' },
-        @{ path = '/Test-Data-Management'; template = 'QA/TestDataManagement'; title = 'Test Data Management' },
-        @{ path = '/Automation-Framework'; template = 'QA/AutomationFramework'; title = 'Automation Framework & Best Practices' },
-        @{ path = '/Bug-Lifecycle'; template = 'QA/BugLifecycle'; title = 'Bug Lifecycle & Quality Metrics' }
+        @{ path = '/QA/Guidelines'; template = 'QA/QAGuidelines.md'; title = 'QA Guidelines' },
+        @{ path = '/QA/Test-Strategy'; template = 'QA/TestStrategy.md'; title = 'Test Strategy' },
+        @{ path = '/QA/Test-Data-Management'; template = 'QA/TestDataManagement.md'; title = 'Test Data Management' },
+        @{ path = '/QA/Automation-Framework'; template = 'QA/AutomationFramework.md'; title = 'Automation Framework' },
+        @{ path = '/QA/Bug-Lifecycle'; template = 'QA/BugLifecycle.md'; title = 'Bug Lifecycle' }
     )
     
     foreach ($page in $pages) {
         try {
             $content = Get-WikiTemplate $page.template
             Set-AdoWikiPage $Project $WikiId $page.path $content | Out-Null
-            Write-Host "[SUCCESS] Created/updated wiki page: $($page.title)" -ForegroundColor Green
+            Write-Host "  ✅ $($page.title)" -ForegroundColor Gray
         }
         catch {
             Write-Warning "Failed to create page $($page.path): $_"
@@ -156,21 +180,46 @@ function Measure-Adobestpracticeswiki {
     
     Write-Host "[INFO] Creating Best Practices wiki pages..." -ForegroundColor Cyan
     
+    # Create parent Best Practices folder
+    $bestPracticesParentContent = @"
+# Best Practices
+
+This section contains Azure DevOps best practices, coding standards, and development guidelines.
+
+## Contents
+- Azure DevOps Best Practices
+- Performance Optimization
+- Error Handling & Resilience
+- Logging Standards
+- Testing Strategies
+- Documentation Guidelines
+
+Use the subpages navigation to explore each topic.
+"@
+    
+    try {
+        Set-AdoWikiPage $Project $WikiId "/Best-Practices" $bestPracticesParentContent
+        Write-Host "  ✅ Best Practices (parent page)" -ForegroundColor Gray
+    }
+    catch {
+        Write-Warning "Failed to create Best Practices parent page: $_"
+    }
+    
     # Define all Best Practices wiki pages
     $pages = @(
-        @{ path = '/Best-Practices'; template = 'BestPractices/BestPractices'; title = 'Azure DevOps Best Practices' },
-        @{ path = '/Performance-Optimization'; template = 'BestPractices/PerformanceOptimization'; title = 'Performance Optimization' },
-        @{ path = '/Error-Handling'; template = 'BestPractices/ErrorHandling'; title = 'Error Handling & Resilience' },
-        @{ path = '/Logging-Standards'; template = 'BestPractices/LoggingStandards'; title = 'Logging Standards' },
-        @{ path = '/Testing-Strategies'; template = 'BestPractices/TestingStrategies'; title = 'Testing Strategies' },
-        @{ path = '/Documentation-Guidelines'; template = 'BestPractices/DocumentationGuidelines'; title = 'Documentation Guidelines' }
+        @{ path = '/Best-Practices/Overview'; template = 'BestPractices/BestPractices'; title = 'Best Practices Overview' },
+        @{ path = '/Best-Practices/Performance-Optimization'; template = 'BestPractices/PerformanceOptimization'; title = 'Performance Optimization' },
+        @{ path = '/Best-Practices/Error-Handling'; template = 'BestPractices/ErrorHandling'; title = 'Error Handling' },
+        @{ path = '/Best-Practices/Logging-Standards'; template = 'BestPractices/LoggingStandards'; title = 'Logging Standards' },
+        @{ path = '/Best-Practices/Testing-Strategies'; template = 'BestPractices/TestingStrategies'; title = 'Testing Strategies' },
+        @{ path = '/Best-Practices/Documentation-Guidelines'; template = 'BestPractices/DocumentationGuidelines'; title = 'Documentation Guidelines' }
     )
     
     foreach ($page in $pages) {
         try {
             $content = Get-WikiTemplate $page.template
             Set-AdoWikiPage $Project $WikiId $page.path $content | Out-Null
-            Write-Host "[SUCCESS] Created/updated wiki page: $($page.title)" -ForegroundColor Green
+            Write-Host "  ✅ $($page.title)" -ForegroundColor Gray
         }
         catch {
             Write-Warning "Failed to create page $($page.path): $_"
@@ -196,23 +245,53 @@ function Measure-Adobusinesswiki {
     )
     Write-Host "[INFO] Creating business wiki pages..." -ForegroundColor Cyan
 
+    # Create parent Business folder
+    $businessParentContent = @"
+# Business & Migration
+
+This section contains business-focused documentation, decision logs, and migration artifacts.
+
+## Contents
+- Business Welcome & Overview
+- Decision Log
+- Risks & Issues
+- Glossary
+- Ways of Working
+- KPIs and Success Metrics
+- Training & Quick Start
+- Communication Templates
+- Cutover Timeline
+- Post-Cutover Summary
+
+Use the subpages navigation to explore each topic.
+"@
+    
+    try {
+        Set-AdoWikiPage $Project $WikiId "/Business" $businessParentContent
+        Write-Host "  ✅ Business (parent page)" -ForegroundColor Gray
+    }
+    catch {
+        Write-Warning "Failed to create Business parent page: $_"
+    }
+
     $pages = @(
-        @{ path = '/Business-Welcome'; content = Get-WikiTemplate "Business/BusinessWelcome" },
-    @{ path = '/Decision-Log'; content = Get-WikiTemplate "Business/DecisionLog" },
-    @{ path = '/Risks-Issues'; content = Get-WikiTemplate "Business/RisksIssues" },
-    @{ path = '/Glossary'; content = Get-WikiTemplate "Business/Glossary" },
-    @{ path = '/Ways-of-Working'; content = Get-WikiTemplate "Business/WaysOfWorking" },
-    @{ path = '/KPIs-and-Success'; content = Get-WikiTemplate "Business/KPIsAndSuccess" },
-    @{ path = '/Training-Quick-Start'; content = Get-WikiTemplate "Business/TrainingQuickStart" },
-    @{ path = '/Communication-Templates'; content = Get-WikiTemplate "Business/CommunicationTemplates" },
-    @{ path = '/Cutover-Timeline'; content = Get-WikiTemplate "Business/CutoverTimeline" },
-    @{ path = '/Post-Cutover-Summary'; content = Get-WikiTemplate "Business/PostCutoverSummary" }
+        @{ path = '/Business/Welcome'; content = Get-WikiTemplate "Business/BusinessWelcome.md" },
+        @{ path = '/Business/Decision-Log'; content = Get-WikiTemplate "Business/DecisionLog.md" },
+        @{ path = '/Business/Risks-Issues'; content = Get-WikiTemplate "Business/RisksIssues.md" },
+        @{ path = '/Business/Glossary'; content = Get-WikiTemplate "Business/Glossary.md" },
+        @{ path = '/Business/Ways-of-Working'; content = Get-WikiTemplate "Business/WaysOfWorking.md" },
+        @{ path = '/Business/KPIs-and-Success'; content = Get-WikiTemplate "Business/KPIsAndSuccess.md" },
+        @{ path = '/Business/Training-Quick-Start'; content = Get-WikiTemplate "Business/TrainingQuickStart.md" },
+        @{ path = '/Business/Communication-Templates'; content = Get-WikiTemplate "Business/CommunicationTemplates.md" },
+        @{ path = '/Business/Cutover-Timeline'; content = Get-WikiTemplate "Business/CutoverTimeline.md" },
+        @{ path = '/Business/Post-Cutover-Summary'; content = Get-WikiTemplate "Business/PostCutoverSummary.md" }
     )
 
     foreach ($p in $pages) {
         try {
             Set-AdoWikiPage -Project $Project -WikiId $WikiId -Path $p.path -Markdown $p.content | Out-Null
-            Write-Host "[SUCCESS] Wiki page ensured: $($p.path)" -ForegroundColor Green
+            $pageName = ($p.path -split '/')[-1]
+            Write-Host "  ✅ $pageName" -ForegroundColor Gray
         }
         catch {
             Write-Warning "Failed to upsert page $($p.path): $_"
@@ -233,28 +312,53 @@ function Measure-Adodevwiki {
     
     Write-Host "[INFO] Creating development wiki pages..." -ForegroundColor Cyan
     
+    # First, create the parent Development page (required for subpages)
+    $developmentParentContent = @"
+# Development
+This section contains development-focused documentation and guidelines.
+
+## Contents
+- Architecture Decision Records
+- Development Setup
+- API Documentation
+- Git Workflow
+- Code Review Checklist
+- Troubleshooting
+- Dependencies
+
+Use the subpages navigation to explore each topic.
+"@
+    
+    try {
+        Set-AdoWikiPage $Project $WikiId "/Development" $developmentParentContent
+        Write-Host "  ✅ Development (parent page)" -ForegroundColor Gray
+    }
+    catch {
+        Write-Warning "Failed to create Development parent page: $_"
+    }
+    
     # Architecture Decision Records
-    $adrContent = Get-WikiTemplate "Dev/ADR"
+    $adrContent = Get-WikiTemplate "Dev/ADR.md"
 
     # Development Setup
-    $devSetupContent = Get-WikiTemplate "Dev/DevSetup"
+    $devSetupContent = Get-WikiTemplate "Dev/DevSetup.md"
 
     # API Documentation
-    $apiDocsContent = Get-WikiTemplate "Dev/APIDocs"
+    $apiDocsContent = Get-WikiTemplate "Dev/APIDocs.md"
 
     # Git Workflow
-    $gitWorkflowContent = Get-WikiTemplate "Dev/GitWorkflow"
+    $gitWorkflowContent = Get-WikiTemplate "Dev/GitWorkflow.md"
 
     # Code Review Checklist
-    $codeReviewContent = Get-WikiTemplate "Dev/CodeReview"
+    $codeReviewContent = Get-WikiTemplate "Dev/CodeReview.md"
 
     # Troubleshooting Guide
-    $troubleshootingContent = Get-WikiTemplate "Dev/Troubleshooting"
+    $troubleshootingContent = Get-WikiTemplate "Dev/Troubleshooting.md"
 
     # Dependencies
-    $dependenciesContent = Get-WikiTemplate "Dev/Dependencies"
+    $dependenciesContent = Get-WikiTemplate "Dev/Dependencies.md"
 
-    # Create all wiki pages
+    # Create all wiki subpages
     try {
         Set-AdoWikiPage $Project $WikiId "/Development/Architecture-Decision-Records" $adrContent
         Write-Host "  ✅ Architecture Decision Records" -ForegroundColor Gray
@@ -297,17 +401,42 @@ function New-AdoSecurityWiki {
     
     Write-Host "[INFO] Creating security wiki pages..." -ForegroundColor Cyan
     
+    # First, create the parent Security page (required for subpages)
+    $securityParentContent = @"
+# Security
+This section contains security policies, guidelines, and procedures.
+
+## Contents
+- Security Policies
+- Threat Modeling Guide
+- Security Testing Checklist
+- Incident Response Plan
+- Compliance Requirements
+- Secret Management
+- Security Champions Program
+
+Use the subpages navigation to explore each topic.
+"@
+    
+    try {
+        Set-AdoWikiPage $Project $WikiId "/Security" $securityParentContent
+        Write-Host "  ✅ Security (parent page)" -ForegroundColor Gray
+    }
+    catch {
+        Write-Warning "Failed to create Security parent page: $_"
+    }
+    
     # Security Policies
-    $securityPoliciesContent = Get-WikiTemplate "Security/SecurityPolicies"
+    $securityPoliciesContent = Get-WikiTemplate "Security/SecurityPolicies.md"
 
     # Threat Modeling Guide
-    $threatModelingContent = Get-WikiTemplate "Security/ThreatModeling"
+    $threatModelingContent = Get-WikiTemplate "Security/ThreatModeling.md"
 
     # Security Testing Checklist
-    $securityTestingContent = Get-WikiTemplate "Security/SecurityTesting"
+    $securityTestingContent = Get-WikiTemplate "Security/SecurityTesting.md"
 
     # Incident Response Plan
-    $incidentResponseContent = Get-WikiTemplate "Security/IncidentResponse"
+    $incidentResponseContent = Get-WikiTemplate "Security/IncidentResponse.md"
 
     try {
         Set-AdoWikiPage $Project $WikiId "/Security/Security-Policies" $securityPoliciesContent
@@ -323,19 +452,19 @@ function New-AdoSecurityWiki {
         Write-Host "  ✅ Incident Response Plan" -ForegroundColor Gray
         
         # Compliance Requirements
-        $complianceContent = Get-WikiTemplate "Security/Compliance"
+        $complianceContent = Get-WikiTemplate "Security/Compliance.md"
 
         Set-AdoWikiPage $Project $WikiId "/Security/Compliance-Requirements" $complianceContent
         Write-Host "  ✅ Compliance Requirements" -ForegroundColor Gray
         
         # Secret Management
-        $secretManagementContent = Get-WikiTemplate "Security/SecretManagement"
+        $secretManagementContent = Get-WikiTemplate "Security/SecretManagement.md"
 
         Set-AdoWikiPage $Project $WikiId "/Security/Secret-Management" $secretManagementContent
         Write-Host "  ✅ Secret Management" -ForegroundColor Gray
         
         # Security Champions Program
-        $securityChampionsContent = Get-WikiTemplate "Security/SecurityChampions"
+        $securityChampionsContent = Get-WikiTemplate "Security/SecurityChampions.md"
 
         Set-AdoWikiPage $Project $WikiId "/Security/Security-Champions-Program" $securityChampionsContent
         Write-Host "  ✅ Security Champions Program" -ForegroundColor Gray
@@ -360,16 +489,42 @@ function Measure-Adomanagementwiki {
     
     Write-Host "[INFO] Creating Management wiki pages..." -ForegroundColor Cyan
     
+    # First, create the parent Management page (required for subpages)
+    $managementParentContent = @"
+# Management
+This section contains program management and PMO documentation.
+
+## Contents
+- Program Overview
+- Sprint Planning
+- Capacity Planning
+- Product Roadmap
+- RAID Log
+- Stakeholder Communications
+- Retrospectives
+- Metrics Dashboard
+
+Use the subpages navigation to explore each topic.
+"@
+    
+    try {
+        Set-AdoWikiPage $Project $WikiId "/Management" $managementParentContent
+        Write-Host "  ✅ Management (parent page)" -ForegroundColor Gray
+    }
+    catch {
+        Write-Warning "Failed to create Management parent page: $_"
+    }
+    
     # Define all Management wiki pages
     $pages = @(
-        @{ path = '/Management/Program-Overview'; template = 'Management/ProgramOverview'; title = 'Program Overview' },
-        @{ path = '/Management/Sprint-Planning'; template = 'Management/SprintPlanning'; title = 'Sprint Planning' },
-        @{ path = '/Management/Capacity-Planning'; template = 'Management/CapacityPlanning'; title = 'Capacity Planning' },
-        @{ path = '/Management/Roadmap'; template = 'Management/Roadmap'; title = 'Product Roadmap' },
-        @{ path = '/Management/RAID-Log'; template = 'Management/RAID'; title = 'RAID Log (Risks, Assumptions, Issues, Dependencies)' },
-        @{ path = '/Management/Stakeholder-Communications'; template = 'Management/StakeholderComms'; title = 'Stakeholder Communications' },
-        @{ path = '/Management/Retrospectives'; template = 'Management/Retrospectives'; title = 'Retrospective Insights' },
-        @{ path = '/Management/Metrics-Dashboard'; template = 'Management/MetricsDashboard'; title = 'Metrics Dashboard' }
+        @{ path = '/Management/Program-Overview'; template = 'Management/ProgramOverview.md'; title = 'Program Overview' },
+        @{ path = '/Management/Sprint-Planning'; template = 'Management/SprintPlanning.md'; title = 'Sprint Planning' },
+        @{ path = '/Management/Capacity-Planning'; template = 'Management/CapacityPlanning.md'; title = 'Capacity Planning' },
+        @{ path = '/Management/Roadmap'; template = 'Management/Roadmap.md'; title = 'Product Roadmap' },
+        @{ path = '/Management/RAID-Log'; template = 'Management/RAID.md'; title = 'RAID Log (Risks, Assumptions, Issues, Dependencies)' },
+        @{ path = '/Management/Stakeholder-Communications'; template = 'Management/StakeholderComms.md'; title = 'Stakeholder Communications' },
+        @{ path = '/Management/Retrospectives'; template = 'Management/Retrospectives.md'; title = 'Retrospective Insights' },
+        @{ path = '/Management/Metrics-Dashboard'; template = 'Management/MetricsDashboard.md'; title = 'Metrics Dashboard' }
     )
     
     foreach ($page in $pages) {
@@ -419,37 +574,89 @@ function New-AdoProjectSummaryWikiPage {
 
     try {
         $proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))?includeCapabilities=true"
-        $adoUrl = $script:coreRestConfig.AdoCollectionUrl
+        # Ensure core REST is initialized and get a validated config
+        $coreRestConfig = Ensure-CoreRestInitialized
+        $adoUrl = $coreRestConfig.CollectionUrl
+
+        # Normalize project id and process template values (response shapes vary)
+        $projId = ''
+        $processTemplateName = 'Unknown'
+        if ($proj) {
+            if ($proj.PSObject.Properties['id']) { $projId = $proj.id }
+            elseif ($proj.PSObject.Properties['value'] -and $proj.value.Count -gt 0 -and $proj.value[0].PSObject.Properties['id']) { $projId = $proj.value[0].id }
+
+            if ($proj.PSObject.Properties['capabilities'] -and $proj.capabilities.processTemplate -and $proj.capabilities.processTemplate.templateName) { $processTemplateName = $proj.capabilities.processTemplate.templateName }
+            elseif ($proj.PSObject.Properties['value'] -and $proj.value.Count -gt 0 -and $proj.value[0].PSObject.Properties['capabilities'] -and $proj.value[0].capabilities.processTemplate.templateName) { $processTemplateName = $proj.value[0].capabilities.processTemplate.templateName }
+        }
+
+        # Escaped project name for API paths
+        $projEnc = [uri]::EscapeDataString($Project)
 
         # repositories
         $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories"
-        $repoCount = 0; if ($repos -and $repos.value) { $repoCount = $repos.value.Count }
+        $repoCount = 0
+        if ($repos) {
+            if ($repos.PSObject.Properties['value']) { $repoCount = $repos.value.Count }
+            elseif ($repos -is [System.Array]) { $repoCount = $repos.Count }
+        }
 
         # work item types
         $witypes = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/workitemtypes"
-        $workItemTypes = '' ; if ($witypes -and $witypes.value) { $workItemTypes = ($witypes.value | Select-Object -ExpandProperty name) -join ', ' }
+        $workItemTypes = ''
+        $witypesCount = 0
+        if ($witypes) {
+            if ($witypes.PSObject.Properties['value']) {
+                $workItemTypes = ($witypes.value | Select-Object -ExpandProperty name) -join ', '
+                $witypesCount = $witypes.value.Count
+            }
+            elseif ($witypes -is [System.Array]) {
+                $workItemTypes = ($witypes | Select-Object -ExpandProperty name) -join ', '
+                $witypesCount = $witypes.Count
+            }
+        }
 
         # areas and iterations
-        $areas = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/areas?``$depth=2"
-        $areaCount = 0; if ($areas -and $areas.children) { $areaCount = $areas.children.Count }
-        $iterations = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/iterations?``$depth=2"
-        $iterationCount = 0; if ($iterations -and $iterations.children) { $iterationCount = $iterations.children.Count }
+        $areas = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/areas" + '?$depth=2')
+        $areaCount = 0
+        if ($areas) {
+            if ($areas.PSObject.Properties['children']) { $areaCount = $areas.children.Count }
+            elseif ($areas.PSObject.Properties['value']) { $areaCount = ($areas.value | Measure-Object).Count }
+            elseif ($areas -is [System.Array]) { $areaCount = $areas.Count }
+        }
+
+        $iterations = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/iterations" + '?$depth=2')
+        $iterationCount = 0
+        if ($iterations) {
+            if ($iterations.PSObject.Properties['children']) { $iterationCount = $iterations.children.Count }
+            elseif ($iterations.PSObject.Properties['value']) { $iterationCount = ($iterations.value | Measure-Object).Count }
+            elseif ($iterations -is [System.Array]) { $iterationCount = $iterations.Count }
+        }
 
         # wiki pages
         $wikiPages = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis/$WikiId/pages?recursionLevel=full"
-        $wikiPageCount = 0; if ($wikiPages -and $wikiPages.subPages) { $wikiPageCount = $wikiPages.subPages.Count }
+        $wikiPageCount = 0
+        if ($wikiPages) {
+            if ($wikiPages.PSObject.Properties['subPages']) { $wikiPageCount = $wikiPages.subPages.Count }
+            elseif ($wikiPages.PSObject.Properties['value']) { $wikiPageCount = ($wikiPages.value | Measure-Object).Count }
+            elseif ($wikiPages -is [System.Array]) { $wikiPageCount = $wikiPages.Count }
+        }
 
         # queries
-        $queries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?``$depth=2"
-        $queryCount = 0; if ($queries -and $queries.children) { $queryCount = $queries.children.Count }
+        $queries = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" + '?$depth=2')
+        $queryCount = 0
+        if ($queries) {
+            if ($queries.PSObject.Properties['children']) { $queryCount = $queries.children.Count }
+            elseif ($queries.PSObject.Properties['value']) { $queryCount = ($queries.value | Measure-Object).Count }
+            elseif ($queries -is [System.Array]) { $queryCount = $queries.Count }
+        }
 
     # dashboards/builds/policies (best-effort)
-    try { $dash = Invoke-AdoRest GET "/$projEnc/_apis/dashboard/dashboards" } catch { $dash = $null }
-        $dashboardCount = 0; if ($dash -and $dash.value) { $dashboardCount = $dash.value.Count }
+    try { $dash = Invoke-AdoRest GET "/$projEnc/_apis/dashboard/dashboards" -Preview } catch { $dash = $null }
+    $dashboardCount = 0; if ($dash -and $dash.value) { $dashboardCount = $dash.value.Count }
     try { $builddefs = Invoke-AdoRest GET "/$projEnc/_apis/build/definitions" } catch { $builddefs = $null }
-        $buildCount = 0; if ($builddefs -and $builddefs.value) { $buildCount = $builddefs.value.Count }
+    $buildCount = 0; if ($builddefs -and $builddefs.value) { $buildCount = $builddefs.value.Count }
     try { $pol = Invoke-AdoRest GET "/$projEnc/_apis/policy/configurations" } catch { $pol = $null }
-        $policyCount = 0; if ($pol -and $pol.value) { $policyCount = $pol.value.Count }
+    $policyCount = 0; if ($pol -and $pol.value) { $policyCount = $pol.value.Count }
 
         $projEnc = [uri]::EscapeDataString($Project)
 
@@ -457,10 +664,19 @@ function New-AdoProjectSummaryWikiPage {
         $repoLines = @()
         if ($repoCount -gt 0) {
             foreach ($r in $repos.value) {
-                $default = if ($r.defaultBranch) { $r.defaultBranch -replace '^refs/heads/', '' } else { 'none' }
+                $default = if ($r.PSObject.Properties['defaultBranch'] -and $r.defaultBranch) { 
+                    $r.defaultBranch -replace '^refs/heads/', '' 
+                } else { 
+                    'none' 
+                }
                 try {
-                    $comm = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$($r.id)/commits?``$top=1"
-                    $last = if ($comm -and $comm.value -and $comm.value.Count -gt 0) { ([DateTime]$comm.value[0].committer.date).ToString('yyyy-MM-dd HH:mm') } else { 'No commits' }
+                    $comm = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$($r.id)/commits" + '?$top=1')
+                    $commArray = @($comm.value)
+                    $last = if ($comm -and $commArray.Count -gt 0) { 
+                        ([DateTime]$commArray[0].committer.date).ToString('yyyy-MM-dd HH:mm') 
+                    } else { 
+                        'No commits' 
+                    }
                 } catch { $last = 'Unknown' }
                 $repoUrl = "$adoUrl/$([uri]::EscapeDataString($Project))/_git/$([uri]::EscapeDataString($r.name))"
                 # badge by recency: green if <30 days, yellow if <90, red otherwise
@@ -477,9 +693,10 @@ function New-AdoProjectSummaryWikiPage {
                 # count branch policies for this repo (best-effort)
                 $repoPolicyCount = 0
                 if ($pol -and $pol.value) {
-                    $repoPolicyCount = ($pol.value | Where-Object {
+                    $repoPolicies = @($pol.value | Where-Object {
                         $_.settings -and $_.settings.scope -and ($_.settings.scope | Where-Object { $_.repositoryId -eq $r.id })
-                    }).Count
+                    })
+                    $repoPolicyCount = $repoPolicies.Count
                 }
 
                 $repoLines += "- $badge [$($r.name)]($repoUrl) - Default: ``$default`` - Last commit: ``$last`` - Policies: $repoPolicyCount"
@@ -491,8 +708,8 @@ function New-AdoProjectSummaryWikiPage {
         $pipelineLines = @()
         if ($buildCount -gt 0) {
             foreach ($def in $builddefs.value) {
-                try {
-                    $lastBuild = Invoke-AdoRest GET "/$projEnc/_apis/build/builds?definitions=$($def.id)&``$top=1"
+                    try {
+                    $lastBuild = Invoke-AdoRest GET ("/$projEnc/_apis/build/builds?definitions=$($def.id)" + '&$top=1')
                 } catch { $lastBuild = $null }
                 $status = 'N/A'
                 $result = ''
@@ -502,8 +719,10 @@ function New-AdoProjectSummaryWikiPage {
                 $sha = ''
                 $duration = ''
 
-                if ($lastBuild -and $lastBuild.value -and $lastBuild.value.Count -gt 0) {
-                    $b = $lastBuild.value[0]
+                if ($lastBuild -and $lastBuild.value) {
+                    $buildArray = @($lastBuild.value)
+                    if ($buildArray.Count -gt 0) {
+                        $b = $buildArray[0]
                     $status = $b.status
                     $result = $b.result
                     $runLink = "$adoUrl/$projEnc/_build/results?buildId=$($b.id)"
@@ -526,6 +745,7 @@ function New-AdoProjectSummaryWikiPage {
                             $duration = ([int]$ts.TotalMinutes).ToString() + 'm (running)'
                         }
                     } catch { $duration = '' }
+                    }
                 }
 
                 # small badge
@@ -539,12 +759,12 @@ function New-AdoProjectSummaryWikiPage {
         }
         $pipelineSection = if ($pipelineLines.Count -gt 0) { $pipelineLines -join "`n" } else { 'No pipeline definitions found.' }
 
-        $summary = @"
+            $summary = @"
 # $Project - Project Summary
 
 > **Last Updated**: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  
-> **Project ID**: ``$($proj.id)``  
-> **Process Template**: $($proj.capabilities.processTemplate.templateName)
+> **Project ID**: ``$projId``  
+> **Process Template**: $processTemplateName
 
 ---
 
@@ -553,7 +773,7 @@ function New-AdoProjectSummaryWikiPage {
 | Resource | Count |
 |---|---:|
 | Repositories | $repoCount |
-| Work Item Types | $($witypes.value.Count) |
+| Work Item Types | $witypesCount |
 | Areas | $areaCount |
 | Iterations | $iterationCount |
 | Wiki Pages | $wikiPageCount |

@@ -216,7 +216,7 @@ $config
 $headers = @{
     "Authorization" = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$env:ADO_PAT"))
 }
-Invoke-RestMethod -Uri "$env:ADO_COLLECTION_URL/_apis/projects?api-version=7.1" -Headers $headers
+Invoke-RestMethod -Uri "$env:ADO_COLLECTION_URL/_apis/projects?api-version=7.2" -Headers $headers
 
 # Test GitLab connection
 $headers = @{ "PRIVATE-TOKEN" = $env:GITLAB_PAT }

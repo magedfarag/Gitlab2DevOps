@@ -253,55 +253,63 @@ function Get-AdoWorkItemTypes {
     try {
         $projEscaped = [uri]::EscapeDataString($Project)
         $types = Invoke-AdoRest GET "/$projEscaped/_apis/wit/workitemtypes"
-        
-        # Handle different response formats
-        $typeNames = @()
-        
-        if ($types -is [array]) {
-            # Direct array response
-            Write-Verbose "[Get-AdoWorkItemTypes] Response is direct array with $($types.Count) items"
-            $typeNames = $types | ForEach-Object { 
-                if ($_.PSObject.Properties['name']) { $_.name }
-                elseif ($_.PSObject.Properties['referenceName']) { $_.referenceName }
+
+        # Normalize string payloads (some wrappers may return raw JSON)
+        if ($types -is [string]) {
+            try {
+                $types = $types | ConvertFrom-Json -ErrorAction Stop
+                Write-Verbose "[Get-AdoWorkItemTypes] Converted JSON string response to object"
             }
-        } 
-        elseif ($types.PSObject.Properties['value']) {
-            # Wrapped in 'value' property
-            Write-Verbose "[Get-AdoWorkItemTypes] Response wrapped in 'value' property with $($types.value.Count) items"
-            $typeNames = $types.value | ForEach-Object { 
-                if ($_.PSObject.Properties['name']) { $_.name }
-                elseif ($_.PSObject.Properties['referenceName']) { $_.referenceName }
-            }
-        } 
-        elseif ($types.PSObject.Properties['count']) {
-            # Wrapped in 'count' property
-            Write-Verbose "[Get-AdoWorkItemTypes] Response wrapped in 'count' property"
-            $typeNames = $types.count | ForEach-Object { 
-                if ($_.PSObject.Properties['name']) { $_.name }
-                elseif ($_.PSObject.Properties['referenceName']) { $_.referenceName }
-            }
-        } 
-        else {
-            # Fallback: try direct properties
-            Write-Verbose "[Get-AdoWorkItemTypes] Response format unknown, attempting direct enumeration"
-            Write-Verbose "[Get-AdoWorkItemTypes] Response type: $($types.GetType().FullName)"
-            Write-Verbose "[Get-AdoWorkItemTypes] Properties: $($types.PSObject.Properties.Name -join ', ')"
-            
-            $typeNames = @($types) | ForEach-Object { 
-                if ($_.PSObject.Properties['name']) { $_.name }
-                elseif ($_.PSObject.Properties['referenceName']) { $_.referenceName }
+            catch {
+                Write-Verbose "[Get-AdoWorkItemTypes] Response was string but failed to parse JSON: $_"
             }
         }
-        
+
+        # Handle different response formats more defensively
+        $typeNames = @()
+
+        if ($types -is [array]) {
+            Write-Verbose "[Get-AdoWorkItemTypes] Response is direct array with $($types.Count) items"
+            $typeNames = $types | ForEach-Object { $_.PSObject.Properties['name'] ? $_.name : ($_.PSObject.Properties['referenceName'] ? $_.referenceName : $null) }
+        }
+        elseif ($types -and $types.PSObject.Properties['value']) {
+            Write-Verbose "[Get-AdoWorkItemTypes] Response wrapped in 'value' property with $($types.value.Count) items"
+            $typeNames = $types.value | ForEach-Object { $_.PSObject.Properties['name'] ? $_.name : ($_.PSObject.Properties['referenceName'] ? $_.referenceName : $null) }
+        }
+        elseif ($types -and $types.PSObject.Properties['workItemTypes']) {
+            Write-Verbose "[Get-AdoWorkItemTypes] Response contains 'workItemTypes' property with $($types.workItemTypes.Count) items"
+            $typeNames = $types.workItemTypes | ForEach-Object { $_.PSObject.Properties['name'] ? $_.name : ($_.PSObject.Properties['referenceName'] ? $_.referenceName : $null) }
+        }
+        else {
+            # Try to enumerate any objects that look like work item type descriptors
+            Write-Verbose "[Get-AdoWorkItemTypes] Response format unknown, attempting to enumerate for items with 'name' property"
+            Write-Verbose "[Get-AdoWorkItemTypes] Response type: $($types.GetType().FullName)"
+            Write-Verbose "[Get-AdoWorkItemTypes] Properties: $($types.PSObject.Properties.Name -join ', ')"
+
+            $candidates = @()
+            try {
+                $candidates = @($types) | Where-Object { $_ -and $_.PSObject.Properties['name'] }
+            }
+            catch {
+                $candidates = @()
+            }
+
+            if ($candidates -and $candidates.Count -gt 0) {
+                $typeNames = $candidates | ForEach-Object { $_.name }
+            }
+        }
+
         # Filter out nulls and empty strings
         $typeNames = @($typeNames | Where-Object { $_ })
-        
+
         if ($typeNames.Count -gt 0) {
             Write-Host "[INFO] Available work item types in project '$Project': $($typeNames -join ', ')" -ForegroundColor Cyan
             return $typeNames
-        } else {
-            throw "No work item types found in response"
         }
+
+        # If nothing found, return empty array (caller may fall back to process-template defaults)
+        Write-Verbose "[Get-AdoWorkItemTypes] No explicit work item types detected in response"
+        return @()
     }
     catch {
         Write-Warning "[Get-AdoWorkItemTypes] Failed to get work item types: $_"
@@ -363,16 +371,40 @@ function Measure-Adoiterations {
         $StartDate = $StartDate.AddDays($daysUntilMonday).Date
     }
     
-    # Get existing iterations
+    # Get existing iterations from project classification nodes (safer - returns all iterations)
     $existingIterations = @()
     try {
-        $response = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/work/teamsettings/iterations?``$timeframe=current"
-        if ($response -and $response.value) {
-            $existingIterations = $response.value.name
+        $respNodes = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/iterations?`$depth=5"
+        # Flatten tree to collect names
+        function Get-IterationNamesFromNode($node) {
+            $names = @()
+            if ($node.name) { $names += $node.name }
+            if ($node.children) {
+                foreach ($c in $node.children) { $names += Get-IterationNamesFromNode $c }
+            }
+            return $names
         }
+        if ($respNodes -and $respNodes.value) {
+            foreach ($root in $respNodes.value) {
+                $existingIterations += Get-IterationNamesFromNode $root
+            }
+        }
+        elseif ($respNodes -and $respNodes.name) {
+            $existingIterations += Get-IterationNamesFromNode $respNodes
+        }
+        $existingIterations = $existingIterations | Select-Object -Unique
     }
     catch {
-        Write-Verbose "[Measure-Adoiterations] Could not retrieve existing iterations: $_"
+        Write-Verbose "[Measure-Adoiterations] Could not retrieve classification nodes for iterations: $_"
+        # Fallback to teamsettings current iterations
+        try {
+            $response = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/work/teamsettings/iterations?`$timeframe=current"
+            if ($response -and $response.value) { $existingIterations += $response.value | ForEach-Object { $_.name } }
+            $existingIterations = $existingIterations | Select-Object -Unique
+        }
+        catch {
+            Write-Verbose "[Measure-Adoiterations] Could not retrieve existing iterations (fallback): $_"
+        }
     }
     
     $createdCount = 0
@@ -421,6 +453,25 @@ function Measure-Adoiterations {
             $createdCount++
         }
         catch {
+            # Handle duplicate name race conditions gracefully: if server reports ClassificationNodeDuplicateNameException
+            $errMsg = $_.Exception.Message
+            if ($errMsg -and ($errMsg -match 'ClassificationNodeDuplicateNameException' -or $errMsg -match 'ClassificationNodeDuplicateName')) {
+                Write-Verbose "[Measure-Adoiterations] Iteration '$sprintName' already created by another process - fetching existing node"
+                try {
+                    $existingIteration = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/iterations/$([uri]::EscapeDataString($sprintName))"
+                    if ($existingIteration) {
+                        $iterations += $existingIteration
+                        Write-Host "[INFO] Found existing iteration '$sprintName' after duplicate error" -ForegroundColor Gray
+                        $skippedCount++
+                        continue
+                    }
+                }
+                catch {
+                    Write-Warning "Iteration reported duplicate but failed to fetch existing node for '$sprintName': $_"
+                    continue
+                }
+            }
+
             Write-Warning "Failed to create iteration '$sprintName': $_"
         }
     }

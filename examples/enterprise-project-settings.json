@@ -1,0 +1,26 @@
+{
+  "$schema": "../modules/AzureDevOps/config/project-settings.schema.json",
+  "areas": [
+    { "name": "Platform", "description": "Core platform services and shared libraries" },
+    { "name": "Services", "description": "Microservices and APIs" },
+    { "name": "Portal", "description": "Web portal and admin interfaces" },
+    { "name": "Mobile", "description": "Mobile applications (iOS/Android)" },
+    { "name": "Integration", "description": "Third-party integrations and connectors" },
+    { "name": "Operations", "description": "DevOps, monitoring, and infrastructure" },
+    { "name": "Security", "description": "Security, compliance, and auditing" },
+    { "name": "Documentation", "description": "Technical documentation and runbooks" }
+  ],
+  "iterations": {
+    "sprintCount": 12,
+    "sprintDurationDays": 14,
+    "sprintPrefix": "Sprint"
+  },
+  "processTemplate": "Agile",
+  "defaultRepository": {
+    "defaultBranch": "main",
+    "initializeWithReadme": true
+  },
+  "team": {
+    "defaultTeamSuffix": " Team"
+  }
+}

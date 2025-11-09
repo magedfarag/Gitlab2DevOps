@@ -307,7 +307,7 @@ Provision business-facing assets in an existing Azure DevOps project (no code mi
 
 **Actions**:
 - ✅ Ensures project wiki exists and creates business pages (Welcome, Decision Log, Risks & Issues, Glossary, Ways of Working, KPIs & Success, Training Quick Start, Communication Templates, Post-Cutover Summary)
-- ✅ Creates shared queries and business queries (e.g., Current Sprint: Commitment, Unestimated Stories, Epics by Target Date)
+- ✅ Creates shared queries and business queries (e.g., Current Sprint Commitment, Unestimated Stories, Epics by Target Date)
 - ✅ Seeds 3 short iterations (2 weeks each) for the default team
 - ✅ Ensures the default team dashboard exists
 - ✅ Generates readiness summary report

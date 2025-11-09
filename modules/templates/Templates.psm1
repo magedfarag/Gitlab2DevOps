@@ -132,6 +132,9 @@ ORDER BY [System.CreatedDate] ASC
 .DESCRIPTION
     Loads wiki content from markdown template file with support for 
     parameter placeholders and fallback to embedded content.
+    
+    Note: For team-specific wiki templates (Dev/, QA/, Security/, etc.), 
+    use Get-WikiTemplate from AzureDevOps/Core.psm1 instead.
 
 .PARAMETER TemplateName
     Name of the wiki template (with or without .md extension).
@@ -146,9 +149,9 @@ ORDER BY [System.CreatedDate] ASC
     Wiki content string with parameters substituted.
 
 .EXAMPLE
-    Get-WikiTemplate -TemplateName "welcome-page" -Parameters @{ PROJECT_NAME = "MyProject" }
+    Get-EmbeddedWikiTemplate -TemplateName "welcome-page" -Parameters @{ PROJECT_NAME = "MyProject" }
 #>
-function Get-WikiTemplate {
+function Get-EmbeddedWikiTemplate {
     [CmdletBinding()]
     [OutputType([string])]
     param(
@@ -173,10 +176,10 @@ function Get-WikiTemplate {
         if (Test-Path $customPath) {
             try {
                 $content = Get-Content -Path $customPath -Raw -Encoding UTF8
-                Write-Verbose "[Get-WikiTemplate] Loaded from custom directory: $customPath"
+                Write-Verbose "[Get-EmbeddedWikiTemplate] Loaded from custom directory: $customPath"
             }
             catch {
-                Write-Warning "[Get-WikiTemplate] Failed to load custom template '$customPath': $_"
+                Write-Warning "[Get-EmbeddedWikiTemplate] Failed to load custom template '$customPath': $_"
             }
         }
     }
@@ -187,10 +190,10 @@ function Get-WikiTemplate {
         if (Test-Path $defaultPath) {
             try {
                 $content = Get-Content -Path $defaultPath -Raw -Encoding UTF8
-                Write-Verbose "[Get-WikiTemplate] Loaded from default directory: $defaultPath"
+                Write-Verbose "[Get-EmbeddedWikiTemplate] Loaded from default directory: $defaultPath"
             }
             catch {
-                Write-Warning "[Get-WikiTemplate] Failed to load default template '$defaultPath': $_"
+                Write-Warning "[Get-EmbeddedWikiTemplate] Failed to load default template '$defaultPath': $_"
             }
         }
     }
@@ -259,9 +262,9 @@ Use these tags to categorize work items consistently:
         
         if ($embeddedTemplates.ContainsKey($TemplateName)) {
             $content = $embeddedTemplates[$TemplateName]
-            Write-Verbose "[Get-WikiTemplate] Using embedded template for: $TemplateName"
+            Write-Verbose "[Get-EmbeddedWikiTemplate] Using embedded template for: $TemplateName"
         } else {
-            Write-Warning "[Get-WikiTemplate] Template '$TemplateName' not found in files or embedded templates"
+            Write-Warning "[Get-EmbeddedWikiTemplate] Template '$TemplateName' not found in files or embedded templates"
             return "# $TemplateName`n`nTemplate not available."
         }
     }
@@ -346,6 +349,6 @@ function Get-HtmlTemplate {
 
 Export-ModuleMember -Function @(
     'Get-WiqlTemplate',
-    'Get-WikiTemplate', 
+    'Get-EmbeddedWikiTemplate', 
     'Get-HtmlTemplate'
 )

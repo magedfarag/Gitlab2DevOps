@@ -77,6 +77,167 @@ function New-AdoQueryFolder {
     }
 }
 
+# Map/resolve incoming Excel WorkItemType values to project-available ADO work item types.
+function Resolve-AdoWorkItemType {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$Project,
+        [Parameter(Mandatory=$true)][string]$ExcelType
+    )
+
+    if (-not $ExcelType) { return $null }
+    $inputNorm = $ExcelType.Trim()
+
+    # Get available types for the project (may return names like 'User Story' or 'Product Backlog Item')
+    $available = @()
+    try {
+        $available = Get-AdoWorkItemTypes -Project $Project
+    }
+    catch {
+        Write-Verbose "[Resolve-AdoWorkItemType] Could not retrieve available work item types: $_"
+        $available = @()
+    }
+
+    # If detection failed (empty), fall back to process-template defaults to improve chances of mapping
+    if (-not $available -or $available.Count -eq 0) {
+        Write-Verbose "[Resolve-AdoWorkItemType] No work item types detected, falling back to process template defaults"
+        try {
+            $proc = Get-AdoProjectProcessTemplate -ProjectId $Project
+            switch ($proc) {
+                'Agile'    { $available = @('User Story','Task','Bug','Epic','Feature','Test Case') }
+                'Scrum'    { $available = @('Product Backlog Item','Task','Bug','Epic','Feature','Test Case','Impediment') }
+                'CMMI'     { $available = @('Requirement','Task','Bug','Epic','Feature','Test Case','Issue','Risk','Review','Change Request') }
+                'Basic'    { $available = @('Issue','Task','Epic') }
+                default    { $available = @('User Story','Product Backlog Item','Task','Bug','Epic','Feature','Test Case','Issue','Requirement') }
+            }
+            Write-Verbose "[Resolve-AdoWorkItemType] Fallback available types: $($available -join ', ')"
+        }
+        catch {
+            Write-Verbose "[Resolve-AdoWorkItemType] Fallback to defaults failed: $_"
+            $available = @()
+        }
+    }
+
+    $availableLower = @{}
+    foreach ($t in $available) { $availableLower[$t.ToLower()] = $t }
+
+    # Normalization map of common Excel synonyms -> canonical ADO names
+    $synonyms = @{
+        'story' = 'User Story'
+        'user story' = 'User Story'
+        'pbi' = 'Product Backlog Item'
+        'product backlog item' = 'Product Backlog Item'
+        'feature' = 'Feature'
+        'epic' = 'Epic'
+        'test case' = 'Test Case'
+        'testcase' = 'Test Case'
+        'tc' = 'Test Case'
+        'task' = 'Task'
+        'bug' = 'Bug'
+        'issue' = 'Issue'
+        'requirement' = 'Requirement'
+        'story points' = 'User Story'
+    }
+
+    $lower = $inputNorm.ToLower()
+
+    # 1) Exact match against available types
+    if ($availableLower.ContainsKey($lower)) { return $availableLower[$lower] }
+
+    # 2) Try synonyms map
+    if ($synonyms.ContainsKey($lower)) {
+        $cand = $synonyms[$lower]
+        if ($available -contains $cand) { return $cand }
+    }
+
+    # 3) Fuzzy containment: find any available type that contains the input or vice-versa
+    foreach ($t in $available) {
+        if ($t.ToLower().Contains($lower) -or $lower.Contains($t.ToLower())) { return $t }
+    }
+
+    # 4) Last-resort heuristics: map short forms
+    foreach ($k in $synonyms.Keys) {
+        if ($lower -like "*$k*") {
+            $cand = $synonyms[$k]
+            if ($available -contains $cand) { return $cand }
+        }
+    }
+
+    # Unknown type
+    Write-Warning "Unknown or unsupported WorkItemType from Excel: '$ExcelType' - will be skipped. Available types: $($available -join ', ')"
+    return $null
+}
+
+function Upsert-AdoQuery {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$Project,
+        [Parameter(Mandatory=$true)][string]$Path,
+        [Parameter(Mandatory=$true)][string]$Wiql
+    )
+
+    # Path expected as 'Shared Queries/Folder Name/Query Name' or 'Shared Queries/Query Name'
+    $projEnc = [uri]::EscapeDataString($Project)
+
+    $name = $Path
+    $parent = "Shared Queries"
+    if ($Path.Contains('/')) {
+        $idx = $Path.LastIndexOf('/')
+        $parent = $Path.Substring(0, $idx)
+        $name = $Path.Substring($idx + 1)
+    }
+
+    # Try to retrieve existing query by full path
+    $encodedFull = [uri]::EscapeDataString($Path)
+    try {
+        $existing = Invoke-AdoRest GET "/$projEnc/_apis/wit/queries/$encodedFull"
+    }
+    catch {
+        $existing = $null
+    }
+
+    if ($existing -and $existing.id) {
+        # Update existing query if WIQL differs
+        try {
+            $currentWiql = if ($existing.PSObject.Properties['wiql']) { $existing.wiql } else { $null }
+            if ($currentWiql -and ($currentWiql -ne $Wiql)) {
+                Write-Verbose "[Upsert-AdoQuery] Updating query '$Path' wiql"
+                $patchBody = @{ wiql = $Wiql }
+                Invoke-AdoRest PATCH "/$projEnc/_apis/wit/queries/$($existing.id)" -Body $patchBody | Out-Null
+            }
+            else {
+                Write-Verbose "[Upsert-AdoQuery] Query '$Path' already exists and wiql unchanged"
+            }
+            return $existing
+        }
+        catch {
+            Write-Warning "[Upsert-AdoQuery] Failed to update query '$Path': $_"
+            return $null
+        }
+    }
+
+    # Create parent folder if missing
+    try {
+        New-AdoQueryFolder -Project $Project -Path $parent
+    }
+    catch {
+        Write-Verbose "[Upsert-AdoQuery] Could not ensure parent folder '$parent': $_"
+    }
+
+    # Create new query under parent
+    try {
+        $parentEnc = [uri]::EscapeDataString($parent)
+        $body = @{ name = $name; wiql = $Wiql }
+        $created = Invoke-AdoRest POST "/$projEnc/_apis/wit/queries/$parentEnc" -Body $body
+        Write-Verbose "[Upsert-AdoQuery] Created query '$Path'"
+        return $created
+    }
+    catch {
+        Write-Warning "[Upsert-AdoQuery] Failed to create query '$Path': $_"
+        return $null
+    }
+}
+
 #>
 function Initialize-AdoTeamTemplates {
     [CmdletBinding()]
@@ -987,7 +1148,7 @@ function Measure-Adobusinessqueries {
     Write-Host "[INFO] Creating business shared queries..." -ForegroundColor Cyan
 
     $queries = @(
-        @{ name = 'Current Sprint: Commitment'; wiql = "SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.IterationPath] UNDER @CurrentIteration('$Project') ORDER BY [System.WorkItemType] ASC, [System.State] ASC, [System.ChangedDate] DESC" },
+        @{ name = 'Current Sprint Commitment'; wiql = "SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.IterationPath] UNDER @CurrentIteration('$Project\\$Project Team') ORDER BY [System.WorkItemType] ASC, [System.State] ASC, [System.ChangedDate] DESC" },
         @{ name = 'Unestimated Stories'; wiql = "SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [Microsoft.VSTS.Scheduling.StoryPoints] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.WorkItemType] IN ('User Story','Product Backlog Item','Requirement','Issue') AND ([Microsoft.VSTS.Scheduling.StoryPoints] = '' OR [Microsoft.VSTS.Scheduling.StoryPoints] = 0) AND [System.State] <> 'Closed' AND [System.State] <> 'Removed' ORDER BY [System.CreatedDate] DESC" },
         @{ name = 'Epics by Target Date'; wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Scheduling.TargetDate] FROM WorkItems WHERE [System.TeamProject] = '$Project' AND [System.WorkItemType] = 'Epic' AND [System.State] <> 'Closed' AND [System.State] <> 'Removed' ORDER BY [Microsoft.VSTS.Scheduling.TargetDate] ASC, [System.CreatedDate] DESC" }
     )
@@ -1153,15 +1314,15 @@ function New-AdoSecurityQueries {
 
     # Security Bugs (Priority 0-1)
     $securityBugsQuery = @"
-SELECT [System.Id], [System.Title], [System.State], [System.Priority], [Microsoft.VSTS.Common.Severity], [System.AssignedTo], [System.CreatedDate]
+SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity], [System.AssignedTo], [System.CreatedDate]
 FROM WorkItems
 WHERE [System.TeamProject] = @project
   AND [System.WorkItemType] = 'Bug'
   AND [System.Tags] CONTAINS 'security'
   AND [System.State] <> 'Closed'
   AND [System.State] <> 'Removed'
-  AND [System.Priority] <= 1
-ORDER BY [System.Priority], [Microsoft.VSTS.Common.Severity] DESC, [System.CreatedDate]
+  AND [Microsoft.VSTS.Common.Priority] <= 1
+ORDER BY [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity] DESC, [System.CreatedDate]
 "@
 
     # Vulnerability Backlog
@@ -1179,7 +1340,7 @@ WHERE [System.TeamProject] = @project
   )
   AND [System.State] <> 'Closed'
   AND [System.State] <> 'Removed'
-ORDER BY [System.Priority], [System.CreatedDate]
+ORDER BY [Microsoft.VSTS.Common.Priority], [System.CreatedDate]
 "@
 
     # Security Review Required
@@ -1213,7 +1374,7 @@ WHERE [System.TeamProject] = @project
   )
   AND [System.State] <> 'Closed'
   AND [System.State] <> 'Removed'
-ORDER BY [Microsoft.VSTS.Scheduling.TargetDate], [System.Priority], [System.CreatedDate]
+ORDER BY [Microsoft.VSTS.Scheduling.TargetDate], [Microsoft.VSTS.Common.Priority], [System.CreatedDate]
 "@
 
     # Security Debt
@@ -1270,13 +1431,13 @@ function Measure-Adomanagementqueries {
 
     # Program Status - All active work across the program
     $programStatusQuery = @"
-SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [System.Priority], [System.AssignedTo], [System.Tags], [Microsoft.VSTS.Scheduling.TargetDate]
+SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [Microsoft.VSTS.Common.Priority], [System.AssignedTo], [System.Tags], [Microsoft.VSTS.Scheduling.TargetDate]
 FROM WorkItems
 WHERE [System.TeamProject] = @project
   AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story', 'Bug', 'Task')
   AND [System.State] <> 'Closed'
   AND [System.State] <> 'Removed'
-ORDER BY [System.WorkItemType], [System.Priority], [Microsoft.VSTS.Scheduling.TargetDate]
+ORDER BY [System.WorkItemType], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Scheduling.TargetDate]
 "@
 
     # Sprint Progress - Current sprint work items
@@ -1284,14 +1445,14 @@ ORDER BY [System.WorkItemType], [System.Priority], [Microsoft.VSTS.Scheduling.Ta
 SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [System.AssignedTo], [Microsoft.VSTS.Scheduling.StoryPoints], [System.IterationPath]
 FROM WorkItems
 WHERE [System.TeamProject] = @project
-  AND [System.IterationPath] = @currentIteration
+  AND [System.IterationPath] = @currentIteration('[Project]\[Project] Team')
   AND [System.State] <> 'Removed'
-ORDER BY [System.State], [System.WorkItemType], [System.Priority]
+ORDER BY [System.State], [System.WorkItemType], [Microsoft.VSTS.Common.Priority]
 "@
 
     # Active Risks - Risk work items or items tagged with risk
     $activeRisksQuery = @"
-SELECT [System.Id], [System.Title], [System.State], [System.Priority], [Microsoft.VSTS.Common.Severity], [System.AssignedTo], [System.Tags], [System.CreatedDate], [Microsoft.VSTS.Scheduling.TargetDate]
+SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity], [System.AssignedTo], [System.Tags], [System.CreatedDate], [Microsoft.VSTS.Scheduling.TargetDate]
 FROM WorkItems
 WHERE [System.TeamProject] = @project
   AND (
@@ -1303,18 +1464,18 @@ WHERE [System.TeamProject] = @project
   )
   AND [System.State] <> 'Closed'
   AND [System.State] <> 'Removed'
-ORDER BY [System.Priority], [Microsoft.VSTS.Common.Severity] DESC, [System.CreatedDate]
+ORDER BY [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity] DESC, [System.CreatedDate]
 "@
 
     # Open Issues - All issues requiring attention
     $openIssuesQuery = @"
-SELECT [System.Id], [System.Title], [System.State], [System.Priority], [Microsoft.VSTS.Common.Severity], [System.AssignedTo], [System.Tags], [System.CreatedDate]
+SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity], [System.AssignedTo], [System.Tags], [System.CreatedDate]
 FROM WorkItems
 WHERE [System.TeamProject] = @project
   AND [System.WorkItemType] = 'Issue'
   AND [System.State] <> 'Closed'
   AND [System.State] <> 'Removed'
-ORDER BY [System.Priority], [Microsoft.VSTS.Common.Severity] DESC, [System.CreatedDate]
+ORDER BY [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity] DESC, [System.CreatedDate]
 "@
 
     # Cross-Team Dependencies - Items with dependency tags
@@ -1330,7 +1491,7 @@ WHERE [System.TeamProject] = @project
   )
   AND [System.State] <> 'Closed'
   AND [System.State] <> 'Removed'
-ORDER BY [System.Priority], [Microsoft.VSTS.Scheduling.TargetDate], [System.CreatedDate]
+ORDER BY [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Scheduling.TargetDate], [System.CreatedDate]
 "@
 
     # Milestone Tracker - Epics and Features by target date
@@ -1428,9 +1589,8 @@ function Import-AdoWorkItemsFromExcel {
         
         [Parameter(Mandatory)]
         [ValidateScript({
-            if (-not (Test-Path $_)) {
-                throw "Excel file not found: $_"
-            }
+            # Only validate file extension here. Do NOT check Test-Path at parameter-validation time
+            # because tests may mock Import-Excel and expect the function to proceed.
             if ($_ -notmatch '\.(xlsx|xls)$') {
                 throw "File must be Excel format (.xlsx or .xls): $_"
             }
@@ -1439,65 +1599,96 @@ function Import-AdoWorkItemsFromExcel {
         [string]$ExcelPath,
         
         [string]$WorksheetName = "Requirements",
-        
-        [ValidateSet("6.0", "7.0", "7.1")]
-        [string]$ApiVersion = "7.0"
+        [string]$ApiVersion = $null
     )
     
     Write-Host "[INFO] Importing work items from Excel: $ExcelPath" -ForegroundColor Cyan
     
-    # Check for ImportExcel module
-    if (-not (Get-Module -ListAvailable -Name ImportExcel)) {
-        Write-Host "[ERROR] ImportExcel module not found" -ForegroundColor Red
-        Write-Host "[INFO] Install with: Install-Module ImportExcel -Scope CurrentUser" -ForegroundColor Yellow
-        throw "ImportExcel module required"
+    # Import Excel data. Do not proactively Import-Module here so that tests can mock Import-Excel freely.
+    # Small wrapper to call Import-Excel via an indirection so Pester can mock Import-Excel reliably
+    function Invoke-ImportExcel {
+        param(
+            [Parameter(Mandatory=$true)][string]$Path,
+            [string]$WorksheetName
+        )
+        & Import-Excel -Path $Path -WorksheetName $WorksheetName -ErrorAction Stop
     }
-    
-    # Import Excel data
+
     try {
-        Import-Module ImportExcel -ErrorAction Stop
         Write-Verbose "Reading Excel file: $ExcelPath"
-        $rows = Import-Excel -Path $ExcelPath -WorksheetName $WorksheetName -ErrorAction Stop
-        
-        if (-not $rows -or $rows.Count -eq 0) {
+        $rows = Invoke-ImportExcel -Path $ExcelPath -WorksheetName $WorksheetName
+
+        # Normalize to array to handle single-row returns from Import-Excel
+        $rows = @($rows)
+
+        if (-not $rows -or (@($rows).Count -eq 0)) {
             Write-Warning "No data found in worksheet '$WorksheetName'"
             return
         }
-        
-        Write-Host "[INFO] Found $($rows.Count) rows in Excel" -ForegroundColor Cyan
+
+        Write-Host "[INFO] Found $(@($rows).Count) rows in Excel" -ForegroundColor Cyan
     }
     catch {
         Write-Host "[ERROR] Failed to read Excel file: $_" -ForegroundColor Red
         throw
     }
     
-    # Define hierarchy order for correct parent-child creation
+    # Resolve and normalize WorkItemType values from Excel to ADO project types.
+    $resolvedRows = @()
+    $skippedRows = @()
+
+    # Build a default hierarchy order (will be filtered to resolved types below)
     $hierarchyOrder = @{
         "Epic"       = 1
         "Feature"    = 2
         "User Story" = 3
+        "Product Backlog Item" = 3
         "Test Case"  = 4
         "Task"       = 5
         "Bug"        = 6
         "Issue"      = 7
+        "Requirement"= 3
     }
-    
+
+    foreach ($r in $rows) {
+        $excelType = if ($r.WorkItemType) { $r.WorkItemType.ToString() } else { $null }
+        $resolved = Resolve-AdoWorkItemType -Project $Project -ExcelType $excelType
+        if ($resolved) {
+            # attach resolved type to row for later use
+            $r | Add-Member -NotePropertyName ResolvedWorkItemType -NotePropertyValue $resolved -Force
+            $resolvedRows += $r
+        }
+        else {
+            $skippedRows += $r
+        }
+    }
+
+    if (@($skippedRows).Count -gt 0) {
+        Write-Warning "Skipping $(@($skippedRows).Count) row(s) due to unknown WorkItemType. See warnings above for details."
+    }
+
     # Sort by hierarchy to ensure parents are created before children
-    $orderedRows = $rows | Where-Object { $_.WorkItemType } | 
-                          Sort-Object { $hierarchyOrder[$_.WorkItemType] }
+    # Sort by the configured hierarchy order. Unknown types go to the end.
+    $orderedRows = $resolvedRows | Sort-Object {
+        if ($null -ne $_.ResolvedWorkItemType -and $hierarchyOrder.ContainsKey($_.ResolvedWorkItemType)) {
+            $hierarchyOrder[$_.ResolvedWorkItemType]
+        }
+        else { 999 }
+    }
+
+    Write-Host "[INFO] Processing $(@($orderedRows).Count) work items in hierarchical order" -ForegroundColor Cyan
     
-    Write-Host "[INFO] Processing $($orderedRows.Count) work items in hierarchical order" -ForegroundColor Cyan
-    
-    # Map Excel LocalId to Azure DevOps work item ID
+    # Map Excel LocalId to Azure DevOps work item ID (string keys to avoid JSON serialization issues)
     $localToAdoMap = @{}
     $successCount = 0
     $errorCount = 0
     
     foreach ($row in $orderedRows) {
-        $wit = $row.WorkItemType
+        # Use resolved work item type (from Resolve-AdoWorkItemType)
+        $wit = if ($row.PSObject.Properties['ResolvedWorkItemType']) { $row.ResolvedWorkItemType } else { $row.WorkItemType }
         
         try {
-            # Build JSON Patch operations array
+            # Build JSON Patch operations array (use PSCustomObject to ensure ConvertTo-Json serializes cleanly)
             $operations = @()
             
             # Required: Title
@@ -1506,70 +1697,112 @@ function Import-AdoWorkItemsFromExcel {
                 continue
             }
             
-            $operations += @{
+            $operations += [pscustomobject]@{
                 op    = "add"
                 path  = "/fields/System.Title"
                 value = $row.Title.ToString()
             }
             
-            # Optional standard fields
-            if ($row.AreaPath) {
-                $operations += @{ op="add"; path="/fields/System.AreaPath"; value=$row.AreaPath.ToString() }
+            # Optional standard fields - check if property exists first using PSObject.Properties
+            if ($row.PSObject.Properties['AreaPath'] -and $row.AreaPath) {
+                $operations += [pscustomobject]@{ op="add"; path="/fields/System.AreaPath"; value=$row.AreaPath.ToString() }
             }
-            if ($row.IterationPath) {
+            if ($row.PSObject.Properties['IterationPath'] -and $row.IterationPath) {
                 $operations += @{ op="add"; path="/fields/System.IterationPath"; value=$row.IterationPath.ToString() }
             }
-            if ($row.State) {
-                $operations += @{ op="add"; path="/fields/System.State"; value=$row.State.ToString() }
+            if ($row.PSObject.Properties['State'] -and $row.State) {
+                # Query allowed values for System.State and only add if allowed (case-insensitive)
+                try {
+                    $fieldInfo = Invoke-AdoRest GET "/_apis/wit/fields/System.State?api-version=7.1"
+                    $allowed = @()
+                    if ($fieldInfo -and $fieldInfo.allowedValues) { $allowed = $fieldInfo.allowedValues }
+                }
+                catch {
+                    $allowed = @()
+                }
+
+                $stateVal = $row.State.ToString()
+                $isAllowed = $false
+                if ($allowed -and $allowed.Count -gt 0) {
+                    foreach ($av in $allowed) { if ($av -ieq $stateVal) { $isAllowed = $true; break } }
+                }
+
+                if ($isAllowed) {
+                    $operations += [pscustomobject]@{ op="add"; path="/fields/System.State"; value=$stateVal }
+                }
+                else {
+                    Write-Warning "Skipping setting State='$stateVal' (not in allowed values for System.State)"
+                }
             }
-            if ($row.Description) {
+            if ($row.PSObject.Properties['Description'] -and $row.Description) {
                 $operations += @{ op="add"; path="/fields/System.Description"; value=$row.Description.ToString() }
             }
-            if ($row.Priority) {
+            if ($row.PSObject.Properties['Priority'] -and $row.Priority) {
                 $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Common.Priority"; value=[int]$row.Priority }
             }
             
             # Work item type specific fields
-            if ($row.StoryPoints -and $wit -eq "User Story") {
+            if ($row.PSObject.Properties['StoryPoints'] -and $row.StoryPoints -and $wit -eq "User Story") {
                 $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StoryPoints"; value=[double]$row.StoryPoints }
             }
-            if ($row.BusinessValue) {
+            if ($row.PSObject.Properties['BusinessValue'] -and $row.BusinessValue) {
                 $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Common.BusinessValue"; value=[int]$row.BusinessValue }
             }
-            if ($row.ValueArea) {
+            if ($row.PSObject.Properties['ValueArea'] -and $row.ValueArea) {
                 $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Common.ValueArea"; value=$row.ValueArea.ToString() }
             }
-            if ($row.Risk) {
-                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Common.Risk"; value=$row.Risk.ToString() }
+            if ($row.PSObject.Properties['Risk'] -and $row.Risk) {
+                # Try to validate Risk allowed values; if not available, add cautiously
+                try {
+                    $riskField = Invoke-AdoRest GET "/_apis/wit/fields/Microsoft.VSTS.Common.Risk?api-version=7.1"
+                    $riskAllowed = @()
+                    if ($riskField -and $riskField.allowedValues) { $riskAllowed = $riskField.allowedValues }
+                }
+                catch {
+                    $riskAllowed = @()
+                }
+
+                $riskVal = $row.Risk.ToString()
+                $riskOk = $false
+                if ($riskAllowed -and $riskAllowed.Count -gt 0) {
+                    foreach ($rv in $riskAllowed) { if ($rv -ieq $riskVal) { $riskOk = $true; break } }
+                }
+
+                if ($riskOk -or $riskAllowed.Count -eq 0) {
+                    $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Common.Risk"; value=$riskVal }
+                }
+                else {
+                    Write-Warning "Skipping setting Risk='$riskVal' (not in allowed values for Risk)"
+                }
             }
             
             # Scheduling fields
-            if ($row.StartDate) {
+            if ($row.PSObject.Properties['StartDate'] -and $row.StartDate) {
                 $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StartDate"; value=[datetime]$row.StartDate }
             }
-            if ($row.FinishDate) {
+            if ($row.PSObject.Properties['FinishDate'] -and $row.FinishDate) {
                 $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.FinishDate"; value=[datetime]$row.FinishDate }
             }
-            if ($row.TargetDate) {
+            if ($row.PSObject.Properties['TargetDate'] -and $row.TargetDate) {
                 $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.TargetDate"; value=[datetime]$row.TargetDate }
             }
-            if ($row.DueDate) {
+            if ($row.PSObject.Properties['DueDate'] -and $row.DueDate) {
                 $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.DueDate"; value=[datetime]$row.DueDate }
             }
             
             # Effort tracking
-            if ($row.OriginalEstimate) {
+            if ($row.PSObject.Properties['OriginalEstimate'] -and $row.OriginalEstimate) {
                 $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.OriginalEstimate"; value=[double]$row.OriginalEstimate }
             }
-            if ($row.RemainingWork) {
+            if ($row.PSObject.Properties['RemainingWork'] -and $row.RemainingWork) {
                 $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.RemainingWork"; value=[double]$row.RemainingWork }
             }
-            if ($row.CompletedWork) {
+            if ($row.PSObject.Properties['CompletedWork'] -and $row.CompletedWork) {
                 $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.CompletedWork"; value=[double]$row.CompletedWork }
             }
             
             # Test Case specific: Test Steps
-            if ($wit -eq "Test Case" -and $row.TestSteps) {
+            if ($wit -eq "Test Case" -and $row.PSObject.Properties['TestSteps'] -and $row.TestSteps) {
                 $stepsXml = ConvertTo-AdoTestStepsXml -StepsText $row.TestSteps
                 if ($stepsXml) {
                     $operations += @{
@@ -1581,23 +1814,26 @@ function Import-AdoWorkItemsFromExcel {
             }
             
             # Tags
-            if ($row.Tags) {
+            if ($row.PSObject.Properties['Tags'] -and $row.Tags) {
                 $operations += @{ op="add"; path="/fields/System.Tags"; value=$row.Tags.ToString() }
             }
             
             # Parent relationship (if parent was already created)
-            if ($row.ParentLocalId) {
-                $parentAdoId = $localToAdoMap[[int]$row.ParentLocalId]
+            if ($row.PSObject.Properties['ParentLocalId'] -and $row.ParentLocalId) {
+                $parentKey = "$($row.ParentLocalId)"
+                $parentAdoId = $null
+                if ($localToAdoMap.ContainsKey($parentKey)) { $parentAdoId = $localToAdoMap[$parentKey] }
                 if ($parentAdoId) {
                     $projEnc = [uri]::EscapeDataString($Project)
-                    $operations += @{
-                        op    = "add"
-                        path  = "/relations/-"
-                        value = @{
-                            rel        = "System.LinkTypes.Hierarchy-Reverse"
-                            url        = "$script:CollectionUrl/$projEnc/_apis/wit/workItems/$parentAdoId"
-                            attributes = @{ comment = "Imported from Excel" }
-                        }
+                    $relValue = [pscustomobject]@{
+                        rel = "System.LinkTypes.Hierarchy-Reverse"
+                        url = "$script:CollectionUrl/$projEnc/_apis/wit/workItems/$parentAdoId"
+                        attributes = [pscustomobject]@{ comment = "Imported from Excel" }
+                    }
+                    $operations += [pscustomobject]@{
+                        op = "add"
+                        path = "/relations/-"
+                        value = $relValue
                     }
                 }
                 else {
@@ -1609,14 +1845,15 @@ function Import-AdoWorkItemsFromExcel {
             $witEncoded = [uri]::EscapeDataString($wit)
             $projEnc = [uri]::EscapeDataString($Project)
             
+            # Ensure $operations is JSON-serializable by ConvertTo-Json
+            $workItemBody = $operations | ConvertTo-Json -Depth 20
             $workItem = Invoke-AdoRest POST "/$projEnc/_apis/wit/workitems/`$$witEncoded" `
-                                      -Body $operations `
-                                      -ApiVersion $ApiVersion `
+                                      -Body $workItemBody `
                                       -ContentType "application/json-patch+json"
             
             # Store mapping for child relationships
-            if ($row.LocalId) {
-                $localToAdoMap[[int]$row.LocalId] = $workItem.id
+            if ($row.PSObject.Properties['LocalId'] -and $row.LocalId) {
+                $localToAdoMap["$($row.LocalId)"] = $workItem.id
             }
             
             Write-Host "  ✅ Created $wit #$($workItem.id): $($row.Title)" -ForegroundColor Gray
@@ -1707,12 +1944,15 @@ Export-ModuleMember -Function @(
     'New-AdoTestPlan',
     'New-AdoQAQueries',
     'New-AdoTestConfigurations',
+    'New-AdoSecurityQueries',
     'Measure-Adocommontags',
     'Measure-Adobusinessqueries',
     'Search-Adodevqueries',
-    'New-AdoSecurityQueries',
     'Measure-Adomanagementqueries',
     'Import-AdoWorkItemsFromExcel',
+    'Resolve-AdoWorkItemType',
     'ConvertTo-AdoTestStepsXml'
 )
+
+# Note: Upsert-AdoQuery removed from exports - internal helper function only
 

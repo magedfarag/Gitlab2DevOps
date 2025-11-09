@@ -1,0 +1,21 @@
+{
+  "$schema": "../modules/AzureDevOps/config/project-settings.schema.json",
+  "areas": [
+    { "name": "Features", "description": "New features and enhancements" },
+    { "name": "Bugfixes", "description": "Bug fixes and maintenance" },
+    { "name": "Technical Debt", "description": "Refactoring and technical debt" }
+  ],
+  "iterations": {
+    "sprintCount": 4,
+    "sprintDurationDays": 7,
+    "sprintPrefix": "Week"
+  },
+  "processTemplate": "Agile",
+  "defaultRepository": {
+    "defaultBranch": "main",
+    "initializeWithReadme": true
+  },
+  "team": {
+    "defaultTeamSuffix": ""
+  }
+}

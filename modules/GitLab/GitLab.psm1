@@ -682,55 +682,139 @@ function Export-GitLabDocumentation {
         
         Write-Host "[INFO] Scanning repository: $repoName" -ForegroundColor Gray
         
-        # Create subfolder for this repository in docs
-        $repoDocsDir = Join-Path $docsDir $repoName
-        if (-not (Test-Path $repoDocsDir)) {
-            New-Item -ItemType Directory -Path $repoDocsDir -Force | Out-Null
-        }
+        # Check if this is a bare repository (standard for migrations)
+        $isBareRepo = Test-Path (Join-Path $repositoryPath "HEAD")
         
-        # Find documentation files
-        $docFiles = @(Get-ChildItem -Path $repositoryPath -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
-            $extension = $_.Extension.TrimStart('.').ToLower()
-            $DocExtensions -contains $extension
-        })
-        
-        if ($docFiles.Count -gt 0) {
-            Write-Host "  [INFO] Found $($docFiles.Count) documentation files" -ForegroundColor Cyan
-            
-            foreach ($file in $docFiles) {
-                try {
-                    # Preserve relative path structure
-                    $relativePath = $file.FullName.Substring($repositoryPath.Length).TrimStart('\', '/')
-                    $targetPath = Join-Path $repoDocsDir $relativePath
-                    $targetDir = Split-Path -Parent $targetPath
+        if ($isBareRepo) {
+            # For bare repositories, use git ls-tree to find files
+            try {
+                Push-Location $repositoryPath
+                
+                # Get list of all files from HEAD
+                $gitFiles = git ls-tree -r --name-only HEAD 2>$null
+                
+                if ($LASTEXITCODE -eq 0 -and $gitFiles) {
+                    # Filter for documentation files
+                    $docFiles = @($gitFiles | Where-Object {
+                        $extension = [System.IO.Path]::GetExtension($_).TrimStart('.').ToLower()
+                        $DocExtensions -contains $extension
+                    })
                     
-                    # Create target directory if needed
-                    if (-not (Test-Path $targetDir)) {
-                        New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+                    if ($docFiles.Count -gt 0) {
+                        Write-Host "  [INFO] Found $($docFiles.Count) documentation files" -ForegroundColor Cyan
+                        
+                        foreach ($filePath in $docFiles) {
+                            try {
+                                # Extract just the filename for flat structure in docs folder
+                                $fileName = [System.IO.Path]::GetFileName($filePath)
+                                $targetPath = Join-Path $docsDir $fileName
+                                
+                                # If file already exists, append repository name to avoid conflicts
+                                if (Test-Path $targetPath) {
+                                    $fileNameWithoutExt = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
+                                    $fileExt = [System.IO.Path]::GetExtension($fileName)
+                                    $fileName = "${fileNameWithoutExt}_${repoName}${fileExt}"
+                                    $targetPath = Join-Path $docsDir $fileName
+                                }
+                                
+                                # Extract file from git using git show with output redirection
+                                # Use Start-Process to properly handle binary file extraction
+                                $gitArgs = @("show", "HEAD:$filePath")
+                                $process = Start-Process -FilePath "git" -ArgumentList $gitArgs -NoNewWindow -Wait -PassThru -RedirectStandardOutput $targetPath -RedirectStandardError "NUL"
+                                
+                                if ($process.ExitCode -eq 0 -and (Test-Path $targetPath)) {
+                                    $fileInfo = Get-Item $targetPath
+                                    
+                                    # Verify file has content
+                                    if ($fileInfo.Length -gt 0) {
+                                        # Update statistics
+                                        $stats.total_files++
+                                        $stats.total_size_MB += [math]::Round(($fileInfo.Length / 1MB), 2)
+                                        
+                                        $extension = [System.IO.Path]::GetExtension($filePath).TrimStart('.').ToLower()
+                                        if (-not $stats.files_by_type.ContainsKey($extension)) {
+                                            $stats.files_by_type[$extension] = 0
+                                        }
+                                        $stats.files_by_type[$extension]++
+                                        
+                                        Write-Host "    ✓ $fileName" -ForegroundColor Green
+                                    }
+                                    else {
+                                        Write-Warning "    ✗ Failed to extract $fileName (file is empty)"
+                                        Remove-Item $targetPath -Force -ErrorAction SilentlyContinue
+                                    }
+                                }
+                                else {
+                                    Write-Warning "    ✗ Failed to extract $fileName from repository"
+                                }
+                            }
+                            catch {
+                                Write-Warning "    ✗ Failed to extract $fileName : $_"
+                            }
+                        }
                     }
-                    
-                    # Copy file
-                    Copy-Item -Path $file.FullName -Destination $targetPath -Force
-                    
-                    # Update statistics
-                    $stats.total_files++
-                    $stats.total_size_MB += [math]::Round(($file.Length / 1MB), 2)
-                    
-                    $extension = $file.Extension.TrimStart('.').ToLower()
-                    if (-not $stats.files_by_type.ContainsKey($extension)) {
-                        $stats.files_by_type[$extension] = 0
+                    else {
+                        Write-Host "  [INFO] No documentation files found" -ForegroundColor Gray
                     }
-                    $stats.files_by_type[$extension]++
-                    
-                    Write-Host "    ✓ $relativePath" -ForegroundColor Green
                 }
-                catch {
-                    Write-Warning "    ✗ Failed to copy $($file.Name): $_"
+                else {
+                    Write-Host "  [WARN] Could not read repository contents" -ForegroundColor Yellow
                 }
+            }
+            catch {
+                Write-Warning "  [ERROR] Failed to process bare repository: $_"
+            }
+            finally {
+                Pop-Location
             }
         }
         else {
-            Write-Host "  [INFO] No documentation files found" -ForegroundColor Gray
+            # For non-bare repositories (working directory exists), use file system scan
+            $docFiles = @(Get-ChildItem -Path $repositoryPath -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
+                $extension = $_.Extension.TrimStart('.').ToLower()
+                $DocExtensions -contains $extension
+            })
+            
+            if ($docFiles.Count -gt 0) {
+                Write-Host "  [INFO] Found $($docFiles.Count) documentation files" -ForegroundColor Cyan
+                
+                foreach ($file in $docFiles) {
+                    try {
+                        # Extract just the filename for flat structure in docs folder
+                        $fileName = $file.Name
+                        $targetPath = Join-Path $docsDir $fileName
+                        
+                        # If file already exists, append repository name to avoid conflicts
+                        if (Test-Path $targetPath) {
+                            $fileNameWithoutExt = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
+                            $fileExt = $file.Extension
+                            $fileName = "${fileNameWithoutExt}_${repoName}${fileExt}"
+                            $targetPath = Join-Path $docsDir $fileName
+                        }
+                        
+                        # Copy file
+                        Copy-Item -Path $file.FullName -Destination $targetPath -Force
+                        
+                        # Update statistics
+                        $stats.total_files++
+                        $stats.total_size_MB += [math]::Round(($file.Length / 1MB), 2)
+                        
+                        $extension = $file.Extension.TrimStart('.').ToLower()
+                        if (-not $stats.files_by_type.ContainsKey($extension)) {
+                            $stats.files_by_type[$extension] = 0
+                        }
+                        $stats.files_by_type[$extension]++
+                        
+                        Write-Host "    ✓ $fileName" -ForegroundColor Green
+                    }
+                    catch {
+                        Write-Warning "    ✗ Failed to copy $fileName : $_"
+                    }
+                }
+            }
+            else {
+                Write-Host "  [INFO] No documentation files found" -ForegroundColor Gray
+            }
         }
         
         $stats.repositories_processed++

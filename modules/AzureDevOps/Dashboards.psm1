@@ -96,6 +96,27 @@ function Set-AdoTeamSettings {
 }
 
 #>
+# Helper: Resolve dashboard endpoints for project/team - returns ordered endpoints to try
+function Resolve-AdoDashboardEndpoints {
+    param(
+        [Parameter(Mandatory=$true)][string]$Project,
+        [Parameter(Mandatory=$false)][string]$Team,
+        [Parameter(Mandatory=$false)][string]$TeamId
+    )
+
+    $endpoints = @()
+    if ($TeamId) {
+        # Team-scoped endpoint (preferred when team exists)
+        $endpoints += "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards"
+    }
+
+    # Project-scoped endpoint (fallback)
+    $endpoints += "/$([uri]::EscapeDataString($Project))/_apis/dashboard/dashboards"
+
+    return $endpoints
+}
+
+#>
 function Search-Adodashboard {
     [CmdletBinding()]
     param(
@@ -120,14 +141,28 @@ function Search-Adodashboard {
     # Check if dashboard already exists
     $dashboardName = "$Team - Overview"
     try {
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId
+
         $existingDashboards = $null
-        if ($teamId) {
-            $existingDashboards = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Preview
+        foreach ($ep in $endpoints) {
+            try {
+                $existingDashboards = Invoke-AdoRest GET $ep -Preview
+                break
+            }
+            catch {
+                Write-Verbose "[Search-Adodashboard] Dashboard GET failed for endpoint $ep - trying next. Error: $_"
+            }
         }
-        else {
-            $existingDashboards = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/dashboard/dashboards" -Preview
-        }
-        $existing = $existingDashboards.dashboardEntries | Where-Object { $_.name -eq $dashboardName }
+
+        # Normalize response: some servers return dashboardEntries, others return value or direct array
+        $entries = @()
+        if ($existingDashboards -eq $null) { $entries = @() }
+        elseif ($existingDashboards.PSObject.Properties['dashboardEntries']) { $entries = $existingDashboards.dashboardEntries }
+        elseif ($existingDashboards.PSObject.Properties['value']) { $entries = $existingDashboards.value }
+        elseif ($existingDashboards -is [array]) { $entries = $existingDashboards }
+        else { $entries = @($existingDashboards) }
+
+        $existing = $entries | Where-Object { $_.name -eq $dashboardName }
 
         if ($existing) {
             Write-Host "[INFO] Dashboard '$dashboardName' already exists" -ForegroundColor Gray
@@ -214,17 +249,39 @@ function Search-Adodashboard {
         }
         
         $dashboard = $null
-        if ($teamId) {
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId
+        foreach ($ep in $endpoints) {
             try {
-                $dashboard = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Body $dashboardBody -Preview
+                $dashboard = Invoke-AdoRest POST $ep -Body $dashboardBody -Preview
+                break
             }
             catch {
-                # Fallback to project-level dashboards (some servers don't support team route)
-                Write-Verbose "[Search-Adodashboard] Team dashboards API failed, attempting project-level fallback: $_"
+                $postErr = $_.Exception.Message
+                # If duplicate dashboard name was reported, try to locate and return existing dashboard instead
+                if ($postErr -and ($postErr -match 'DuplicateDashboardNameException' -or $postErr -match 'DuplicateDashboardName')) {
+                    Write-Verbose "[Search-Adodashboard] Duplicate dashboard name detected when posting to $ep - attempting to find existing dashboard"
+                    try {
+                        $existingDashboards = Invoke-AdoRest GET $ep -Preview
+                        $entries = @()
+                        if ($existingDashboards -eq $null) { $entries = @() }
+                        elseif ($existingDashboards.PSObject.Properties['dashboardEntries']) { $entries = $existingDashboards.dashboardEntries }
+                        elseif ($existingDashboards.PSObject.Properties['value']) { $entries = $existingDashboards.value }
+                        elseif ($existingDashboards -is [array]) { $entries = $existingDashboards }
+                        else { $entries = @($existingDashboards) }
+
+                        $found = $entries | Where-Object { $_.name -eq $dashboardName }
+                        if ($found) {
+                            Write-Host "[INFO] Found existing dashboard '$dashboardName' after duplicate error" -ForegroundColor Gray
+                            return $found
+                        }
+                    }
+                    catch {
+                        Write-Verbose "[Search-Adodashboard] Failed to locate existing dashboard after duplicate error: $_"
+                    }
+                }
+
+                Write-Verbose "[Search-Adodashboard] Dashboard POST failed for endpoint $ep - trying next. Error: $_"
             }
-        }
-        if (-not $dashboard) {
-            $dashboard = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/dashboard/dashboards" -Body $dashboardBody -Preview
         }
         
         Write-Host "[SUCCESS] Created team dashboard: $dashboardName" -ForegroundColor Green
@@ -282,14 +339,28 @@ function Test-Adoqadashboard {
     # Check if QA dashboard already exists
     $dashboardName = "$Team - QA Metrics"
     try {
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId
+
         $existingDashboards = $null
-        if ($teamId) {
-            $existingDashboards = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Preview
+        foreach ($ep in $endpoints) {
+            try {
+                $existingDashboards = Invoke-AdoRest GET $ep -Preview
+                break
+            }
+            catch {
+                Write-Verbose "[Test-Adoqadashboard] Dashboard GET failed for endpoint $ep - trying next. Error: $_"
+            }
         }
-        else {
-            $existingDashboards = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/dashboard/dashboards" -Preview
-        }
-        $existing = $existingDashboards.dashboardEntries | Where-Object { $_.name -eq $dashboardName }
+
+        # Normalize response
+        $entries = @()
+        if ($existingDashboards -eq $null) { $entries = @() }
+        elseif ($existingDashboards.PSObject.Properties['dashboardEntries']) { $entries = $existingDashboards.dashboardEntries }
+        elseif ($existingDashboards.PSObject.Properties['value']) { $entries = $existingDashboards.value }
+        elseif ($existingDashboards -is [array]) { $entries = $existingDashboards }
+        else { $entries = @($existingDashboards) }
+
+        $existing = $entries | Where-Object { $_.name -eq $dashboardName }
 
         if ($existing) {
             Write-Host "[INFO] QA dashboard '$dashboardName' already exists" -ForegroundColor Gray
@@ -376,16 +447,38 @@ function Test-Adoqadashboard {
         }
         
         $dashboard = $null
-        if ($teamId) {
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId
+        foreach ($ep in $endpoints) {
             try {
-                $dashboard = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards" -Body $dashboardBody -Preview
+                $dashboard = Invoke-AdoRest POST $ep -Body $dashboardBody -Preview
+                break
             }
             catch {
-                Write-Verbose "[Test-Adoqadashboard] Team dashboards API failed, attempting project-level fallback: $_"
+                $postErr = $_.Exception.Message
+                if ($postErr -and ($postErr -match 'DuplicateDashboardNameException' -or $postErr -match 'DuplicateDashboardName')) {
+                    Write-Verbose "[Test-Adoqadashboard] Duplicate dashboard name detected when posting to $ep - attempting to find existing dashboard"
+                    try {
+                        $existingDashboards = Invoke-AdoRest GET $ep -Preview
+                        $entries = @()
+                        if ($existingDashboards -eq $null) { $entries = @() }
+                        elseif ($existingDashboards.PSObject.Properties['dashboardEntries']) { $entries = $existingDashboards.dashboardEntries }
+                        elseif ($existingDashboards.PSObject.Properties['value']) { $entries = $existingDashboards.value }
+                        elseif ($existingDashboards -is [array]) { $entries = $existingDashboards }
+                        else { $entries = @($existingDashboards) }
+
+                        $found = $entries | Where-Object { $_.name -eq $dashboardName }
+                        if ($found) {
+                            Write-Host "[INFO] Found existing QA dashboard '$dashboardName' after duplicate error" -ForegroundColor Gray
+                            return $found
+                        }
+                    }
+                    catch {
+                        Write-Verbose "[Test-Adoqadashboard] Failed to locate existing QA dashboard after duplicate error: $_"
+                    }
+                }
+
+                Write-Verbose "[Test-Adoqadashboard] Dashboard POST failed for endpoint $ep - trying next. Error: $_"
             }
-        }
-        if (-not $dashboard) {
-            $dashboard = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/dashboard/dashboards" -Body $dashboardBody -Preview
         }
         
         Write-Host "[SUCCESS] Created QA dashboard: $dashboardName" -ForegroundColor Green
@@ -436,14 +529,30 @@ function New-Adodevdashboard {
     
     try {
         # Check if dashboard already exists
-        $dashboards = Invoke-AdoRest GET "/$Project/_apis/dashboard/dashboards?api-version=7.1-preview.3"
-        $devDashboard = $dashboards.dashboardEntries | Where-Object { $_.name -eq "Development Metrics" }
-        
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $null -TeamId $null
+        $dashboards = $null
+        foreach ($ep in $endpoints) {
+            try {
+                $dashboards = Invoke-AdoRest GET $ep -Preview
+                break
+            }
+            catch {
+                Write-Verbose "[New-Adodevdashboard] Dashboard GET failed for endpoint $ep - trying next. Error: $_"
+            }
+        }
+
+        $entries = @()
+        if ($dashboards -and $dashboards.PSObject.Properties['value']) { $entries = $dashboards.value }
+        elseif ($dashboards -is [array]) { $entries = $dashboards }
+        elseif ($dashboards) { $entries = @($dashboards) }
+
+        $devDashboard = $entries | Where-Object { $_.name -eq "Development Metrics" }
+
         if ($devDashboard) {
             Write-Host "  ℹ️ Development dashboard already exists" -ForegroundColor DarkYellow
             return
         }
-        
+
         # Create dashboard
         $dashboardConfig = @{
             name = "Development Metrics"
@@ -493,8 +602,18 @@ function New-Adodevdashboard {
             )
         }
         
-        $dashboard = Invoke-AdoRest POST "/$Project/_apis/dashboard/dashboards?api-version=7.1-preview.3" -Body $dashboardConfig
-        Write-Host "  ✅ Development Metrics dashboard created" -ForegroundColor Gray
+        $dashboard = $null
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $null -TeamId $null
+        foreach ($ep in $endpoints) {
+            try {
+                $dashboard = Invoke-AdoRest POST $ep -Body $dashboardConfig -Preview
+                break
+            }
+            catch {
+                Write-Verbose "[New-Adodevdashboard] Dashboard POST failed for endpoint $ep - trying next. Error: $_"
+            }
+        }
+        if ($dashboard) { Write-Host "  ✅ Development Metrics dashboard created" -ForegroundColor Gray }
         
         # Create component tags wiki page - load from template
         $templatePath = Join-Path $PSScriptRoot "..\templates\ComponentTags.md"
@@ -556,9 +675,43 @@ function New-AdoSecurityDashboard {
                 }
             )
         }
-        
-        $dashboard = Invoke-AdoRest POST "/$Project/_apis/dashboard/dashboards?api-version=7.1-preview.3" -Body $dashboardConfig
-        Write-Host "  ✅ Security Metrics dashboard created" -ForegroundColor Gray
+
+        $dashboard = $null
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $null -TeamId $null
+        foreach ($ep in $endpoints) {
+            try {
+                $dashboard = Invoke-AdoRest POST $ep -Body $dashboardConfig -Preview
+                break
+            }
+            catch {
+                $postErr = $_.Exception.Message
+                if ($postErr -and ($postErr -match 'DuplicateDashboardNameException' -or $postErr -match 'DuplicateDashboardName')) {
+                    Write-Verbose "[New-AdoSecurityDashboard] Duplicate dashboard name detected when posting to $ep - attempting to find existing dashboard"
+                    try {
+                        $existingDashboards = Invoke-AdoRest GET $ep -Preview
+                        $entries = @()
+                        if ($existingDashboards -eq $null) { $entries = @() }
+                        elseif ($existingDashboards.PSObject.Properties['dashboardEntries']) { $entries = $existingDashboards.dashboardEntries }
+                        elseif ($existingDashboards.PSObject.Properties['value']) { $entries = $existingDashboards.value }
+                        elseif ($existingDashboards -is [array]) { $entries = $existingDashboards }
+                        else { $entries = @($existingDashboards) }
+
+                        $found = $entries | Where-Object { $_.name -eq $dashboardConfig.name }
+                        if ($found) {
+                            Write-Host "[INFO] Found existing Security Metrics dashboard after duplicate error" -ForegroundColor Gray
+                            return $found
+                        }
+                    }
+                    catch {
+                        Write-Verbose "[New-AdoSecurityDashboard] Failed to locate existing dashboard after duplicate error: $_"
+                    }
+                }
+
+                Write-Verbose "[New-AdoSecurityDashboard] Dashboard POST failed for endpoint $ep - trying next. Error: $_"
+            }
+        }
+
+        if ($dashboard) { Write-Host "  ✅ Security Metrics dashboard created" -ForegroundColor Gray }
         Write-Host "[SUCCESS] Security dashboard created" -ForegroundColor Green
     }
     catch {
@@ -627,8 +780,42 @@ function Test-Adomanagementdashboard {
             )
         }
         
-        $dashboard = Invoke-AdoRest POST "/$Project/_apis/dashboard/dashboards?api-version=7.1-preview.3" -Body $dashboardConfig
-        Write-Host "  ✅ Program Management dashboard created" -ForegroundColor Gray
+        $dashboard = $null
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $null -TeamId $null
+        foreach ($ep in $endpoints) {
+            try {
+                $dashboard = Invoke-AdoRest POST $ep -Body $dashboardConfig -Preview
+                break
+            }
+            catch {
+                $postErr = $_.Exception.Message
+                if ($postErr -and ($postErr -match 'DuplicateDashboardNameException' -or $postErr -match 'DuplicateDashboardName')) {
+                    Write-Verbose "[Test-Adomanagementdashboard] Duplicate dashboard name detected when posting to $ep - attempting to find existing dashboard"
+                    try {
+                        $existingDashboards = Invoke-AdoRest GET $ep -Preview
+                        $entries = @()
+                        if ($existingDashboards -eq $null) { $entries = @() }
+                        elseif ($existingDashboards.PSObject.Properties['dashboardEntries']) { $entries = $existingDashboards.dashboardEntries }
+                        elseif ($existingDashboards.PSObject.Properties['value']) { $entries = $existingDashboards.value }
+                        elseif ($existingDashboards -is [array]) { $entries = $existingDashboards }
+                        else { $entries = @($existingDashboards) }
+
+                        $found = $entries | Where-Object { $_.name -eq $dashboardConfig.name }
+                        if ($found) {
+                            Write-Host "[INFO] Found existing Program Management dashboard after duplicate error" -ForegroundColor Gray
+                            return $found
+                        }
+                    }
+                    catch {
+                        Write-Verbose "[Test-Adomanagementdashboard] Failed to locate existing dashboard after duplicate error: $_"
+                    }
+                }
+
+                Write-Verbose "[Test-Adomanagementdashboard] Dashboard POST failed for endpoint $ep - trying next. Error: $_"
+            }
+        }
+
+        if ($dashboard) { Write-Host "  ✅ Program Management dashboard created" -ForegroundColor Gray }
         Write-Host "[SUCCESS] Management dashboard created" -ForegroundColor Green
     }
     catch {
@@ -652,4 +839,6 @@ Export-ModuleMember -Function @(
     'New-AdoSecurityDashboard',
     'Test-Adomanagementdashboard'
 )
+
+Export-ModuleMember -Function 'Resolve-AdoDashboardEndpoints'
 

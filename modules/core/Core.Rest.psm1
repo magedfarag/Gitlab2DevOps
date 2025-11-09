@@ -32,6 +32,21 @@ $script:RetryDelaySeconds = 5
 $script:MaskSecrets = $true
 $script:LogRestCalls = $false
 $script:ProjectCache = @{}
+$script:AdoApiVersionDetected = $null
+# Public convenience config object to avoid callers referencing an unset script: variable
+# Some modules (older code paths) access $script:coreRestConfig directly; define a safe default.
+$script:coreRestConfig = @{
+    CollectionUrl = $null
+    AdoPat = $null
+    GitLabBaseUrl = $null
+    GitLabToken = $null
+    AdoApiVersion = $null
+    SkipCertificateCheck = $script:SkipCertificateCheck
+    RetryAttempts = $script:RetryAttempts
+    RetryDelaySeconds = $script:RetryDelaySeconds
+    MaskSecrets = $script:MaskSecrets
+    LogRestCalls = $script:LogRestCalls
+}
 
 <#
 .SYNOPSIS
@@ -119,9 +134,117 @@ function Initialize-CoreRest {
     
     Write-Verbose "[Core.Rest] Module initialized (v$script:ModuleVersion)"
     Write-Verbose "[Core.Rest] ADO API Version: $AdoApiVersion"
+    # Note: Preserve detected API version cache across re-initializations to reduce API calls
+    # Cache is cleared only on new PowerShell session (when $script:AdoApiVersionDetected is naturally $null)
     Write-Verbose "[Core.Rest] SkipCertificateCheck: $($script:SkipCertificateCheck)"
     Write-Verbose "[Core.Rest] Retry: $RetryAttempts attempts, ${RetryDelaySeconds}s delay"
     Write-Host "[INFO] Core.Rest initialized - SkipCertificateCheck = $($script:SkipCertificateCheck)" -ForegroundColor Cyan
+
+    # Populate the public convenience config object for backward compatibility
+    $script:coreRestConfig = @{
+        CollectionUrl        = $script:CollectionUrl
+        AdoPat               = $script:AdoPat
+        GitLabBaseUrl        = $script:GitLabBaseUrl
+        GitLabToken          = $script:GitLabToken
+        AdoApiVersion        = $script:AdoApiVersion
+        SkipCertificateCheck = $script:SkipCertificateCheck
+        RetryAttempts        = $script:RetryAttempts
+        RetryDelaySeconds    = $script:RetryDelaySeconds
+        MaskSecrets          = $script:MaskSecrets
+        LogRestCalls         = $script:LogRestCalls
+    }
+}
+
+<#
+.SYNOPSIS
+    Ensures the Core.Rest module is initialized and returns the config.
+
+.DESCRIPTION
+    Many callers assume a populated configuration object is available as
+    $script:coreRestConfig or via Get-CoreRestConfig. This helper centralizes
+    the check and provides a helpful actionable message if not initialized.
+
+.OUTPUTS
+    Hashtable with core REST configuration.
+#>
+function Ensure-CoreRestInitialized {
+    [CmdletBinding()]
+    param()
+
+    # If Initialize-CoreRest has been called, the convenience object will be set
+    if ($null -ne $script:coreRestConfig -and $script:coreRestConfig.CollectionUrl) {
+        return $script:coreRestConfig
+    }
+
+    # Attempt to build a best-effort config from individual script variables
+    $built = @{
+        CollectionUrl        = $script:CollectionUrl
+        AdoPat               = $script:AdoPat
+        GitLabBaseUrl        = $script:GitLabBaseUrl
+        GitLabToken          = $script:GitLabToken
+        AdoApiVersion        = $script:AdoApiVersion
+        SkipCertificateCheck = $script:SkipCertificateCheck
+        RetryAttempts        = $script:RetryAttempts
+        RetryDelaySeconds    = $script:RetryDelaySeconds
+        MaskSecrets          = $script:MaskSecrets
+        LogRestCalls         = $script:LogRestCalls
+    }
+
+    # If CollectionUrl or AdoPat are missing, provide a clear actionable error
+    if ([string]::IsNullOrWhiteSpace($built.CollectionUrl) -or [string]::IsNullOrWhiteSpace($built.AdoPat)) {
+        $msg = New-ActionableError -ErrorType 'TokenNotSet' -Details @{ TokenType = 'ADO' }
+        throw "Core REST not initialized. $msg"
+    }
+
+    # Cache and return
+    $script:coreRestConfig = $built
+    return $script:coreRestConfig
+}
+
+<#
+.SYNOPSIS
+    Detect the highest Azure DevOps REST API version supported by the server.
+
+.DESCRIPTION
+    Attempts a small, cheap GET against a commonly-available endpoint using
+    descending API version candidates. Caches the detected version in
+    $script:AdoApiVersionDetected to avoid repeated probes.
+
+.OUTPUTS
+    String API version (e.g., '7.2')
+#>
+function Detect-AdoMaxApiVersion {
+    [CmdletBinding()]
+    param()
+
+    if ($script:AdoApiVersionDetected) { return $script:AdoApiVersionDetected }
+
+    # Candidates in descending order - choose a conservative set
+    $candidates = @('7.3','7.2','7.1','7.0','6.0')
+
+    foreach ($cand in $candidates) {
+        try {
+            # Use a cheap endpoint: list projects with $top=1
+            $testUri = $script:CollectionUrl.TrimEnd('/') + "/_apis/projects?`$top=1&api-version=$cand"
+            $headers = $script:AdoHeaders.Clone()
+            # Use Invoke-RestWithRetry directly to avoid recursion into Invoke-AdoRest
+            $resp = Invoke-RestWithRetry -Method 'GET' -Uri $testUri -Headers $headers -Side 'ado' -MaxAttempts 1 -DelaySeconds 1
+            if ($resp) {
+                $script:AdoApiVersionDetected = $cand
+                Write-Verbose "[Core.Rest] Detected ADO API version: $cand"
+                return $cand
+            }
+        }
+        catch {
+            Write-Verbose "[Core.Rest] Candidate API version $cand not supported: $_"
+            continue
+        }
+    }
+
+    # Fallback to configured value
+    $script:AdoApiVersionDetected = $script:AdoApiVersion
+    Write-Verbose "[Core.Rest] Falling back to configured ADO API version: $script:AdoApiVersionDetected"
+    return $script:AdoApiVersionDetected
 }
 
 <#
@@ -166,6 +289,10 @@ function Get-CoreRestConfig {
     [OutputType([hashtable])]
     param()
     
+    # Return the convenience object if present (avoids "variable not set" when callers use $script:coreRestConfig)
+    if ($null -ne $script:coreRestConfig) { return $script:coreRestConfig }
+
+    # Fallback: build and return a config from individual script variables
     return @{
         CollectionUrl        = $script:CollectionUrl
         AdoPat               = $script:AdoPat
@@ -1224,16 +1351,38 @@ function Invoke-AdoRest {
         [Parameter(Mandatory)]
         [ValidateSet('GET', 'POST', 'PUT', 'PATCH', 'DELETE')]
         [string]$Method,
-        
+
         [Parameter(Mandatory)]
         [string]$Path,
-        
+
         [object]$Body = $null,
-        
-        [switch]$Preview
+
+        [switch]$Preview,
+
+        # Optional: explicit API version string (e.g. '7.1-preview.3' or '7.2').
+        # If provided, it takes priority over Detect-AdoMaxApiVersion/Preview.
+        [string]$ApiVersion,
+
+        [string]$ContentType
     )
     
-    $api = if ($Preview) { "$script:AdoApiVersion-preview.1" } else { $script:AdoApiVersion }
+    # Determine API version to use. Priority:
+    # 1. Explicit -ApiVersion parameter
+    # 2. -Preview switch (append preview suffix to detected version)
+    # 3. Detected max API version from server
+    if ($ApiVersion) {
+        $api = $ApiVersion
+    }
+    else {
+        $detected = Detect-AdoMaxApiVersion
+        if ($Preview) {
+            # Use a conservative preview suffix; callers may pass explicit ApiVersion for different previews
+            $api = "$detected-preview.3"
+        }
+        else {
+            $api = $detected
+        }
+    }
     
     # Determine query string separator based on whether Path already has query parameters
     if ($Path -like '*api-version=*') {
@@ -1252,7 +1401,14 @@ function Invoke-AdoRest {
         $Body = ($Body | ConvertTo-Json -Depth 100)
     }
     
-    return Invoke-RestWithRetry -Method $Method -Uri $uri -Headers $script:AdoHeaders -Body $Body -Side 'ado'
+    # Clone headers and add custom Content-Type if specified
+    $headers = $script:AdoHeaders.Clone()
+    if ($ContentType) {
+        $headers['Content-Type'] = $ContentType
+        Write-Verbose "[Invoke-AdoRest] Using custom Content-Type: $ContentType"
+    }
+    
+    return Invoke-RestWithRetry -Method $Method -Uri $uri -Headers $headers -Body $Body -Side 'ado'
 }
 
 <#
@@ -1312,9 +1468,9 @@ function Invoke-GitLabRest {
     Git remote name (default: "ado").
 
 .EXAMPLE
-    Clear-Gitcredentials -RemoteName "origin"
+    Clear-GitCredentials -RemoteName "origin"
 #>
-function Clear-Gitcredentials {
+function Clear-GitCredentials {
     [CmdletBinding()]
     param(
         [string]$RemoteName = "ado"
@@ -1345,6 +1501,7 @@ function Clear-Gitcredentials {
 # Export public functions
 Export-ModuleMember -Function @(
     'Initialize-CoreRest',
+    'Ensure-CoreRestInitialized',
     'Get-CoreRestVersion',
     'Get-CoreRestConfig',
     'Get-GitLabToken',
@@ -1357,5 +1514,5 @@ Export-ModuleMember -Function @(
     'Invoke-RestWithRetry',
     'Invoke-AdoRest',
     'Invoke-GitLabRest',
-    'Clear-Gitcredentials'
+    'Clear-GitCredentials'
 )

@@ -253,7 +253,7 @@ function Test-MigrationSuccess {
     
     # Get latest commit from Azure DevOps
     $adoCommit = Invoke-RestMethod `
-        -Uri "$env:ADO_COLLECTION_URL/$AdoProject/_apis/git/repositories/$AdoRepo/commits?api-version=7.1&`$top=1" `
+    -Uri "$env:ADO_COLLECTION_URL/$AdoProject/_apis/git/repositories/$AdoRepo/commits?api-version=7.2&`$top=1" `
         -Headers @{ Authorization = "Basic $([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$env:ADO_PAT")))" }
     
     # Compare commit SHAs

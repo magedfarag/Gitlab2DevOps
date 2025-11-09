@@ -1,0 +1,45 @@
+{
+  "$schema": "../modules/AzureDevOps/config/branch-policies.schema.json",
+  "branchPolicies": {
+    "requiredReviewers": {
+      "enabled": false,
+      "isBlocking": false,
+      "minimumApproverCount": 1,
+      "creatorVoteCounts": false,
+      "allowDownvotes": true,
+      "resetOnSourcePush": false
+    },
+    "workItemLinking": {
+      "enabled": false,
+      "isBlocking": false
+    },
+    "commentResolution": {
+      "enabled": false,
+      "isBlocking": false
+    },
+    "buildValidation": {
+      "enabled": false,
+      "isBlocking": false,
+      "buildDefinitionId": 0,
+      "displayName": "",
+      "validDuration": 0,
+      "queueOnSourceUpdateOnly": false
+    },
+    "statusCheck": {
+      "enabled": false,
+      "isBlocking": false,
+      "statusName": "",
+      "statusGenre": "",
+      "applicableFor": "refs/heads/main"
+    },
+    "mergeStrategy": {
+      "noFastForward": false,
+      "squash": true,
+      "rebase": true,
+      "rebaseMerge": true
+    }
+  },
+  "repositorySecurity": {
+    "denyGroups": {}
+  }
+}
