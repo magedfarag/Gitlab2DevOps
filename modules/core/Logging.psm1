@@ -87,39 +87,62 @@ function Get-ProjectPaths {
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory)]
+        # New (v2.1.0) parameter set: use AdoProject + GitLabProject for self-contained structure
+        [Parameter(Mandatory, ParameterSetName='ByAdo')]
         [string]$AdoProject,
-        
-        [Parameter(Mandatory)]
-        [string]$GitLabProject
+
+        [Parameter(Mandatory, ParameterSetName='ByAdo')]
+        [string]$GitLabProject,
+
+        # Legacy compatibility parameter set: single ProjectName representing the flat/legacy folder
+        [Parameter(Mandatory, ParameterSetName='ByProject')]
+        [string]$ProjectName
     )
     
     $migrationsDir = Get-MigrationsDirectory
-    
-    # v2.1.0 self-contained structure
-    $containerDir = Join-Path $migrationsDir $AdoProject
-    $gitlabDir = Join-Path $containerDir $GitLabProject
-    $reportsDir = Join-Path $containerDir "reports"
-    $logsDir = Join-Path $containerDir "logs"
-    $repositoryDir = Join-Path $gitlabDir "repository"
-    $configFile = Join-Path $containerDir "migration-config.json"
+
+    if ($PSCmdlet.ParameterSetName -eq 'ByProject') {
+        # Legacy flat structure: ProjectName used as folder name
+        $containerDir = Join-Path $migrationsDir $ProjectName
+        $gitlabDir = $null
+        $reportsDir = Join-Path $containerDir "reports"
+        $logsDir = Join-Path $containerDir "logs"
+        $repositoryDir = Join-Path $containerDir "repository"
+        $configFile = Join-Path $containerDir "migration-config.json"
+    }
+    else {
+        # v2.1.0 self-contained structure
+        $containerDir = Join-Path $migrationsDir $AdoProject
+        $gitlabDir = Join-Path $containerDir $GitLabProject
+        $reportsDir = Join-Path $containerDir "reports"
+        $logsDir = Join-Path $containerDir "logs"
+        $repositoryDir = Join-Path $gitlabDir "repository"
+        $configFile = Join-Path $containerDir "migration-config.json"
+    }
     
     # Create directories if missing
-    @($containerDir, $reportsDir, $logsDir, $gitlabDir) | ForEach-Object {
-        if (-not (Test-Path $_)) {
-            New-Item -ItemType Directory -Path $_ -Force | Out-Null
-            Write-Verbose "[Logging] Created directory: $_"
+    # Create directories (skip $null entries for legacy compatibility)
+    $toCreate = @($containerDir, $reportsDir, $logsDir)
+    if ($gitlabDir) { $toCreate += $gitlabDir }
+    foreach ($p in $toCreate) {
+        if ($p -and -not (Test-Path $p)) {
+            New-Item -ItemType Directory -Path $p -Force | Out-Null
+            Write-Verbose "[Logging] Created directory: $p"
         }
     }
     
-    return @{
+    $result = @{
         projectDir    = $containerDir
-        gitlabDir     = $gitlabDir
         reportsDir    = $reportsDir
         logsDir       = $logsDir
         repositoryDir = $repositoryDir
         configFile    = $configFile
     }
+
+    # Only include gitlabDir for new self-contained structure
+    if ($gitlabDir) { $result.gitlabDir = $gitlabDir }
+
+    return $result
 }
 
 <#

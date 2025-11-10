@@ -188,8 +188,31 @@ function Measure-Adoproject {
     }
 }
 
-# Removed Get-AdoProjectDescriptor - Graph API is unreliable for on-premise servers
-# Use Core Teams REST API functions in Security.psm1 instead
+#>
+function Test-AdoProjectExists {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ProjectName
+    )
+    
+    Write-Verbose "[Test-AdoProjectExists] Checking if project '$ProjectName' exists..."
+    
+    try {
+        # Use cached project list for efficiency (same pattern as Measure-Adoproject)
+        $projects = Get-AdoProjectList -UseCache
+        $project = $projects | Where-Object { $_.name -eq $ProjectName }
+        
+        $exists = $null -ne $project
+        Write-Verbose "[Test-AdoProjectExists] Project '$ProjectName' exists: $exists"
+        return $exists
+    }
+    catch {
+        Write-Warning "[Test-AdoProjectExists] Failed to check project existence: $_"
+        return $false
+    }
+}
 
 #>
 function Get-AdoProjectProcessTemplate {
@@ -259,6 +282,22 @@ function Get-AdoWorkItemTypes {
             try {
                 $types = $types | ConvertFrom-Json -ErrorAction Stop
                 Write-Verbose "[Get-AdoWorkItemTypes] Converted JSON string response to object"
+            }
+            catch [System.ArgumentException] {
+                # Handle JSON with empty property names by using -AsHashTable (PowerShell 7+)
+                if ($_.Exception.Message -like "*empty string*" -or $_.Exception.Message -like "*property name*") {
+                    try {
+                        Write-Verbose "[Get-AdoWorkItemTypes] Retrying JSON parsing with -AsHashTable due to empty property names"
+                        $types = $types | ConvertFrom-Json -AsHashTable -ErrorAction Stop
+                        Write-Verbose "[Get-AdoWorkItemTypes] Converted JSON string response to hashtable"
+                    }
+                    catch {
+                        Write-Verbose "[Get-AdoWorkItemTypes] Response was string but failed to parse JSON with -AsHashTable: $_"
+                    }
+                }
+                else {
+                    Write-Verbose "[Get-AdoWorkItemTypes] Response was string but failed to parse JSON: $_"
+                }
             }
             catch {
                 Write-Verbose "[Get-AdoWorkItemTypes] Response was string but failed to parse JSON: $_"
@@ -493,6 +532,7 @@ function Measure-Adoiterations {
 Export-ModuleMember -Function @(
     'Get-AdoProjectRepositories',
     'Measure-Adoproject',
+    'Test-AdoProjectExists',
     'Get-AdoProjectProcessTemplate',
     'Get-AdoWorkItemTypes',
     'Measure-Adoarea',

@@ -825,9 +825,14 @@ This project was migrated from GitLab using automated tooling.
         
         try {
             Write-Verbose "[Initialize-AdoProject] Calling Import-AdoWorkItemsFromExcel..."
+            # Get CollectionUrl from core rest config to pass explicitly to avoid script variable issues
+            $coreRestConfig = Get-CoreRestConfig
+            $collectionUrl = $coreRestConfig.CollectionUrl
+            
             $importResult = Import-AdoWorkItemsFromExcel -Project $DestProject `
                                                           -ExcelPath $excelFileToImport `
-                                                          -WorksheetName $ExcelWorksheetName
+                                                          -WorksheetName $ExcelWorksheetName `
+                                                          -CollectionUrl $collectionUrl
             
             Write-Verbose "[Initialize-AdoProject] Import completed. Result: $($importResult | ConvertTo-Json -Compress)"
             

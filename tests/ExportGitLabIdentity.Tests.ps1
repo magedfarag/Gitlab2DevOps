@@ -38,6 +38,9 @@ BeforeAll {
     Mock Invoke-RestMethod {
         return @()
     }
+    
+    # Provide a no-op Write-Log implementation so tests and examples can call it safely
+    function Write-Log { param($Message, $Level = 'INFO') }
 }
 
 Describe "export-gitlab-identity.ps1 - Parameter Validation" {
@@ -58,13 +61,7 @@ Describe "export-gitlab-identity.ps1 - Parameter Validation" {
     
     It "Should reject invalid Profile values" {
         # ValidateSet should throw when parsing a scriptblock with invalid value
-        $scriptblock = { 
-            param(
-                [ValidateSet('Minimal','Standard','Complete')]
-                [string]$P = 'Invalid'
-            )
-        }
-        { & $scriptblock } | Should -Throw
+        { [scriptblock]::Create("param([ValidateSet('Minimal','Standard','Complete')][string]`$P = 'Invalid')") } | Should -Throw
     }
     
     It "Should accept valid ApiVersion values" {

@@ -200,7 +200,8 @@ Describe "Import-AdoWorkItemsFromExcel with Real Excel File" {
     }
     
     It "Creates parent-child relationships" {
-        $relationshipsCreated = 0
+    # Track relationships created in the test script scope so Mock body can increment it
+    $script:relationshipsCreated = 0
         Mock Invoke-AdoRest { 
             param($Method, $Endpoint, $Body)
             

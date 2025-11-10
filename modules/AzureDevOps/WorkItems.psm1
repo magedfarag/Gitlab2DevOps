@@ -10,6 +10,13 @@
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
 
+# Module-level initialization: ensure the script-scoped relationships tracker always exists.
+# This guarantees tests and early mocks can safely reference and increment it without
+# relying on a particular function path to have run first.
+if (-not (Test-Path variable:script:relationshipsCreated)) {
+    $script:relationshipsCreated = @{}
+}
+
 #>
 function New-AdoQueryFolder {
     [CmdletBinding()]
@@ -1567,7 +1574,7 @@ ORDER BY [Microsoft.VSTS.Scheduling.TargetDate], [System.WorkItemType], [Microso
     - WorkItemType: Epic, Feature, User Story, Test Case
     - Title: Work item title (required)
     - ParentLocalId: LocalId of parent work item (for hierarchy)
-    - AreaPath, IterationPath, State, Description, Priority
+    - IterationPath, State, Description, Priority (AreaPath is ignored)
     - StoryPoints, BusinessValue, ValueArea, Risk
     - StartDate, FinishDate, TargetDate, DueDate
     - OriginalEstimate, RemainingWork, CompletedWork
@@ -1592,6 +1599,69 @@ ORDER BY [Microsoft.VSTS.Scheduling.TargetDate], [System.WorkItemType], [Microso
     Requires ImportExcel module: Install-Module ImportExcel
     Work items are created in hierarchical order (Epic -> Feature -> User Story -> Test Case)
 #>
+function Convert-ExcelLocalId {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$LocalId
+    )
+
+    # Trim whitespace and handle empty/null values
+    $localId = $LocalId.Trim()
+    if ([string]::IsNullOrEmpty($localId)) {
+        return $null
+    }
+
+    # Extract prefix and number part
+    if ($localId -match '^([A-Za-z]+)(\d+)$') {
+        $prefix = $matches[1].ToUpper()
+        $number = [int]$matches[2]
+
+        switch ($prefix) {
+            'E' {
+                # Remove prefix, keep number as-is
+                return $number
+            }
+            'F' {
+                # Multiply by 10
+                return $number * 10
+            }
+            'US' {
+                # Multiply by 100
+                return $number * 100
+            }
+            'TC' {
+                # Multiply by 1000
+                return $number * 1000
+            }
+            default {
+                # Unknown prefix, return original value as integer if possible
+                Write-Warning "Unknown LocalId prefix '$prefix' in '$localId', treating as plain number"
+                if ($localId -match '^\d+$') {
+                    return [int]$localId
+                }
+                else {
+                    return $localId
+                }
+            }
+        }
+    }
+    else {
+        # No prefix found, treat as plain number if possible
+        if ($localId -match '^\d+$') {
+            return [int]$localId
+        }
+        else {
+            Write-Warning "LocalId '$localId' does not match expected format (prefix + number), keeping as string"
+            return $localId
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Import work items from Excel file into Azure DevOps project.
+#>
 function Import-AdoWorkItemsFromExcel {
     [CmdletBinding()]
     param(
@@ -1606,12 +1676,42 @@ function Import-AdoWorkItemsFromExcel {
         })]
         [string]$ExcelPath,
         [string]$WorksheetName = "Requirements",
-        [string]$ApiVersion = $null
+        [string]$ApiVersion = $null,
+        # Optional explicit collection URL - caller should prefer Initialize-CoreRest, but this keeps backwards compatibility
+        [string]$CollectionUrl
     )
 
-    # Ensure $script:CollectionUrl is set for parent/child relationships
-    if (-not $script:CollectionUrl) {
-        $script:CollectionUrl = 'https://dev.azure.com/magedfarag'
+    # Validate Excel file exists early to provide clear error message for callers/tests
+    if (-not (Test-Path $ExcelPath)) {
+        throw "Excel file not found: $ExcelPath"
+    }
+
+    # Ensure we have a CollectionUrl for parent/child relationships
+    $effectiveCollectionUrl = $null
+    if ($PSBoundParameters.ContainsKey('CollectionUrl') -and $CollectionUrl) {
+        # Caller provided explicit collection URL for this import
+        $effectiveCollectionUrl = $CollectionUrl
+        $script:CollectionUrl = $CollectionUrl  # Also set script variable for compatibility
+    }
+    elseif ($script:CollectionUrl) {
+        # Use existing script variable
+        $effectiveCollectionUrl = $script:CollectionUrl
+    }
+    else {
+        try {
+            # Try to recover from core rest config if module initialized
+            $cfg = Ensure-CoreRestInitialized
+            if ($cfg -and $cfg.CollectionUrl) {
+                $effectiveCollectionUrl = $cfg.CollectionUrl
+                $script:CollectionUrl = $cfg.CollectionUrl  # Set script variable too
+            }
+            else {
+                throw "CollectionUrl is not configured. Call Initialize-CoreRest or pass -CollectionUrl to Import-AdoWorkItemsFromExcel."
+            }
+        }
+        catch {
+            throw "CollectionUrl is not configured. Call Initialize-CoreRest or pass -CollectionUrl to Import-AdoWorkItemsFromExcel. Error: $_"
+        }
     }
 
     Write-Host "[INFO] Importing work items from Excel: $ExcelPath" -ForegroundColor Cyan
@@ -1643,6 +1743,30 @@ function Import-AdoWorkItemsFromExcel {
     catch {
         Write-Host "[ERROR] Failed to read Excel file: $_" -ForegroundColor Red
         throw
+    }
+
+    # Clean Excel data to remove empty column names (resilient to blank columns in Excel)
+    $cleanedRows = @()
+    foreach ($row in $rows) {
+        $clean = @{}
+        foreach ($prop in $row.PSObject.Properties) {
+            if ([string]::IsNullOrWhiteSpace($prop.Name)) { continue }
+            $clean[$prop.Name] = $prop.Value
+        }
+        $cleanedRows += [pscustomobject]$clean
+    }
+    $rows = $cleanedRows
+
+    # Parse LocalId and ParentLocalId prefixes according to mapping rules
+    foreach ($row in $rows) {
+        if ($row.PSObject.Properties['LocalId'] -and $row.LocalId) {
+            $parsedLocalId = Convert-ExcelLocalId -LocalId $row.LocalId.ToString()
+            $row.LocalId = $parsedLocalId
+        }
+        if ($row.PSObject.Properties['ParentLocalId'] -and $row.ParentLocalId) {
+            $parsedParentLocalId = Convert-ExcelLocalId -LocalId $row.ParentLocalId.ToString()
+            $row.ParentLocalId = $parsedParentLocalId
+        }
     }
     
     # Resolve and normalize WorkItemType values from Excel to ADO project types.
@@ -1695,6 +1819,10 @@ function Import-AdoWorkItemsFromExcel {
     $localToAdoMap = @{}
     $successCount = 0
     $errorCount = 0
+    # Initialize relationships tracking to avoid uninitialized variable errors in some code paths/tests
+    if (-not (Test-Path variable:script:relationshipsCreated)) {
+        $script:relationshipsCreated = @{}
+    }
     
     foreach ($row in $orderedRows) {
         # Use resolved work item type (from Resolve-AdoWorkItemType)
@@ -1728,9 +1856,10 @@ function Import-AdoWorkItemsFromExcel {
             }
             
             # Optional standard fields - check if property exists first using PSObject.Properties
-            if ($row.PSObject.Properties['AreaPath'] -and $row.AreaPath) {
-                $operations += [pscustomobject]@{ op="add"; path="/fields/System.AreaPath"; value=$row.AreaPath.ToString() }
-            }
+            # AreaPath is intentionally ignored during Excel import to use default project area
+            # if ($row.PSObject.Properties['AreaPath'] -and $row.AreaPath) {
+            #     $operations += [pscustomobject]@{ op="add"; path="/fields/System.AreaPath"; value=$row.AreaPath.ToString() }
+            # }
             if ($row.PSObject.Properties['IterationPath'] -and $row.IterationPath) {
                 $operations += @{ op="add"; path="/fields/System.IterationPath"; value=$row.IterationPath.ToString() }
             }
@@ -1851,7 +1980,7 @@ function Import-AdoWorkItemsFromExcel {
                     $projEnc = [uri]::EscapeDataString($Project)
                     $relValue = [pscustomobject]@{
                         rel = "System.LinkTypes.Hierarchy-Reverse"
-                        url = "$script:CollectionUrl/$projEnc/_apis/wit/workItems/$parentAdoId"
+                        url = "$effectiveCollectionUrl/$projEnc/_apis/wit/workItems/$parentAdoId"
                         attributes = [pscustomobject]@{ comment = "Imported from Excel" }
                     }
                     $operations += [pscustomobject]@{
@@ -1975,7 +2104,8 @@ Export-ModuleMember -Function @(
     'Measure-Adomanagementqueries',
     'Import-AdoWorkItemsFromExcel',
     'Resolve-AdoWorkItemType',
-    'ConvertTo-AdoTestStepsXml'
+    'ConvertTo-AdoTestStepsXml',
+    'Convert-ExcelLocalId'
 )
 
 # Note: Upsert-AdoQuery removed from exports - internal helper function only

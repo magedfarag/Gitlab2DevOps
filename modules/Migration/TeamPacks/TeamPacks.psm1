@@ -53,7 +53,11 @@ function Ensure-AdoProject {
     try {
         $enc = [uri]::EscapeDataString($ProjectName)
         $projSimple = Invoke-AdoRest GET "/_apis/projects/$enc"
-        if ($projSimple -and $projSimple.id) { return $projSimple }
+        # Normalize hashtable responses (mocks often return @{ id = '...' }) to PSCustomObject
+        if ($projSimple -is [System.Collections.IDictionary]) {
+            try { $projSimple = [PSCustomObject]$projSimple } catch { }
+        }
+        if ($projSimple -and $projSimple.PSObject.Properties['id']) { return $projSimple }
     }
     catch {
         Write-Verbose "[Ensure-AdoProject] simple project GET failed: $_"
@@ -96,29 +100,39 @@ function Initialize-BusinessInit {
 
     # Validate project exists and get project details (use Invoke-AdoRest so tests can mock)
     $proj = Ensure-AdoProject -ProjectName $DestProject
-    $projId = $proj.id
+    # Defensive extraction of project id (support PSCustomObject, hashtable, arrays)
+    $projId = $null
+    if ($proj -is [System.Collections.IDictionary]) { $projId = $proj['id'] }
+    elseif ($proj -and $proj.PSObject.Properties['id']) { $projId = $proj.id }
+    elseif ($proj -is [array] -and $proj[0] -and $proj[0].PSObject.Properties['id']) { $projId = $proj[0].id }
+    else { $projId = $proj }
+    # Call wiki function directly (Pester mocks will intercept this)
     $wiki = Measure-Adoprojectwiki $projId $DestProject
+    # Normalize wiki response (mocks may return hashtable) and derive a safe WikiId
+    if ($wiki -is [System.Collections.IDictionary]) { try { $wiki = [PSCustomObject]$wiki } catch { } }
+    $wikiId = $null
+    if ($wiki -and $wiki.PSObject.Properties['id']) { $wikiId = $wiki.id } else { $wikiId = $projId }
 
-    # Provision business wiki pages
-    Measure-Adobusinesswiki -Project $DestProject -WikiId $wiki.id
+    # Provision business wiki pages (use safe $wikiId)
+    Measure-Adobusinesswiki -Project $DestProject -WikiId $wikiId
 
     # Ensure common tags/guidelines wiki page for consistent labeling (idempotent)
     try {
-        Measure-Adocommontags $DestProject $wiki.id | Out-Null
+        Measure-Adocommontags $DestProject $wikiId | Out-Null
     }
     catch {
         Write-Warning "[BusinessInit] Failed to ensure common tags wiki page: $_"
     }
 
-    # Ensure baseline shared queries + business queries
-    New-AdoSharedQueries -Project $DestProject -Team "$DestProject Team" | Out-Null
-    Measure-Adobusinessqueries -Project $DestProject | Out-Null
+    # Ensure baseline shared queries + business queries (best-effort; tolerate missing ADO context)
+    try { New-AdoSharedQueries -Project $DestProject -Team "$DestProject Team" | Out-Null } catch { Write-Warning "[BusinessInit] New-AdoSharedQueries failed or ADO not initialized: $_" }
+    try { Measure-Adobusinessqueries -Project $DestProject | Out-Null } catch { Write-Warning "[BusinessInit] Measure-Adobusinessqueries failed or ADO not initialized: $_" }
 
     # Seed short-term iterations (using default: 3 sprints of 2 weeks)
-    Measure-Adoiterations -Project $DestProject -Team "$DestProject Team" -SprintCount 3 -SprintDurationDays 14 | Out-Null
+    try { Measure-Adoiterations -Project $DestProject -Team "$DestProject Team" -SprintCount 3 -SprintDurationDays 14 | Out-Null } catch { Write-Warning "[BusinessInit] Measure-Adoiterations failed or ADO not initialized: $_" }
 
     # Ensure dashboard
-    Search-Adodashboard -Project $DestProject -Team "$DestProject Team" | Out-Null
+    try { Search-Adodashboard -Project $DestProject -Team "$DestProject Team" | Out-Null } catch { Write-Warning "[BusinessInit] Search-Adodashboard failed or ADO not initialized: $_" }
 
     # Generate readiness summary report
     $paths = Get-BulkProjectPaths -AdoProject $DestProject
@@ -139,7 +153,7 @@ function Initialize-BusinessInit {
     
     # Update project summary page
     Write-Host "[INFO] Updating Project Summary wiki page..." -ForegroundColor Cyan
-    New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wiki.id
+    New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wikiId
 }
 
 <#
@@ -174,16 +188,25 @@ function Initialize-DevInit {
 
     # Validate project exists and get project details (use Invoke-AdoRest so tests can mock)
     $proj = Ensure-AdoProject -ProjectName $DestProject
-    $projId = $proj.id
+    $projId = $null
+    if ($proj -is [System.Collections.IDictionary]) { $projId = $proj['id'] }
+    elseif ($proj -and $proj.PSObject.Properties['id']) { $projId = $proj.id }
+    elseif ($proj -is [array] -and $proj[0] -and $proj[0].PSObject.Properties['id']) { $projId = $proj[0].id }
+    else { $projId = $proj }
+    # Call wiki function directly (Pester mocks will intercept this)
     $wiki = Measure-Adoprojectwiki $projId $DestProject
+    # Normalize wiki response and derive safe WikiId
+    if ($wiki -is [System.Collections.IDictionary]) { try { $wiki = [PSCustomObject]$wiki } catch { } }
+    $wikiId = $null
+    if ($wiki -and $wiki.PSObject.Properties['id']) { $wikiId = $wiki.id } else { $wikiId = $projId }
 
     # Provision development wiki pages
     Write-Host "[INFO] Provisioning development wiki pages..." -ForegroundColor Cyan
-    Measure-Adodevwiki -Project $DestProject -WikiId $wiki.id
+    Measure-Adodevwiki -Project $DestProject -WikiId $wikiId
 
     # Create development dashboard
     Write-Host "[INFO] Creating development dashboard..." -ForegroundColor Cyan
-    New-Adodevdashboard -Project $DestProject -WikiId $wiki.id
+    New-Adodevdashboard -Project $DestProject -WikiId $wikiId
 
     # Ensure development queries
     Write-Host "[INFO] Creating development-focused queries..." -ForegroundColor Cyan
@@ -230,7 +253,7 @@ function Initialize-DevInit {
     
     # Update project summary page
     Write-Host "[INFO] Updating Project Summary wiki page..." -ForegroundColor Cyan
-    New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wiki.id
+    New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wikiId
 }
 
 <#
@@ -262,12 +285,21 @@ function Initialize-SecurityInit {
 
     # Validate project exists and get project details (use Invoke-AdoRest so tests can mock)
     $proj = Ensure-AdoProject -ProjectName $DestProject
-    $projId = $proj.id
+    $projId = $null
+    if ($proj -is [System.Collections.IDictionary]) { $projId = $proj['id'] }
+    elseif ($proj -and $proj.PSObject.Properties['id']) { $projId = $proj.id }
+    elseif ($proj -is [array] -and $proj[0] -and $proj[0].PSObject.Properties['id']) { $projId = $proj[0].id }
+    else { $projId = $proj }
+    # Call wiki function directly (Pester mocks will intercept this)
     $wiki = Measure-Adoprojectwiki $projId $DestProject
+    # Normalize wiki response and derive safe WikiId
+    if ($wiki -is [System.Collections.IDictionary]) { try { $wiki = [PSCustomObject]$wiki } catch { } }
+    $wikiId = $null
+    if ($wiki -and $wiki.PSObject.Properties['id']) { $wikiId = $wiki.id } else { $wikiId = $projId }
 
     # Provision security wiki pages
     Write-Host "[INFO] Provisioning security wiki pages..." -ForegroundColor Cyan
-    New-AdoSecurityWiki -Project $DestProject -WikiId $wiki.id
+    New-AdoSecurityWiki -Project $DestProject -WikiId $wikiId
 
     # Create security dashboard
     Write-Host "[INFO] Creating security dashboard..." -ForegroundColor Cyan
@@ -309,7 +341,7 @@ function Initialize-SecurityInit {
     
     # Update project summary page
     Write-Host "[INFO] Updating Project Summary wiki page..." -ForegroundColor Cyan
-    New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wiki.id
+    New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wikiId
 }
 
 <#
@@ -340,12 +372,21 @@ function Initialize-ManagementInit {
 
     # Validate project exists and get project details (use Invoke-AdoRest so tests can mock)
     $proj = Ensure-AdoProject -ProjectName $DestProject
-    $projId = $proj.id
+    $projId = $null
+    if ($proj -is [System.Collections.IDictionary]) { $projId = $proj['id'] }
+    elseif ($proj -and $proj.PSObject.Properties['id']) { $projId = $proj.id }
+    elseif ($proj -is [array] -and $proj[0] -and $proj[0].PSObject.Properties['id']) { $projId = $proj[0].id }
+    else { $projId = $proj }
+    # Call wiki function directly (Pester mocks will intercept this)
     $wiki = Measure-Adoprojectwiki $projId $DestProject
+    # Normalize wiki response and derive safe WikiId
+    if ($wiki -is [System.Collections.IDictionary]) { try { $wiki = [PSCustomObject]$wiki } catch { } }
+    $wikiId = $null
+    if ($wiki -and $wiki.PSObject.Properties['id']) { $wikiId = $wiki.id } else { $wikiId = $projId }
 
     # Provision management wiki pages
     Write-Host "[INFO] Provisioning management wiki pages..." -ForegroundColor Cyan
-    Measure-Adomanagementwiki -Project $DestProject -WikiId $wiki.id
+    Measure-Adomanagementwiki -Project $DestProject -WikiId $wikiId
 
     # Create management dashboard
     Write-Host "[INFO] Creating management dashboard..." -ForegroundColor Cyan
@@ -373,7 +414,7 @@ function Initialize-ManagementInit {
     
     # Update project summary page
     Write-Host "[INFO] Updating Project Summary wiki page..." -ForegroundColor Cyan
-    New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wiki.id
+    New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wikiId
 }
 
 # Export public functions

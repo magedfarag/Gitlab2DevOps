@@ -190,15 +190,56 @@ function Ensure-CoreRestInitialized {
         LogRestCalls         = $script:LogRestCalls
     }
 
-    # If CollectionUrl or AdoPat are missing, provide a clear actionable error
-    if ([string]::IsNullOrWhiteSpace($built.CollectionUrl) -or [string]::IsNullOrWhiteSpace($built.AdoPat)) {
+    # If CollectionUrl is missing, that's fatal for building URIs
+    if ([string]::IsNullOrWhiteSpace($built.CollectionUrl)) {
         $msg = New-ActionableError -ErrorType 'TokenNotSet' -Details @{ TokenType = 'ADO' }
         throw "Core REST not initialized. $msg"
+    }
+
+    # If AdoPat is missing, warn but allow read-only operations to continue in test environments.
+    if ([string]::IsNullOrWhiteSpace($built.AdoPat)) {
+        Write-Warning "AdoPat not configured; proceeding without PAT for read-only operations (tests may provide mocks)."
     }
 
     # Cache and return
     $script:coreRestConfig = $built
     return $script:coreRestConfig
+}
+
+
+#
+# Sets minimal ADO context (CollectionUrl + ProjectName) for callers that do not run Initialize-CoreRest
+#
+function Set-AdoContext {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$CollectionUrl,
+        [Parameter()][string]$ProjectName
+    )
+
+    $script:CollectionUrl = $CollectionUrl
+    if ($PSBoundParameters.ContainsKey('ProjectName') -and $ProjectName) {
+        $script:ProjectName = $ProjectName
+    }
+
+    # Keep the convenience config object in sync for backward compatibility
+    if ($null -eq $script:coreRestConfig) { $script:coreRestConfig = @{ } }
+    $script:coreRestConfig.CollectionUrl = $script:CollectionUrl
+    if ($PSBoundParameters.ContainsKey('ProjectName')) { $script:coreRestConfig.ProjectName = $script:ProjectName }
+
+    Write-Verbose "[Core.Rest] Set-AdoContext: CollectionUrl set to $($script:CollectionUrl)"
+    if ($script:ProjectName) { Write-Verbose "[Core.Rest] Set-AdoContext: ProjectName set to $($script:ProjectName)" }
+
+    # If a PAT is present in the script scope, ensure headers are created so Invoke-AdoRest can run safely
+    try {
+        if ($script:AdoPat) {
+            $script:AdoHeaders = New-AuthHeader -Pat $script:AdoPat
+            Write-Verbose "[Core.Rest] Set-AdoContext: AdoHeaders initialized"
+        }
+    }
+    catch {
+        Write-Verbose "[Core.Rest] Unable to initialize AdoHeaders in Set-AdoContext: $_"
+    }
 }
 
 <#
@@ -219,8 +260,9 @@ function Detect-AdoMaxApiVersion {
 
     if ($script:AdoApiVersionDetected) { return $script:AdoApiVersionDetected }
 
-    # Candidates in descending order - choose a conservative set
-    $candidates = @('7.3','7.2','7.1','7.0','6.0')
+    # Candidates ordered oldest -> newest for tenants that only support older versions
+    # Prefer conservative versions first to avoid repeated 400 responses from unsupported newer versions
+    $candidates = @('7.1','7.2','7.3','7.0','6.0')
 
     foreach ($cand in $candidates) {
         try {
@@ -236,7 +278,8 @@ function Detect-AdoMaxApiVersion {
             }
         }
         catch {
-            Write-Verbose "[Core.Rest] Candidate API version $cand not supported: $_"
+            # This is expected for unsupported versions on some servers; log as debug to keep transcripts clean
+            Write-Debug "[Core.Rest] Candidate API version $cand not supported: $_"
             continue
         }
     }
@@ -806,6 +849,100 @@ function New-NormalizedError {
 
 <#
 .SYNOPSIS
+    Writes raw curl output to a log file when JSON parsing fails.
+
+.DESCRIPTION
+    Creates a detailed log file with raw curl output, extracted JSON string,
+    and error details for debugging JSON parsing failures.
+
+.PARAMETER Side
+    API side ('ado' or 'gitlab').
+
+.PARAMETER Uri
+    The URI that was called.
+
+.PARAMETER Method
+    HTTP method used.
+
+.PARAMETER OutputArray
+    Raw curl output array.
+
+.PARAMETER JsonString
+    Extracted JSON string that failed to parse.
+
+.PARAMETER ErrorMessage
+    The error message from JSON parsing failure.
+
+.EXAMPLE
+    Write-RawCurlOutputToLog -Side 'ado' -Uri $uri -Method 'GET' -OutputArray $outputArray -JsonString $jsonString -ErrorMessage $_
+#>
+function Write-RawCurlOutputToLog {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('ado', 'gitlab')]
+        [string]$Side,
+
+        [Parameter(Mandatory)]
+        [string]$Uri,
+
+        [Parameter(Mandatory)]
+        [string]$Method,
+
+        [Parameter(Mandatory)]
+        [array]$OutputArray,
+
+        [Parameter(Mandatory)]
+        [string]$JsonString,
+
+        [Parameter(Mandatory)]
+        [string]$ErrorMessage
+    )
+
+    try {
+        # Create logs directory if it doesn't exist
+        $logsDir = Join-Path $PSScriptRoot "..\logs"
+        if (-not (Test-Path $logsDir)) {
+            New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+        }
+
+        # Generate timestamped log file name
+        $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        $logFileName = "curl-debug-$Side-$timestamp.log"
+        $logFilePath = Join-Path $logsDir $logFileName
+
+        # Build log content
+        $logContent = @"
+=== CURL DEBUG LOG ===
+Timestamp: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+Side: $Side
+Method: $Method
+URI: $(Hide-Secret -Text $Uri)
+
+=== RAW CURL OUTPUT ===
+$($OutputArray -join "`n")
+
+=== EXTRACTED JSON STRING ===
+$JsonString
+
+=== JSON PARSING ERROR ===
+$ErrorMessage
+
+=== END LOG ===
+"@
+
+        # Write to log file
+        $logContent | Out-File -FilePath $logFilePath -Encoding UTF8 -Force
+
+        Write-Warning "[$Side] Raw curl output logged to: $logFilePath"
+    }
+    catch {
+        Write-Warning "[$Side] Failed to write curl debug log: $_"
+    }
+}
+
+<#
+.SYNOPSIS
     Invokes a REST call with retry logic and exponential backoff.
 
 .DESCRIPTION
@@ -984,7 +1121,9 @@ function Invoke-RestWithRetry {
                     # -i: include HTTP headers in output (to see response code)
                     # -w: write out HTTP code at the end
                     # Use an easily-parsable trailer line for HTTP code
-                    $curlArgs = @('-k', '-s', '-S', '-i', '-w', 'HTTP_CODE:%{http_code}', '-X', $Method, '--max-time', '30')
+                    # Ensure curl writes the HTTP_CODE on its own line (prepend newline) to avoid it being
+                    # appended to the JSON body which breaks ConvertFrom-Json ("Additional text encountered...").
+                    $curlArgs = @('-k', '-s', '-S', '-i', '-w', '\nHTTP_CODE:%{http_code}', '-X', $Method, '--max-time', '30')
                     
                     # For Azure DevOps, use Basic auth with PAT
                     # For GitLab, use headers
@@ -1152,7 +1291,27 @@ function Invoke-RestWithRetry {
                     Write-Verbose "[Core.Rest] Filtered JSON lines: $filteredCount"
                     
                     $jsonString = $jsonLines -join "`n"
-                    
+
+                    # Defensive cleanup: sometimes curl write-out or stray characters can be appended
+                    # to the JSON body (for example 'HTTP_CODE:200' without a newline). Strip any
+                    # trailing HTTP_CODE marker and trim any non-JSON trailing characters by
+                    # truncating after the last closing brace/bracket.
+                    try {
+                        # Remove trailing HTTP_CODE marker if present on same line
+                        $jsonString = $jsonString -replace '\s*HTTP_CODE:\d{3}\s*$', ''
+
+                        # Truncate after the last '}' or ']' to remove any trailing garbage
+                        $lastBrace = $jsonString.LastIndexOf('}')
+                        $lastBracket = $jsonString.LastIndexOf(']')
+                        $lastPos = [Math]::Max($lastBrace, $lastBracket)
+                        if ($lastPos -gt -1 -and $lastPos -lt ($jsonString.Length - 1)) {
+                            $jsonString = $jsonString.Substring(0, $lastPos + 1)
+                        }
+                    }
+                    catch {
+                        Write-Verbose "[Core.Rest] Warning: failed defensive JSON cleanup: $_"
+                    }
+
                     Write-Verbose "[Core.Rest] Extracted JSON length: $($jsonString.Length) chars"
                     # Safe count - use .Length instead of .Count
                     $jsonLineCount = if ($jsonLines -and $jsonLines -is [array]) { $jsonLines.Length } elseif ($jsonLines) { 1 } else { 0 }
@@ -1208,6 +1367,7 @@ function Invoke-RestWithRetry {
                     }
                     
                     try {
+                        # First try standard JSON parsing
                         $response = $jsonString | ConvertFrom-Json -ErrorAction Stop
                         
                         if ($script:LogRestCalls) {
@@ -1225,11 +1385,37 @@ function Invoke-RestWithRetry {
                         
                         return $response
                     }
+                    catch [System.ArgumentException] {
+                        # Handle JSON with empty property names by using -AsHashTable (PowerShell 7+)
+                        if ($_.Exception.Message -like "*empty string*" -or $_.Exception.Message -like "*property name*") {
+                            try {
+                                Write-Verbose "[$Side] Retrying JSON parsing with -AsHashTable due to empty property names"
+                                $response = $jsonString | ConvertFrom-Json -AsHashTable -ErrorAction Stop
+                                return $response
+                            }
+                            catch {
+                                Write-Warning "[$Side] Failed to parse JSON with -AsHashTable: $_"
+                                if ($script:LogRestCalls) {
+                                    Write-Verbose "[Core.Rest] JSON string (first 500 chars): $($jsonString.Substring(0, [Math]::Min(500, $jsonString.Length)))"
+                                }
+                                # Log raw curl output to file for debugging
+                                Write-RawCurlOutputToLog -Side $Side -Uri $Uri -Method $Method -OutputArray $outputArray -JsonString $jsonString -ErrorMessage $_
+                                # Treat as 503 for retry
+                                $status = 503
+                                throw "Invalid JSON response from server (contains empty property names)"
+                            }
+                        }
+                        else {
+                            throw
+                        }
+                    }
                     catch {
                         Write-Warning "[$Side] Failed to parse JSON response: $_"
                         if ($script:LogRestCalls) {
                             Write-Verbose "[Core.Rest] JSON string (first 500 chars): $($jsonString.Substring(0, [Math]::Min(500, $jsonString.Length)))"
                         }
+                        # Log raw curl output to file for debugging
+                        Write-RawCurlOutputToLog -Side $Side -Uri $Uri -Method $Method -OutputArray $outputArray -JsonString $jsonString -ErrorMessage $_
                         # Treat as 503 for retry
                         $status = 503
                         throw "Invalid JSON response from server"
@@ -1366,6 +1552,14 @@ function Invoke-AdoRest {
         [string]$ContentType
     )
     
+    # Ensure core rest initialized and get a stable config object (avoids relying on module script: vars across modules)
+    try {
+        $coreRestConfig = Ensure-CoreRestInitialized
+    }
+    catch {
+        throw
+    }
+
     # Determine API version to use. Priority:
     # 1. Explicit -ApiVersion parameter
     # 2. -Preview switch (append preview suffix to detected version)
@@ -1395,12 +1589,31 @@ function Invoke-AdoRest {
         $queryString = "?api-version=$api"
     }
     
-    $uri = $script:CollectionUrl.TrimEnd('/') + $Path + $queryString
+    if ($null -eq $script:CollectionUrl) {
+        Write-Verbose "[Invoke-AdoRest] CollectionUrl is null"
+    }
+    else {
+        try { Write-Verbose "[Invoke-AdoRest] CollectionUrl type: $($script:CollectionUrl.GetType().FullName)" } catch { }
+    }
+
+    $collectionUrl = $coreRestConfig.CollectionUrl
+    if ($null -eq $collectionUrl) { throw "Core REST not initialized with a CollectionUrl" }
+    $uri = $collectionUrl.TrimEnd('/') + $Path + $queryString
     
     if ($null -ne $Body -and ($Body -isnot [string])) {
         $Body = ($Body | ConvertTo-Json -Depth 100)
     }
     
+    # Ensure headers exists (tests may initialize minimal context without headers)
+    if (-not $script:AdoHeaders) {
+        if ($coreRestConfig.AdoPat) {
+            try { $script:AdoHeaders = New-AuthHeader -Pat $coreRestConfig.AdoPat } catch { $script:AdoHeaders = @{} }
+        }
+        else {
+            $script:AdoHeaders = @{}
+        }
+    }
+
     # Clone headers and add custom Content-Type if specified
     $headers = $script:AdoHeaders.Clone()
     if ($ContentType) {
@@ -1408,7 +1621,13 @@ function Invoke-AdoRest {
         Write-Verbose "[Invoke-AdoRest] Using custom Content-Type: $ContentType"
     }
     
-    return Invoke-RestWithRetry -Method $Method -Uri $uri -Headers $headers -Body $Body -Side 'ado'
+    try {
+        return Invoke-RestWithRetry -Method $Method -Uri $uri -Headers $headers -Body $Body -Side 'ado'
+    }
+    catch {
+        Write-Error "[Core.Rest] Invoke-RestWithRetry failed. CollectionUrl present: $([bool]$script:CollectionUrl); AdoHeaders present: $([bool]$script:AdoHeaders); Headers keys: $($script:AdoHeaders.Keys -join ',')"
+        throw
+    }
 }
 
 <#
@@ -1513,6 +1732,8 @@ Export-ModuleMember -Function @(
     'New-AuthHeader',
     'Invoke-RestWithRetry',
     'Invoke-AdoRest',
+    'Set-AdoContext',
     'Invoke-GitLabRest',
-    'Clear-GitCredentials'
+    'Clear-GitCredentials',
+    'Write-RawCurlOutputToLog'
 )

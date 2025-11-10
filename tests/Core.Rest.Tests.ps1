@@ -9,8 +9,8 @@
 #>
 
 BeforeAll {
-    # Import the module to test
-    $modulePath = Join-Path $PSScriptRoot ".." "modules" "Core.Rest.psm1"
+    # Import the canonical Core.Rest implementation from modules/core
+    $modulePath = Join-Path $PSScriptRoot ".." "modules" "core" "Core.Rest.psm1"
     Import-Module $modulePath -Force
     
     # Mock credentials for testing

@@ -885,7 +885,7 @@ Test-Requirement "GitLab module exports core functions" {
 
 Test-Requirement "AzureDevOps module exports core functions" {
     # Ensure Core.Rest is available so Invoke-AdoRest is present in session
-    Import-Module (Join-Path $moduleRoot "Core.Rest.psm1") -Force
+    Import-Module (Join-Path $moduleRoot "core\Core.Rest.psm1") -Force
     Import-Module (Join-Path $moduleRoot "AzureDevOps.psm1") -Force
     
     # Check for Invoke-AdoRest available in session (provided by Core.Rest)
@@ -1042,7 +1042,7 @@ Write-Host "`n=== INTEGRATION SCENARIOS ===" -ForegroundColor Cyan
 
 Test-Requirement "All modules can be loaded together without conflicts" {
     $modules = @(
-        'Core.Rest.psm1',
+        'core\Core.Rest.psm1',
         'Logging.psm1',
         'GitLab.psm1',
         'AzureDevOps.psm1',

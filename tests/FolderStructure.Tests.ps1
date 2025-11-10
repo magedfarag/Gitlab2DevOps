@@ -10,11 +10,10 @@ Describe "v2.1.0 Folder Structure Validation" {
     Context "Single Project Migration Structure" {
         BeforeAll {
             $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) "folder-structure-test-$(Get-Date -Format 'yyyyMMddHHmmss')"
-            $originalLocation = Get-Location
-            Set-Location $testRoot
-            
-            # Create test directories
-            New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
+                $originalLocation = Get-Location
+                # Create test directories then change into them
+                New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
+                Set-Location $testRoot
         }
         
         AfterAll {
@@ -62,9 +61,9 @@ Describe "v2.1.0 Folder Structure Validation" {
         BeforeAll {
             $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) "bulk-structure-test-$(Get-Date -Format 'yyyyMMddHHmmss')"
             $originalLocation = Get-Location
-            Set-Location $testRoot
-            
+            # Create test directories then change into them
             New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
+            Set-Location $testRoot
         }
         
         AfterAll {
@@ -103,9 +102,9 @@ Describe "v2.1.0 Folder Structure Validation" {
         BeforeAll {
             $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) "legacy-structure-test-$(Get-Date -Format 'yyyyMMddHHmmss')"
             $originalLocation = Get-Location
-            Set-Location $testRoot
-            
+            # Create test directories then change into them
             New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
+            Set-Location $testRoot
         }
         
         AfterAll {

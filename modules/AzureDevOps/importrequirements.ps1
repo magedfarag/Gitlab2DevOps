@@ -1,24 +1,6 @@
 <#
-.SYNOPSIS
 Import hierarchical requirements (Epic -> Feature -> User Story -> Test Case)
-from an Excel sheet into Azure DevOps Server on-prem (Agile process).
-
-.DESCRIPTION
-⚠️ DEPRECATED: This standalone script has been integrated into the main toolkit.
-
-Use the new integrated function instead:
-  Import-AdoWorkItemsFromExcel -Project "MyProject" -ExcelPath "C:\requirements.xlsx"
-
-Or use during project initialization:
-  Initialize-AdoProject -DestProject "MyProject" -RepoName "repo" -ExcelRequirementsPath "C:\requirements.xlsx"
-
-Or via interactive menu:
-  .\Gitlab2DevOps.ps1 → Option 3 → Answer 'y' to "Import work items from Excel?"
-
-See: examples\requirements-template.md for Excel format documentation
-
-Requires: ImportExcel PowerShell module to read .xlsx
-https://www.powershellgallery.com/packages/ImportExcel/
+from Excel into Azure DevOps Server on-prem.
 #>
 
 param(
@@ -31,22 +13,32 @@ param(
 # pick the API version your server supports
 # 2022 / 2022.1 / 2022.2 -> 7.0 or 7.1
 # 2020 -> 6.0
-# https://learn.microsoft.com/.../rest-api-versioning
-$apiVersion = "7.0"   # change to 6.0 for Azure DevOps Server 2020 :contentReference[oaicite:5]{index=5}
+$apiVersion = "7.0"
 
 # PAT auth header
 $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$Pat"))
 
-# you can replace this with any other XLSX reader if you don't want ImportExcel
 Import-Module ImportExcel -ErrorAction Stop
-$rows = Import-Excel -Path $ExcelPath -WorksheetName 'Requirements'
 
-# Azure DevOps wants parents created before children
+# 1) read
+$rawRows = Import-Excel -Path $ExcelPath -WorksheetName 'Requirements'
+
+# 2) drop columns with empty headers so later JSON doesn’t contain ""
+$rows = foreach ($r in $rawRows) {
+    $clean = [pscustomobject]@{}
+    foreach ($p in $r.PSObject.Properties) {
+        if ([string]::IsNullOrWhiteSpace($p.Name)) { continue }
+        $clean | Add-Member -NotePropertyName $p.Name.Trim() -NotePropertyValue $p.Value
+    }
+    $clean
+}
+
+# Azure DevOps wants parents before children
 $hierarchyOrder = @{
-    "Epic"      = 1
-    "Feature"   = 2
-    "User Story"= 3
-    "Test Case" = 4
+    "Epic"        = 1
+    "Feature"     = 2
+    "User Story"  = 3
+    "Test Case"   = 4
 }
 
 $orderedRows = $rows | Sort-Object { $hierarchyOrder[$_.WorkItemType] }
@@ -63,6 +55,7 @@ function Convert-ToTestStepsXml {
 
     $steps = $text -split ';;'
     $last  = $steps.Count
+
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append("<steps id=`"0`" last=`"$last`">")
     $id = 1
@@ -75,6 +68,32 @@ function Convert-ToTestStepsXml {
     }
     [void]$sb.Append("</steps>")
     return $sb.ToString()
+}
+
+function Add-IntField {
+    param(
+        [ref]$ops,
+        [string]$value,
+        [string]$path
+    )
+    if ([string]::IsNullOrWhiteSpace($value)) { return }
+    $n = 0
+    if ([int]::TryParse($value, [ref]$n)) {
+        $ops.Value += @{ op="add"; path=$path; value=$n }
+    }
+}
+
+function Add-DoubleField {
+    param(
+        [ref]$ops,
+        [string]$value,
+        [string]$path
+    )
+    if ([string]::IsNullOrWhiteSpace($value)) { return }
+    $d = 0.0
+    if ([double]::TryParse($value, [ref]$d)) {
+        $ops.Value += @{ op="add"; path=$path; value=$d }
+    }
 }
 
 foreach ($row in $orderedRows) {
@@ -103,15 +122,15 @@ foreach ($row in $orderedRows) {
     if ($row.Description) {
         $ops += @{ op="add"; path="/fields/System.Description"; value=$row.Description }
     }
-    if ($row.Priority) {
-        $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Common.Priority"; value=[int]$row.Priority }
-    }
+
+    # priority / numeric business fields
+    Add-IntField    -ops ([ref]$ops) -value $row.Priority      -path "/fields/Microsoft.VSTS.Common.Priority"
+    Add-IntField    -ops ([ref]$ops) -value $row.BusinessValue -path "/fields/Microsoft.VSTS.Common.BusinessValue"
+
     if ($row.StoryPoints -and $wit -eq "User Story") {
-        $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StoryPoints"; value=[double]$row.StoryPoints }
+        Add-DoubleField -ops ([ref]$ops) -value $row.StoryPoints -path "/fields/Microsoft.VSTS.Scheduling.StoryPoints"
     }
-    if ($row.BusinessValue) {
-        $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Common.BusinessValue"; value=[int]$row.BusinessValue }
-    }
+
     if ($row.ValueArea) {
         $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Common.ValueArea"; value=$row.ValueArea }
     }
@@ -119,17 +138,18 @@ foreach ($row in $orderedRows) {
         $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Common.Risk"; value=$row.Risk }
     }
 
-    # scheduling / effort
-    if ($row.StartDate)    { $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StartDate";  value=[datetime]$row.StartDate } }
-    if ($row.FinishDate)   { $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.FinishDate"; value=[datetime]$row.FinishDate } }
-    if ($row.TargetDate)   { $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.TargetDate"; value=[datetime]$row.TargetDate } }
-    if ($row.DueDate)      { $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.DueDate";    value=[datetime]$row.DueDate } }
+    # dates
+    if ($row.StartDate)  { $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StartDate";  value=[datetime]$row.StartDate } }
+    if ($row.FinishDate) { $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.FinishDate"; value=[datetime]$row.FinishDate } }
+    if ($row.TargetDate) { $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.TargetDate"; value=[datetime]$row.TargetDate } }
+    if ($row.DueDate)    { $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.DueDate";    value=[datetime]$row.DueDate } }
 
-    if ($row.OriginalEstimate) { $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.OriginalEstimate"; value=[double]$row.OriginalEstimate } }
-    if ($row.RemainingWork)    { $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.RemainingWork";    value=[double]$row.RemainingWork } }
-    if ($row.CompletedWork)    { $ops += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.CompletedWork";    value=[double]$row.CompletedWork } }
+    # effort
+    Add-DoubleField -ops ([ref]$ops) -value $row.OriginalEstimate -path "/fields/Microsoft.VSTS.Scheduling.OriginalEstimate"
+    Add-DoubleField -ops ([ref]$ops) -value $row.RemainingWork    -path "/fields/Microsoft.VSTS.Scheduling.RemainingWork"
+    Add-DoubleField -ops ([ref]$ops) -value $row.CompletedWork    -path "/fields/Microsoft.VSTS.Scheduling.CompletedWork"
 
-    # test case special field
+    # test steps
     if ($wit -eq "Test Case" -and $row.TestSteps) {
         $xml = Convert-ToTestStepsXml -text $row.TestSteps
         if ($xml) {
@@ -145,7 +165,7 @@ foreach ($row in $orderedRows) {
         $ops += @{ op="add"; path="/fields/System.Tags"; value=$row.Tags }
     }
 
-    # parent link (we can add it during creation if the parent is already created)
+    # parent link
     if ($row.ParentLocalId) {
         $parentAdoId = $localToAdo[[int]$row.ParentLocalId]
         if ($parentAdoId) {
@@ -153,7 +173,7 @@ foreach ($row in $orderedRows) {
                 op   = "add"
                 path = "/relations/-"
                 value = @{
-                    rel  = "System.LinkTypes.Hierarchy-Reverse"  # child -> parent
+                    rel  = "System.LinkTypes.Hierarchy-Reverse"
                     url  = "$CollectionUri/$Project/_apis/wit/workItems/$parentAdoId"
                     attributes = @{ comment = "imported from Excel" }
                 }
@@ -171,7 +191,6 @@ foreach ($row in $orderedRows) {
                             -ContentType "application/json-patch+json" `
                             -Body $json
 
-    # remember ADO id
     if ($row.LocalId) {
         $localToAdo[[int]$row.LocalId] = $wi.id
     }
