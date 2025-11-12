@@ -286,7 +286,7 @@ function Detect-AdoMaxApiVersion {
 
     # Fallback to configured value
     $script:AdoApiVersionDetected = $script:AdoApiVersion
-    Write-Verbose "[Core.Rest] Falling back to configured ADO API version: $script:AdoApiVersionDetected"
+    Write-Verbose "[Core.Rest] Falling back to configured ADO API version: $($script:AdoApiVersionDetected)"
     return $script:AdoApiVersionDetected
 }
 

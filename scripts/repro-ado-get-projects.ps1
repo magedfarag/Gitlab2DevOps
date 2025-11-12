@@ -33,8 +33,8 @@ try {
 }
 
 # Show handler preference and active handler if available
-try { Write-Host "HttpClientHandlerPreference: $script:HttpClientHandlerPreference" } catch {}
-try { Write-Host "HttpClientHandlerActive: $script:HttpClientHandlerActive" } catch {}
+try { Write-Host "HttpClientHandlerPreference: $($script:HttpClientHandlerPreference)" } catch {}
+try { Write-Host "HttpClientHandlerActive: $($script:HttpClientHandlerActive)" } catch {}
 
 # Build request
 $path = '/_apis/projects?$top=10'

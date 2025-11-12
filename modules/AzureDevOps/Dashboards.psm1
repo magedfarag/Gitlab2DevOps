@@ -199,7 +199,8 @@ function Search-Adodashboard {
                                     break
                                 }
                                 catch {
-                                    Write-LogLevelVerbose "[Search-Adodashboard] Failed to PATCH overview dashboard at $ep: $_"
+                                    # Use subexpression to avoid parsing issues when appending ':' after a variable
+                                    Write-LogLevelVerbose "[Search-Adodashboard] Failed to PATCH overview dashboard at $($ep): $_"
                                 }
                             }
                         }

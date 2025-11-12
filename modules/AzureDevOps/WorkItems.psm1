@@ -2224,8 +2224,10 @@ function Import-AdoWorkItemsFromExcel {
                 Write-LogLevelVerbose "Assigned area path '$firstAreaPath' to work item '$($row.Title)'"
             }
             
-            # Decide iteration assignment: child work items (User Story, Bug, Test Case, Task, PBI) should go to Project\Sprint 1
-            $childTypes = @('User Story','Bug','Test Case','Task','Product Backlog Item')
+            # Decide iteration assignment: child work items (User Story, Bug, Test Case, Task, PBI,
+            # and also Epic/Feature when desired) should go to Project\Sprint 1
+            # Include Epic and Feature here so they inherit the same iteration as other children
+            $childTypes = @('User Story','Bug','Test Case','Task','Product Backlog Item','Epic','Feature')
             $childIterationPath = if ($sprintIterationPath) { $sprintIterationPath } else { "$Project\Sprint 1" }
 
             if ($firstIterationPath) {
