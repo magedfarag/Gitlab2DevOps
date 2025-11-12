@@ -988,23 +988,14 @@ This project was migrated from GitLab using automated tooling.
         Write-Host "[SKIP] QA infrastructure (disabled by selection)" -ForegroundColor DarkGray
     }
     
-    # Create repository with checkpoint (skip for bulk init)
+    # Repository creation and RBAC have been intentionally deferred to the migration phase
+    # (Option 4: Start Planned Migration). Creating repositories during initialization
+    # causes additional waits and may create noise; perform repository creation as the
+    # final step of the planned migration workflow when code is pushed.
     $script:repo = $null
-    if ($componentsToInitialize.repository -and -not $BulkInit.IsPresent) {
-        if (-not $RepoName) {
-            Write-Host "[SKIP] Repository creation (no repository name provided)" -ForegroundColor DarkGray
-        } else {
-            Invoke-CheckpointedStep -StepName 'repository' -SuccessMessage "Repository '$RepoName' created" `
-                -ProgressStatus "Creating repository (8/$script:totalSteps)" -Action {
-                $script:repo = New-AdoRepository $using:DestProject $using:script:projId $using:RepoName
-            }
-        }
-    }
-    elseif ($BulkInit.IsPresent) {
+    Write-Host "[INFO] Repository creation and RBAC tasks are deferred to the migration step (Option 4)" -ForegroundColor Yellow
+    if ($BulkInit.IsPresent) {
         Write-Host "[SKIP] Repository creation (bulk initialization - repositories will be created during migration)" -ForegroundColor DarkGray
-    }
-    else {
-        Write-Host "[SKIP] Repository creation (disabled by selection)" -ForegroundColor DarkGray
     }
 
     if ($null -ne $script:repo) {

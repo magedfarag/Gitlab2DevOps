@@ -135,7 +135,7 @@ function New-AdoQueryFolder {
         $projEnc = [uri]::EscapeDataString($Project)
         
         try {
-            $existing = Invoke-AdoRest GET "/$projEnc/_apis/wit/queries/$encoded"
+            $existing = Invoke-AdoRest GET "/$projEnc/_apis/wit/queries/$encoded" -ReturnNullOnNotFound
             if ($existing -and $existing.isFolder) {
                 Write-LogLevelVerbose "[WorkItems] Query folder '$currentPath' already exists"
                 continue
@@ -318,7 +318,7 @@ function Upsert-AdoQuery {
     # Try to retrieve existing query by full path
     $encodedFull = [uri]::EscapeDataString($Path)
     try {
-        $existing = Invoke-AdoRest GET "/$projEnc/_apis/wit/queries/$encodedFull"
+    $existing = Invoke-AdoRest GET "/$projEnc/_apis/wit/queries/$encodedFull" -ReturnNullOnNotFound
     }
     catch {
         $existing = $null
@@ -603,7 +603,7 @@ function New-AdoSharedQueries {
     
     try {
         # Check if team folder already exists
-        $sharedQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=2"
+    $sharedQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=2" -ReturnNullOnNotFound
         
         if ($sharedQueries -and $sharedQueries.PSObject.Properties['children'] -and $sharedQueries.children) {
             $teamFolder = $sharedQueries.children | Where-Object { $_.name -eq $Team -and $_.isFolder -eq $true }
@@ -635,7 +635,7 @@ function New-AdoSharedQueries {
     $existingQueries = @{}
     try {
         if ($teamFolderId) {
-            $folderQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$teamFolderId?`$depth=1"
+            $folderQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$teamFolderId?`$depth=1" -ReturnNullOnNotFound
             # Handle both response structures: direct children or wrapped in value
             $children = $null
             if ($folderQueries -and $folderQueries.PSObject.Properties['children'] -and $folderQueries.children) {
@@ -934,7 +934,7 @@ function New-AdoQAQueries {
     
     try {
         # Check if QA folder already exists
-        $sharedQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=2"
+    $sharedQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=2" -ReturnNullOnNotFound
         
         if ($sharedQueries -and $sharedQueries.PSObject.Properties['children'] -and $sharedQueries.children) {
             $qaFolder = $sharedQueries.children | Where-Object { $_.name -eq "QA" -and $_.isFolder -eq $true }
@@ -966,7 +966,7 @@ function New-AdoQAQueries {
     $existingQueries = @{}
     try {
         if ($qaFolderId) {
-            $folderQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$qaFolderId?`$depth=1"
+            $folderQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$qaFolderId?`$depth=1" -ReturnNullOnNotFound
             # Handle both response structures: direct children or wrapped in value
             $children = $null
             if ($folderQueries -and $folderQueries.PSObject.Properties['children'] -and $folderQueries.children) {
@@ -1333,30 +1333,21 @@ Use these tags to categorize work items effectively:
     }
 
     try {
-        # Check if page exists
-        try {
-            # Do a non-retried existence check for this wiki page to avoid noisy retries on server errors
-            $existingPage = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis/$WikiId/pages?path=/Tag-Guidelines" -MaxAttempts 1 -DelaySeconds 0
-            Write-Host "[INFO] Tag Guidelines page already exists" -ForegroundColor Gray
-            return $existingPage
-        }
-        catch {
-            # Page doesn't exist, create it
-            Write-LogLevelVerbose "[Measure-Adocommontags] Creating Tag Guidelines page"
-            $page = Set-AdoWikiPage $Project $WikiId "/Tag-Guidelines" $tagGuidelinesContent
-            Write-Host "[SUCCESS] Created Tag Guidelines wiki page" -ForegroundColor Green
-            Write-Host ""
-            Write-Host "[INFO] Common tags documented:" -ForegroundColor Cyan
-            Write-Host "  🚫 Status: blocked, urgent, breaking-change, needs-review, needs-testing" -ForegroundColor Gray
-            Write-Host "  💻 Technical: frontend, backend, database, api, infrastructure" -ForegroundColor Gray
-            Write-Host "  🏗️ Quality: technical-debt, performance, security" -ForegroundColor Gray
-            Write-Host "  📂 Location: Project Wiki → Tag-Guidelines" -ForegroundColor Gray
-            
-            return $page
-        }
+        # Attempt to create/update the page directly via Set-AdoWikiPage which already performs PUT→PATCH.
+        # This avoids an initial GET that can produce expected 404 TerminatingErrors in transcripts.
+        Write-LogLevelVerbose "[Measure-Adocommontags] Upserting Tag Guidelines page via Set-AdoWikiPage"
+        $page = Set-AdoWikiPage $Project $WikiId "/Tag-Guidelines" $tagGuidelinesContent
+        Write-Host "[SUCCESS] Tag Guidelines wiki page created or updated" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "[INFO] Common tags documented:" -ForegroundColor Cyan
+        Write-Host "  🚫 Status: blocked, urgent, breaking-change, needs-review, needs-testing" -ForegroundColor Gray
+        Write-Host "  💻 Technical: frontend, backend, database, api, infrastructure" -ForegroundColor Gray
+        Write-Host "  🏗️ Quality: technical-debt, performance, security" -ForegroundColor Gray
+        Write-Host "  📂 Location: Project Wiki → Tag-Guidelines" -ForegroundColor Gray
+        return $page
     }
     catch {
-        Write-Warning "Failed to create Tag Guidelines page: $_"
+        Write-Warning "Failed to upsert Tag Guidelines page: $_"
         return $null
     }
 }
@@ -1379,7 +1370,7 @@ function Measure-Adobusinessqueries {
     # Read existing queries under Shared Queries
     $existing = @{}
     try {
-        $resp = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=1"
+    $resp = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=1" -ReturnNullOnNotFound
     if ($resp -and $resp.PSObject.Properties['children'] -and $resp.children) { $resp.children | ForEach-Object { $existing[$_.name] = $_ } }
     }
     catch {
@@ -1504,7 +1495,7 @@ ORDER BY [System.ChangedDate] DESC
                 $encodedPath = [uri]::EscapeDataString("Shared Queries/Development/$($q.name)")
                 try {
                     # Try to get existing query
-                    $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$encodedPath"
+                    $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$encodedPath" -ReturnNullOnNotFound
                     Write-Host "  ✓ Query exists: $($q.name)" -ForegroundColor Gray
                 }
                 catch {
@@ -2122,8 +2113,8 @@ function Import-AdoWorkItemsFromExcel {
     try {
         Write-LogLevelVerbose "Getting first area and iteration for project: $Project"
         
-        # Get first area
-        $areasResponse = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/areas?`$depth=1"
+        # Get first area. Use ReturnNullOnNotFound to avoid noisy TerminatingError when no areas exist yet.
+        $areasResponse = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/areas?`$depth=1" -ReturnNullOnNotFound
         if ($areasResponse -and $areasResponse.value -and $areasResponse.value.Count -gt 0) {
             $firstAreaPath = $areasResponse.value[0].name
             Write-LogLevelVerbose "First area path: $firstAreaPath"
@@ -2132,8 +2123,8 @@ function Import-AdoWorkItemsFromExcel {
             Write-LogLevelVerbose "First area path: $firstAreaPath"
         }
         
-        # Get first iteration
-        $iterationsResponse = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/iterations?`$depth=1"
+        # Get first iteration. Use ReturnNullOnNotFound to avoid noisy TerminatingError when no iterations exist yet.
+        $iterationsResponse = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/iterations?`$depth=1" -ReturnNullOnNotFound
         if ($iterationsResponse -and $iterationsResponse.value -and $iterationsResponse.value.Count -gt 0) {
             $firstIterationPath = $iterationsResponse.value[0].name
             Write-LogLevelVerbose "First iteration path: $firstIterationPath"
@@ -2143,7 +2134,38 @@ function Import-AdoWorkItemsFromExcel {
         }
     }
     catch {
-        Write-Warning "Could not retrieve first area/iteration, work items will not have default area/iteration assigned: $_"
+        Write-LogLevelVerbose "Could not retrieve classification nodes: $_"
+        # If classification nodes are missing, create default area and iteration with the project name so imports have sensible defaults
+        try {
+            Write-Host "[INFO] Creating default Area and Iteration: $Project" -ForegroundColor Cyan
+            $projEnc = [uri]::EscapeDataString($Project)
+            # Create root area node named after the project
+            Invoke-AdoRest POST "/$projEnc/_apis/wit/classificationnodes/areas?api-version=7.1" -Body @{ name = $Project } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
+            # Create root iteration node named after the project
+            Invoke-AdoRest POST "/$projEnc/_apis/wit/classificationnodes/iterations?api-version=7.1" -Body @{ name = $Project } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
+            
+            # Ensure a default Sprint 1 exists under the project for child work items
+            try {
+                $sprintName = 'Sprint 1'
+                # Attempt to create Sprint 1 - if it already exists, API may return 409 and we'll ignore
+                Invoke-AdoRest POST "/$projEnc/_apis/wit/classificationnodes/iterations?api-version=7.1" -Body @{ name = $sprintName } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
+                $sprintIterationPath = "$Project\\$sprintName"
+                Write-Host "[SUCCESS] Default iteration '$sprintIterationPath' ensured" -ForegroundColor Green
+            }
+            catch {
+                # If creation failed, attempt to use fallback path (project\Sprint 1) regardless
+                $sprintIterationPath = "$Project\\Sprint 1"
+                Write-LogLevelVerbose "Could not create Sprint 1 iteration (may already exist): $_"
+            }
+
+            # Assign created values as defaults
+            $firstAreaPath = $Project
+            $firstIterationPath = $Project
+            Write-Host "[SUCCESS] Default area and iteration '$Project' created and will be assigned to imported work items" -ForegroundColor Green
+        }
+        catch {
+            Write-Warning "Could not create default area/iteration automatically: $_"
+        }
     }
     
     # Map Excel LocalId to Azure DevOps work item ID (string keys to avoid JSON serialization issues)
@@ -2202,13 +2224,28 @@ function Import-AdoWorkItemsFromExcel {
                 Write-LogLevelVerbose "Assigned area path '$firstAreaPath' to work item '$($row.Title)'"
             }
             
+            # Decide iteration assignment: child work items (User Story, Bug, Test Case, Task, PBI) should go to Project\Sprint 1
+            $childTypes = @('User Story','Bug','Test Case','Task','Product Backlog Item')
+            $childIterationPath = if ($sprintIterationPath) { $sprintIterationPath } else { "$Project\Sprint 1" }
+
             if ($firstIterationPath) {
-                $operations += [pscustomobject]@{
-                    op    = "add"
-                    path  = "/fields/System.IterationPath"
-                    value = $firstIterationPath
+                if ($childTypes -contains $wit) {
+                    $operations += [pscustomobject]@{
+                        op    = "add"
+                        path  = "/fields/System.IterationPath"
+                        value = $childIterationPath
+                    }
+                    Write-LogLevelVerbose "Assigned child iteration path '$childIterationPath' to work item '$($row.Title)' (type: $wit)"
                 }
-                Write-LogLevelVerbose "Assigned iteration path '$firstIterationPath' to work item '$($row.Title)'"
+                else {
+                    # For parent types (Epic, Feature, etc.) keep the project's first iteration/default
+                    $operations += [pscustomobject]@{
+                        op    = "add"
+                        path  = "/fields/System.IterationPath"
+                        value = $firstIterationPath
+                    }
+                    Write-LogLevelVerbose "Assigned iteration path '$firstIterationPath' to parent work item '$($row.Title)' (type: $wit)"
+                }
             }
             
             # IterationPath is intentionally ignored during Excel import to use default project area

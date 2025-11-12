@@ -166,6 +166,50 @@ function Search-Adodashboard {
 
         if ($existing) {
             Write-Host "[INFO] Dashboard '$dashboardName' already exists" -ForegroundColor Gray
+            # If an existing team-specific dashboard (e.g. Development Metrics) is present in the project,
+            # attempt to replace the default Overview dashboard widgets with that dashboard's widgets.
+            try {
+                $preferredNames = @('Development Metrics','Program Management','Security Metrics','QA Metrics')
+                $source = $entries | Where-Object { $preferredNames -contains $_.name } | Select-Object -First 1
+                if ($source) {
+                    Write-Verbose "[Search-Adodashboard] Found source dashboard to copy: $($source.name)"
+                    # Resolve IDs for overview dashboard and source dashboard
+                    $overviewId = if ($existing.id) { $existing.id } elseif ($existing.dashboardId) { $existing.dashboardId } else { $null }
+                    $sourceId = if ($source.id) { $source.id } elseif ($source.dashboardId) { $source.dashboardId } else { $null }
+                    if ($overviewId -and $sourceId) {
+                        # Get full source dashboard definition
+                        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId
+                        $sourceDetails = $null
+                        foreach ($ep in $endpoints) {
+                            try {
+                                $sourceDetails = Invoke-AdoRest GET ("$ep/" + $sourceId) -Preview
+                                break
+                            }
+                            catch {
+                                Write-LogLevelVerbose "[Search-Adodashboard] Source dashboard GET failed for endpoint $ep - trying next. Error: $_"
+                            }
+                        }
+
+                        if ($sourceDetails -and $sourceDetails.widgets) {
+                            $updateBody = @{ widgets = $sourceDetails.widgets; description = $sourceDetails.description }
+                            foreach ($ep in $endpoints) {
+                                try {
+                                    Invoke-AdoRest PATCH ("$ep/" + $overviewId) -Body $updateBody -Preview | Out-Null
+                                    Write-Host "[SUCCESS] Replaced Overview dashboard widgets with dashboard '$($source.name)'" -ForegroundColor Green
+                                    break
+                                }
+                                catch {
+                                    Write-LogLevelVerbose "[Search-Adodashboard] Failed to PATCH overview dashboard at $ep: $_"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch {
+                Write-LogLevelVerbose "[Search-Adodashboard] Could not replace Overview dashboard: $_"
+            }
+
             return $existing
         }
     }

@@ -778,6 +778,9 @@ function New-NormalizedError {
     
     $status = 0
     $message = "Unknown error"
+    # Initialize variables used when extracting response details to avoid "variable not set" warnings
+    $rawBody = $null
+    $body = $null
     
     # Handle different error object types
     if ($Exception -is [string]) {
@@ -1462,6 +1465,30 @@ function Invoke-RestWithRetry {
                     $maskedEndpoint = $normalizedError.endpoint
                     Write-Error "[$Side] REST $Method $maskedEndpoint → HTTP $status : $($normalizedError.message)"
                 }
+                # Write a small diagnostic file for final failures when LogRestCalls is enabled
+                try {
+                    if ($script:LogRestCalls) {
+                        $logsDir = Join-Path $PSScriptRoot "..\logs"
+                        if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
+                        $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+                        $safeUri = Hide-Secret -Text $Uri
+                        $diagFile = Join-Path $logsDir ("rest-failure-" + $Side + "-" + $Method + "-" + $timestamp + ".json")
+                        $diag = [ordered]@{
+                            timestamp = (Get-Date).ToString('o')
+                            side = $Side
+                            method = $Method
+                            endpoint = $safeUri
+                            status = $status
+                            message = $normalizedError.message
+                            rawBody = (if ($normalizedError.rawBody) { $normalizedError.rawBody } else { $null })
+                        }
+                        $diag | ConvertTo-Json -Depth 5 | Out-File -FilePath $diagFile -Encoding UTF8 -Force
+                        Write-Verbose "[Core.Rest] Wrote diagnostic failure log: $diagFile"
+                    }
+                }
+                catch {
+                    Write-Verbose "[Core.Rest] Failed to write diagnostic failure log: $_"
+                }
                 throw
             }
         }
@@ -1564,7 +1591,8 @@ function Invoke-AdoRest {
         [int]$MaxAttempts,
         [int]$DelaySeconds,
 
-        [string]$ContentType
+        [string]$ContentType,
+        [switch]$ReturnNullOnNotFound
     )
     
     # Ensure core rest initialized and get a stable config object (avoids relying on module script: vars across modules)
@@ -1651,6 +1679,19 @@ function Invoke-AdoRest {
         return Invoke-RestWithRetry @irtParams
     }
     catch {
+        # If the caller requested that GET 404s return $null (avoid noisy TerminatingError in transcripts),
+        # inspect the normalized error and return $null when appropriate.
+        try {
+            $normalized = New-NormalizedError -Exception $_ -Side 'ado' -Endpoint $uri
+            if ($ReturnNullOnNotFound.IsPresent -and $Method -eq 'GET' -and $normalized.status -eq 404) {
+                Write-Verbose "[Core.Rest] GET 404 on $Path - returning $null (ReturnNullOnNotFound requested)"
+                return $null
+            }
+        }
+        catch {
+            # If normalization fails, fall through to the throw below
+        }
+
         Write-Error "[Core.Rest] Invoke-RestWithRetry failed. CollectionUrl present: $([bool]$script:CollectionUrl); AdoHeaders present: $([bool]$script:AdoHeaders); Headers keys: $($script:AdoHeaders.Keys -join ',')"
         throw
     }

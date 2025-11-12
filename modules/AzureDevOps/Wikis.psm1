@@ -237,7 +237,7 @@ function Set-AdoWikiPage {
         # Acquire existing page to retrieve ETag
         try {
             # GET should not perform long retry loops for wiki page retrieval
-            $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -MaxAttempts 1 -DelaySeconds 0
+        $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -ReturnNullOnNotFound -MaxAttempts 1 -DelaySeconds 0
         }
         catch {
             Write-Warning ("[Wikis] Could not retrieve existing page for {0}: {1}" -f $Path, $_)
@@ -275,7 +275,7 @@ function Set-AdoWikiPage {
                 if ($attempt -lt $maxAttempts) {
                     Start-Sleep -Seconds (2 * $attempt)
                     # Refresh ETag in case another client updated the page
-                    try { $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -MaxAttempts 1 -DelaySeconds 0; if ($existing -and $existing.eTag) { $etag = $existing.eTag } } catch { }
+                    try { $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -ReturnNullOnNotFound -MaxAttempts 1 -DelaySeconds 0; if ($existing -and $existing.eTag) { $etag = $existing.eTag } } catch { }
                     continue
                 }
                 else {
@@ -798,16 +798,16 @@ function New-AdoProjectSummaryWikiPage {
         # Escaped project name for API paths
         $projEnc = [uri]::EscapeDataString($Project)
 
-        # repositories
-        $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories"
+    # repositories
+    $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories" -ReturnNullOnNotFound
         $repoCount = 0
         if ($repos) {
             if ($repos.PSObject.Properties['value']) { $repoCount = $repos.value.Count }
             elseif ($repos -is [System.Array]) { $repoCount = $repos.Count }
         }
 
-        # work item types
-        $witypes = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/workitemtypes"
+    # work item types
+    $witypes = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/workitemtypes" -ReturnNullOnNotFound
         $workItemTypes = ''
         $witypesCount = 0
         if ($witypes) {
@@ -821,8 +821,8 @@ function New-AdoProjectSummaryWikiPage {
             }
         }
 
-        # areas and iterations
-        $areas = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/areas" + '?$depth=2')
+    # areas and iterations
+    $areas = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/areas" + '?$depth=2') -ReturnNullOnNotFound
         $areaCount = 0
         if ($areas) {
             if ($areas.PSObject.Properties['children'] -and $areas.children) { $areaCount = $areas.children.Count }
@@ -830,7 +830,7 @@ function New-AdoProjectSummaryWikiPage {
             elseif ($areas -is [System.Array]) { $areaCount = $areas.Count }
         }
 
-        $iterations = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/iterations" + '?$depth=2')
+    $iterations = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/iterations" + '?$depth=2') -ReturnNullOnNotFound
         $iterationCount = 0
         if ($iterations) {
             if ($iterations.PSObject.Properties['children'] -and $iterations.children) { $iterationCount = $iterations.children.Count }
@@ -840,7 +840,7 @@ function New-AdoProjectSummaryWikiPage {
 
         # wiki pages
     # Non-retried wiki pages listing to avoid global retry noise for large wiki trees
-    $wikiPages = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis/$WikiId/pages?recursionLevel=full" -MaxAttempts 1 -DelaySeconds 0
+    $wikiPages = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis/$WikiId/pages?recursionLevel=full" -ReturnNullOnNotFound -MaxAttempts 1 -DelaySeconds 0
         $wikiPageCount = 0
         if ($wikiPages) {
             if ($wikiPages.PSObject.Properties['subPages'] -and $wikiPages.subPages) { $wikiPageCount = $wikiPages.subPages.Count }
@@ -848,8 +848,8 @@ function New-AdoProjectSummaryWikiPage {
             elseif ($wikiPages -is [System.Array]) { $wikiPageCount = $wikiPages.Count }
         }
 
-        # queries
-        $queries = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" + '?$depth=2')
+    # queries
+    $queries = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" + '?$depth=2') -ReturnNullOnNotFound
         $queryCount = 0
         if ($queries) {
             if ($queries.PSObject.Properties['children'] -and $queries.children) { $queryCount = $queries.children.Count }
@@ -858,11 +858,11 @@ function New-AdoProjectSummaryWikiPage {
         }
 
     # dashboards/builds/policies (best-effort)
-    try { $dash = Invoke-AdoRest GET "/$projEnc/_apis/dashboard/dashboards" -Preview } catch { $dash = $null }
+    try { $dash = Invoke-AdoRest GET "/$projEnc/_apis/dashboard/dashboards" -Preview -ReturnNullOnNotFound } catch { $dash = $null }
     $dashboardCount = 0; if ($dash -and $dash.value) { $dashboardCount = $dash.value.Count }
-    try { $builddefs = Invoke-AdoRest GET "/$projEnc/_apis/build/definitions" } catch { $builddefs = $null }
+    try { $builddefs = Invoke-AdoRest GET "/$projEnc/_apis/build/definitions" -ReturnNullOnNotFound } catch { $builddefs = $null }
     $buildCount = 0; if ($builddefs -and $builddefs.value) { $buildCount = $builddefs.value.Count }
-    try { $pol = Invoke-AdoRest GET "/$projEnc/_apis/policy/configurations" } catch { $pol = $null }
+    try { $pol = Invoke-AdoRest GET "/$projEnc/_apis/policy/configurations" -ReturnNullOnNotFound } catch { $pol = $null }
     $policyCount = 0; if ($pol -and $pol.value) { $policyCount = $pol.value.Count }
 
         $projEnc = [uri]::EscapeDataString($Project)
@@ -877,7 +877,7 @@ function New-AdoProjectSummaryWikiPage {
                     'none' 
                 }
                 try {
-                    $comm = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$($r.id)/commits" + '?$top=1')
+                    $comm = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$($r.id)/commits" + '?$top=1') -ReturnNullOnNotFound
                     $commArray = @($comm.value)
                     $last = if ($comm -and $commArray.Count -gt 0) { 
                         ([DateTime]$commArray[0].committer.date).ToString('yyyy-MM-dd HH:mm') 
@@ -1003,8 +1003,10 @@ $repoSection
     $summary += "- Pipelines: $buildCount ([view pipelines]($adoUrl/$projEnc/_build))`n"
     $summary += "- Queries: $queryCount ([view queries]($adoUrl/$projEnc/_queries))`n"
 
-        Set-AdoWikiPage -Project $Project -WikiId $WikiId -Path "/Project-Summary" -Markdown $summary
-        Write-Host "[SUCCESS] Project Summary wiki page created" -ForegroundColor Green
+    # NOTE: Creation of the Project-Summary wiki page has been disabled per configuration.
+    # If you want to enable it again, uncomment the Set-AdoWikiPage call below.
+    # Set-AdoWikiPage -Project $Project -WikiId $WikiId -Path "/Project-Summary" -Markdown $summary
+    Write-Host "[INFO] Skipping creation of Project-Summary wiki page (disabled)" -ForegroundColor Gray
         return $true
     }
     catch {

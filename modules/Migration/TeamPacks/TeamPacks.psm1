@@ -52,7 +52,7 @@ function Ensure-AdoProject {
     # Try a simple project GET first (some mocks return this shape)
     try {
         $enc = [uri]::EscapeDataString($ProjectName)
-        $projSimple = Invoke-AdoRest GET "/_apis/projects/$enc"
+    $projSimple = Invoke-AdoRest GET "/_apis/projects/$enc" -ReturnNullOnNotFound
         # Normalize hashtable responses (mocks often return @{ id = '...' }) to PSCustomObject
         if ($projSimple -is [System.Collections.IDictionary]) {
             try { $projSimple = [PSCustomObject]$projSimple } catch { }
@@ -231,7 +231,7 @@ function Initialize-DevInit {
     Search-Adodevqueries -Project $DestProject
 
     # Get repository for adding files (be defensive about response shapes)
-    $reposResp = Invoke-AdoRest GET "/$([uri]::EscapeDataString($DestProject))/_apis/git/repositories"
+    $reposResp = Invoke-AdoRest GET "/$([uri]::EscapeDataString($DestProject))/_apis/git/repositories" -ReturnNullOnNotFound
     $reposList = @()
     if ($reposResp -and $reposResp.PSObject.Properties.Name -contains 'value' -and $reposResp.value) {
         $reposList = $reposResp.value
@@ -337,7 +337,7 @@ function Initialize-SecurityInit {
     New-AdoSecurityQueries -Project $DestProject
 
     # Get repository for adding security files
-    $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($DestProject))/_apis/git/repositories"
+    $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($DestProject))/_apis/git/repositories" -ReturnNullOnNotFound
     $repo = $repos.value | Where-Object { $_.name -eq $DestProject } | Select-Object -First 1
     
     if ($repo) {

@@ -29,7 +29,7 @@ function New-AdoRepositoryTemplates {
     # Check if repository has any commits (needed to add files)
     $hasCommits = $false
     try {
-        $commits = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/commits?``$top=1"
+        $commits = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/commits?``$top=1" -ReturnNullOnNotFound
         $hasCommits = $commits.count -gt 0
     }
     catch {
@@ -75,7 +75,7 @@ function New-AdoRepositoryTemplates {
     
     # Check and create README.md
     try {
-        $existingReadme = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/README.md"
+        $existingReadme = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/README.md" -ReturnNullOnNotFound
         if ($existingReadme) {
             Write-Host "[INFO] README.md already exists" -ForegroundColor Gray
             $skippedCount++
@@ -121,7 +121,7 @@ function New-AdoRepositoryTemplates {
     
     # Check and create PR template
     try {
-        $existingPR = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.azuredevops/pull_request_template.md"
+        $existingPR = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.azuredevops/pull_request_template.md" -ReturnNullOnNotFound
         if ($existingPR) {
             Write-Host "[INFO] PR template already exists" -ForegroundColor Gray
             $skippedCount++
@@ -200,7 +200,7 @@ function New-AdoRepository {
     
     Write-LogLevelVerbose "[New-AdoRepository] Checking if repository '$RepoName' exists..."
     
-    $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories"
+    $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories" -ReturnNullOnNotFound
     $existing = $repos.value | Where-Object { $_.name -eq $RepoName }
     
     if ($existing) {
@@ -279,7 +279,7 @@ function Get-AdoRepoDefaultBranch {
     )
     
     try {
-        $r = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId"
+    $r = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId" -ReturnNullOnNotFound
         if ($r.PSObject.Properties['defaultBranch'] -and $r.defaultBranch) {
             Write-LogLevelVerbose "[Get-AdoRepoDefaultBranch] Found default branch: $($r.defaultBranch)"
             return $r.defaultBranch
@@ -555,7 +555,7 @@ function New-AdoRepoFiles {
         
         # Add .gitignore if not exists
         try {
-            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.gitignore"
+            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.gitignore" -ReturnNullOnNotFound
             Write-Host "  ✓ .gitignore already exists" -ForegroundColor Gray
         }
         catch {
@@ -571,7 +571,7 @@ function New-AdoRepoFiles {
         
         # Add .editorconfig if not exists
         try {
-            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.editorconfig"
+            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.editorconfig" -ReturnNullOnNotFound
             Write-Host "  ✓ .editorconfig already exists" -ForegroundColor Gray
         }
         catch {
@@ -825,7 +825,7 @@ language-settings: {}
         
         # Add SECURITY.md if not exists
         try {
-            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/SECURITY.md"
+            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/SECURITY.md" -ReturnNullOnNotFound
             Write-Host "  ✓ SECURITY.md already exists" -ForegroundColor Gray
         }
         catch {
@@ -841,7 +841,7 @@ language-settings: {}
         
         # Add security-scan-config.yml if not exists
         try {
-            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/security-scan-config.yml"
+            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/security-scan-config.yml" -ReturnNullOnNotFound
             Write-Host "  ✓ security-scan-config.yml already exists" -ForegroundColor Gray
         }
         catch {
@@ -857,7 +857,7 @@ language-settings: {}
         
         # Add .trivyignore if not exists
         try {
-            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.trivyignore"
+            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.trivyignore" -ReturnNullOnNotFound
             Write-Host "  ✓ .trivyignore already exists" -ForegroundColor Gray
         }
         catch {
@@ -873,7 +873,7 @@ language-settings: {}
         
         # Add .snyk if not exists
         try {
-            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.snyk"
+            $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId/items?path=/.snyk" -ReturnNullOnNotFound
             Write-Host "  ✓ .snyk already exists" -ForegroundColor Gray
         }
         catch {
