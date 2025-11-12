@@ -199,7 +199,7 @@ function Search-Adodashboard {
                                     break
                                 }
                                 catch {
-                                    Write-LogLevelVerbose "[Search-Adodashboard] Failed to PATCH overview dashboard at $ep: $_"
+                                    Write-LogLevelVerbose "[Search-Adodashboard] Failed to PATCH overview dashboard at $($ep): $_"
                                 }
                             }
                         }

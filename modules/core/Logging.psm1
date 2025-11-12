@@ -1439,6 +1439,139 @@ function Write-LogLevelVerbose {
     }
 }
 
+# Console progress tracking
+# Maintains a stack of jobs -> steps -> substeps and displays a concise progress UI
+function Start-ConsoleProgress {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [string]$Title = "Operation"
+    )
+
+    $script:ConsoleProgressState = [ordered]@{
+        Title = $Title
+        Steps = @()
+        Current = @{ stepIndex = -1; subIndex = -1 }
+        SpinnerPos = 0
+        StartTime = Get-Date
+        TranscriptPath = $null
+    }
+
+    # Start a background timer job to animate spinner (best-effort) - we update spinner on demand instead
+    Write-Host "[INFO] $Title started" -ForegroundColor Cyan
+}
+
+function Add-ConsoleStep {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$StepTitle
+    )
+
+    if (-not $script:ConsoleProgressState) { Start-ConsoleProgress }
+    $script:ConsoleProgressState.Steps += [ordered]@{ title = $StepTitle; status = 'pending'; substeps = @() }
+}
+
+function Add-ConsoleSubStep {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][int]$StepIndex,
+        [Parameter(Mandatory=$true)][string]$SubTitle
+    )
+
+    if (-not $script:ConsoleProgressState) { Start-ConsoleProgress }
+    $s = $script:ConsoleProgressState.Steps[$StepIndex]
+    $s.substeps += [ordered]@{ title = $SubTitle; status = 'pending' }
+}
+
+function Start-ConsoleStep {
+    param([int]$Index)
+    if (-not $script:ConsoleProgressState) { Start-ConsoleProgress }
+    $script:ConsoleProgressState.Current.stepIndex = $Index
+    $script:ConsoleProgressState.Current.subIndex = -1
+    $script:ConsoleProgressState.Steps[$Index].status = 'running'
+    Write-Host "[STEP] $($script:ConsoleProgressState.Steps[$Index].title) ..." -ForegroundColor Cyan
+}
+
+function Start-ConsoleSubStep {
+    param([int]$StepIndex, [int]$SubIndex)
+    if (-not $script:ConsoleProgressState) { Start-ConsoleProgress }
+    $script:ConsoleProgressState.Current.stepIndex = $StepIndex
+    $script:ConsoleProgressState.Current.subIndex = $SubIndex
+    $script:ConsoleProgressState.Steps[$StepIndex].substeps[$SubIndex].status = 'running'
+    Write-Host "  → $($script:ConsoleProgressState.Steps[$StepIndex].substeps[$SubIndex].title)" -ForegroundColor Gray
+}
+
+function Complete-ConsoleSubStep {
+    param([int]$StepIndex, [int]$SubIndex)
+    if (-not $script:ConsoleProgressState) { return }
+    $script:ConsoleProgressState.Steps[$StepIndex].substeps[$SubIndex].status = 'done'
+    Write-Host "  ✅ $($script:ConsoleProgressState.Steps[$StepIndex].substeps[$SubIndex].title)" -ForegroundColor Green
+}
+
+function Complete-ConsoleStep {
+    param([int]$Index)
+    if (-not $script:ConsoleProgressState) { return }
+    $script:ConsoleProgressState.Steps[$Index].status = 'done'
+    Write-Host "[DONE] $($script:ConsoleProgressState.Steps[$Index].title)" -ForegroundColor Green
+}
+
+function End-ConsoleProgress {
+    param()
+    if (-not $script:ConsoleProgressState) { return }
+    $elapsed = (Get-Date) - $script:ConsoleProgressState.StartTime
+    Write-Host "[INFO] $($script:ConsoleProgressState.Title) completed in $($elapsed.ToString())" -ForegroundColor Cyan
+    # Optionally stop transcript if started
+    if ($script:ConsoleProgressState.TranscriptPath) {
+        try { Stop-Transcript | Out-Null } catch {}
+    }
+    $script:ConsoleProgressState = $null
+}
+
+# Write status message that integrates with the console progress UI when active
+function Write-Status {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$Message,
+        [ValidateSet('INFO','WARN','ERROR','SUCCESS','DEBUG')][string]$Level = 'INFO'
+    )
+
+    switch ($Level) {
+        'INFO' { Write-MigrationMessage -Message $Message -Level INFO }
+        'WARN' { Write-MigrationMessage -Message $Message -Level WARN }
+        'ERROR' { Write-MigrationMessage -Message $Message -Level ERROR }
+        'SUCCESS' { Write-MigrationMessage -Message $Message -Level SUCCESS }
+        'DEBUG' { Write-MigrationMessage -Message $Message -Level DEBUG }
+    }
+
+    # Also append to verbose log if enabled
+    if ($script:VerboseLogPath) {
+        Write-MigrationLog -LogFile $script:VerboseLogPath -Message $Message -Level $Level
+    }
+}
+
+# Start capturing verbose logs to a timestamped file (uses Start-Transcript)
+function Enable-VerboseLogCapture {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [string]$Prefix = 'verbose'
+    )
+
+    $rootLogs = Join-Path (Get-Location) 'logs'
+    if (-not (Test-Path $rootLogs)) { New-Item -ItemType Directory -Path $rootLogs -Force | Out-Null }
+    $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $file = Join-Path $rootLogs "$Prefix-$timestamp.log"
+    try {
+        Start-Transcript -Path $file -Force | Out-Null
+        $script:VerboseLogPath = $file
+        Write-Verbose "[Logging] Verbose transcript started: $file"
+        Write-Host "[INFO] Verbose logging to: $file" -ForegroundColor Gray
+    }
+    catch {
+        Write-Warning "Failed to start verbose transcript: $_"
+    }
+}
+
 Export-ModuleMember -Function @(
     'Get-MigrationsDirectory',
     'Get-ProjectPaths',

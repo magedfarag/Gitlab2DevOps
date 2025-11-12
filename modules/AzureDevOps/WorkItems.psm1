@@ -2226,7 +2226,7 @@ function Import-AdoWorkItemsFromExcel {
             
             # Decide iteration assignment: child work items (User Story, Bug, Test Case, Task, PBI) should go to Project\Sprint 1
             $childTypes = @('User Story','Bug','Test Case','Task','Product Backlog Item')
-            $childIterationPath = if ($sprintIterationPath) { $sprintIterationPath } else { "$Project\Sprint 1" }
+            $childIterationPath = if ($sprintIterationPath) { $sprintIterationPath } else { "$Project\\Sprint 1" }
 
             if ($firstIterationPath) {
                 if ($childTypes -contains $wit) {

@@ -629,7 +629,7 @@ function Initialize-AdoProject {
         }
 
         $script:projId = $script:proj.id
-        Log-Diag "[project step] Resolved project ID: $script:projId"
+        Log-Diag "[project step] Resolved project ID: $($script:projId)"
     }
     
     # Note: RBAC group configuration removed - Graph API is unreliable for on-premise servers

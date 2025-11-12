@@ -88,7 +88,7 @@ Test-Requirement "Import-DotEnvFile handles missing file gracefully" {
 }
 
 Test-Requirement "Import-DotEnvFile parses basic KEY=VALUE format" {
-    $tempFile = Join-Path $env:TEMP "test-env-$(Get-Random).env"
+    $tempFile = Join-Path $($env:TEMP) "test-env-$(Get-Random).env"
     
     @"
 TEST_KEY=test_value
@@ -111,7 +111,7 @@ ANOTHER_KEY=another_value
 }
 
 Test-Requirement "Import-DotEnvFile ignores comments and empty lines" {
-    $tempFile = Join-Path $env:TEMP "test-env-$(Get-Random).env"
+    $tempFile = Join-Path $($env:TEMP) "test-env-$(Get-Random).env"
     
     @"
 # This is a comment
@@ -137,7 +137,7 @@ KEY2=value2
 }
 
 Test-Requirement "Import-DotEnvFile handles quoted values" {
-    $tempFile = Join-Path $env:TEMP "test-env-$(Get-Random).env"
+    $tempFile = Join-Path $($env:TEMP) "test-env-$(Get-Random).env"
     
     @"
 DOUBLE_QUOTED="value with spaces"
@@ -164,7 +164,7 @@ NO_QUOTES=simple_value
 }
 
 Test-Requirement "Import-DotEnvFile expands variable references" {
-    $tempFile = Join-Path $env:TEMP "test-env-$(Get-Random).env"
+    $tempFile = Join-Path $($env:TEMP) "test-env-$(Get-Random).env"
     
     @"
 BASE_URL=https://example.com
@@ -191,7 +191,7 @@ FULL_URL=`${API_URL}/v1
 }
 
 Test-Requirement "Import-DotEnvFile sets environment variables when requested" {
-    $tempFile = Join-Path $env:TEMP "test-env-$(Get-Random).env"
+    $tempFile = Join-Path $($env:TEMP) "test-env-$(Get-Random).env"
     $testKey = "TEST_ENV_VAR_$(Get-Random)"
     
     @"
@@ -216,7 +216,7 @@ Test-Requirement "Import-DotEnvFile respects existing environment variables by d
     $testKey = "TEST_EXISTING_VAR_$(Get-Random)"
     [Environment]::SetEnvironmentVariable($testKey, "existing_value", [EnvironmentVariableTarget]::Process)
     
-    $tempFile = Join-Path $env:TEMP "test-env-$(Get-Random).env"
+    $tempFile = Join-Path $($env:TEMP) "test-env-$(Get-Random).env"
     @"
 $testKey=new_value
 "@ | Out-File -FilePath $tempFile -Encoding UTF8
@@ -239,7 +239,7 @@ Test-Requirement "Import-DotEnvFile overwrites with AllowOverwrite flag" {
     $testKey = "TEST_OVERWRITE_VAR_$(Get-Random)"
     [Environment]::SetEnvironmentVariable($testKey, "old_value", [EnvironmentVariableTarget]::Process)
     
-    $tempFile = Join-Path $env:TEMP "test-env-$(Get-Random).env"
+    $tempFile = Join-Path $($env:TEMP) "test-env-$(Get-Random).env"
     @"
 $testKey=new_value
 "@ | Out-File -FilePath $tempFile -Encoding UTF8
@@ -259,8 +259,8 @@ $testKey=new_value
 }
 
 Test-Requirement "Import-DotEnvFile loads multiple files with correct precedence" {
-    $file1 = Join-Path $env:TEMP "test-env1-$(Get-Random).env"
-    $file2 = Join-Path $env:TEMP "test-env2-$(Get-Random).env"
+    $file1 = Join-Path $($env:TEMP) "test-env1-$(Get-Random).env"
+    $file2 = Join-Path $($env:TEMP) "test-env2-$(Get-Random).env"
     
     @"
 KEY1=from_file1
@@ -287,7 +287,7 @@ KEY3=only_in_file2
 }
 
 Test-Requirement "New-DotEnvTemplate creates valid template file" {
-    $tempFile = Join-Path $env:TEMP "test-template-$(Get-Random).env"
+    $tempFile = Join-Path $($env:TEMP) "test-template-$(Get-Random).env"
     
     try {
         New-DotEnvTemplate -Path $tempFile
@@ -320,7 +320,7 @@ Test-Requirement "New-DotEnvTemplate creates valid template file" {
 }
 
 Test-Requirement "New-DotEnvTemplate respects Force flag" {
-    $tempFile = Join-Path $env:TEMP "test-template-$(Get-Random).env"
+    $tempFile = Join-Path $($env:TEMP) "test-template-$(Get-Random).env"
     
     try {
         "existing content" | Out-File -FilePath $tempFile -Encoding UTF8
@@ -595,8 +595,8 @@ Test-Requirement "Configuration priority: .env.local > .env > env vars > params"
     # This tests the documented priority order
     $testKey = "TEST_PRIORITY_$(Get-Random)"
     
-    $envFile = Join-Path $env:TEMP "test-priority.env"
-    $envLocalFile = Join-Path $env:TEMP "test-priority.env.local"
+    $envFile = Join-Path $($env:TEMP) "test-priority.env"
+    $envLocalFile = Join-Path $($env:TEMP) "test-priority.env.local"
     
     try {
         # Create .env with value1
@@ -623,7 +623,7 @@ Test-Requirement "Configuration priority: .env.local > .env > env vars > params"
 
 Test-Requirement "Environment variables override .env when not using SetEnvironmentVariables" {
     $testKey = "TEST_ENV_OVERRIDE_$(Get-Random)"
-    $envFile = Join-Path $env:TEMP "test-override.env"
+    $envFile = Join-Path $($env:TEMP) "test-override.env"
     
     try {
         # Set environment variable

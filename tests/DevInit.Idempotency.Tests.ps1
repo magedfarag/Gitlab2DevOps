@@ -100,7 +100,7 @@ BeforeAll {
     }
     Mock -ModuleName Migration Get-ProjectPaths {
         return @{
-            reportsDir = Join-Path $env:TEMP "reports"
+            reportsDir = Join-Path $($env:TEMP) "reports"
         }
     }
     Mock Test-AdoProjectExists {

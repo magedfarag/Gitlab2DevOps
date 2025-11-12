@@ -52,9 +52,9 @@ $env:GITLAB_PAT = "your-gitlab-pat-here"
 # ===================================================================
 
 Write-Host "Environment variables configured:" -ForegroundColor Green
-Write-Host "  ADO_COLLECTION_URL: $env:ADO_COLLECTION_URL" -ForegroundColor Cyan
+Write-Host "  ADO_COLLECTION_URL: $($env:ADO_COLLECTION_URL)" -ForegroundColor Cyan
 Write-Host "  ADO_PAT: $(if ($env:ADO_PAT) { '***' + $env:ADO_PAT.Substring($env:ADO_PAT.Length - 4) } else { 'NOT SET' })" -ForegroundColor Cyan
-Write-Host "  GITLAB_BASE_URL: $env:GITLAB_BASE_URL" -ForegroundColor Cyan
+Write-Host "  GITLAB_BASE_URL: $($env:GITLAB_BASE_URL)" -ForegroundColor Cyan
 Write-Host "  GITLAB_PAT: $(if ($env:GITLAB_PAT) { '***' + $env:GITLAB_PAT.Substring($env:GITLAB_PAT.Length - 4) } else { 'NOT SET' })" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "You can now run the migration script:" -ForegroundColor Yellow

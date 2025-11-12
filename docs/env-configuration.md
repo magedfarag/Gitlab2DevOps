@@ -231,7 +231,7 @@ Write-Host "GitLab URL: $($config.GITLAB_BASE_URL)"
 
 # Load and set environment variables
 Import-DotEnvFile -Path ".env" -SetEnvironmentVariables
-Write-Host "GitLab URL: $env:GITLAB_BASE_URL"
+Write-Host "GitLab URL: $($env:GITLAB_BASE_URL)"
 
 # Load multiple files with priority
 Import-DotEnvFile -Path @(".env", ".env.local") -SetEnvironmentVariables

@@ -206,6 +206,28 @@ function Ensure-CoreRestInitialized {
     return $script:coreRestConfig
 }
 
+# If LogRestCalls is enabled, start verbose transcript to file for later inspection
+try {
+    if ($script:LogRestCalls -eq $true) {
+        # Lazy-load Logging module if available
+        $logModule = Join-Path (Split-Path $PSScriptRoot -Parent) 'core\Logging.psm1'
+        if (Test-Path $logModule) {
+            Import-Module $logModule -Force -Global -ErrorAction SilentlyContinue
+            try { Enable-VerboseLogCapture -Prefix 'core-rest' } catch { }
+        }
+        else {
+            # Fallback: start a transcript in the repo logs folder
+            $rootLogs = Join-Path (Get-Location) 'logs'
+            if (-not (Test-Path $rootLogs)) { New-Item -ItemType Directory -Path $rootLogs -Force | Out-Null }
+            $ts = Join-Path $rootLogs ("core-rest-" + (Get-Date -Format 'yyyyMMdd-HHmmss') + ".log")
+            try { Start-Transcript -Path $ts -Force | Out-Null } catch { }
+        }
+    }
+}
+catch {
+    Write-Verbose "[Core.Rest] Could not start verbose transcript: $_"
+}
+
 
 #
 # Sets minimal ADO context (CollectionUrl + ProjectName) for callers that do not run Initialize-CoreRest
@@ -286,7 +308,7 @@ function Detect-AdoMaxApiVersion {
 
     # Fallback to configured value
     $script:AdoApiVersionDetected = $script:AdoApiVersion
-    Write-Verbose "[Core.Rest] Falling back to configured ADO API version: $script:AdoApiVersionDetected"
+    Write-Verbose "[Core.Rest] Falling back to configured ADO API version: $($script:AdoApiVersionDetected)"
     return $script:AdoApiVersionDetected
 }
 
