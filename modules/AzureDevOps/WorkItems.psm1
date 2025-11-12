@@ -186,19 +186,6 @@ function Ensure-AdoQuery {
     $projEnc = [uri]::EscapeDataString($Project)
     $parentEnc = [uri]::EscapeDataString($ParentPath)
 
-    # Try to find existing child in parent folder
-    try {
-        $resp = Invoke-AdoRest GET "/$projEnc/_apis/wit/queries/$parentEnc?`$depth=1" -ReturnNullOnNotFound
-        if ($resp -and $resp.children) {
-            foreach ($c in $resp.children) {
-                if ($c.name -eq $Name) { try { Add-InitMetric -Category 'queries' -Action 'skipped' } catch { }; return @{ Name = $Name; Created = $false; Node = $c } }
-            }
-        }
-    }
-    catch {
-        Write-Verbose "[Ensure-AdoQuery] Could not enumerate parent folder '$ParentPath' (will attempt create): $_"
-    }
-
     # Prepare payload
     if ($IsFolder) {
         $payload = @{ name = $Name; isFolder = $true }
@@ -207,30 +194,63 @@ function Ensure-AdoQuery {
         if ($Body) { $payload = $Body } else { $payload = @{ name = $Name } }
     }
 
+    # Try create first (idempotent-ish). If create fails due to conflict/exists, fetch and PATCH (update) the existing resource.
     try {
-        Write-Verbose "[Ensure-AdoQuery] Creating $([string]($IsFolder ? 'folder' : 'query')) '$Name' under '$ParentPath'"
-    $created = Invoke-AdoRest POST "/$projEnc/_apis/wit/queries/$parentEnc" -Body $payload
-    try { Add-InitMetric -Category 'queries' -Action 'created' } catch { }
+        Write-LogLevelVerbose "[Ensure-AdoQuery] Trying to create '$Name' under '$ParentPath'"
+        $created = Invoke-AdoRest POST "/$projEnc/_apis/wit/queries/$parentEnc" -Body $payload
+    try { Add-InitMetric -Category 'queries' -Action 'created' -Increment 1 } catch { }
+    Write-LogLevelVerbose "[Ensure-AdoQuery] Returning Created = $($true) for '$Name'"
     return @{ Name = $Name; Created = $true; Node = $created }
     }
     catch {
-        $err = $_
-        # Handle duplicate/409 by fetching the newly created child
-        if ($err.Exception.Message -match 'already exists|409') {
+        $errMsg = $_.Exception.Message
+        Write-LogLevelVerbose "[Ensure-AdoQuery] Create failed for '$Name': $errMsg"
+
+        if ($errMsg -match 'already exists|409|Conflict|exists') {
+            # locate the existing query by enumerating children
             try {
-                $encodedFull = [uri]::EscapeDataString("$ParentPath/$Name")
-                $existing = Invoke-AdoRest GET "/$projEnc/_apis/wit/queries/$encodedFull"
-                if ($existing) { try { Add-InitMetric -Category 'queries' -Action 'skipped' } catch { }; return @{ Name = $Name; Created = $false; Node = $existing } }
+                $resp = Invoke-AdoRest GET "/$projEnc/_apis/wit/queries/$parentEnc?`$depth=1" -ReturnNullOnNotFound
+                $children = $null
+                if ($resp -and $resp.PSObject.Properties['children'] -and $resp.children) { $children = $resp.children }
+                elseif ($resp -and $resp.PSObject.Properties['value'] -and $resp.value.PSObject.Properties['children'] -and $resp.value.children) { $children = $resp.value.children }
+
+                if (-not $children) { throw "Could not enumerate children of '$ParentPath' to locate existing query '$Name'" }
+
+                $matches = $children | Where-Object { $_.name -eq $Name -and ($_.isFolder -ne $true) }
+                if (-not $matches -or $matches.Count -eq 0) { throw "Query '$Name' reported as existing but not found in folder listing" }
+
+                if ($matches.Count -gt 1) { Write-Warning "Multiple queries named '$Name' found under '$ParentPath'. Updating the first and leaving others in place." }
+
+                $existing = $matches[0]
+                $existingFull = Invoke-AdoRest GET "/$projEnc/_apis/wit/queries/$([uri]::EscapeDataString($ParentPath + '/' + $Name))" -ReturnNullOnNotFound
+                $patchBody = @{ }
+                if (-not $IsFolder -and $Body -and $Body.ContainsKey('wiql')) { $patchBody.wiql = $Body.wiql }
+                if ($existingFull -and $existingFull.eTag) { $patchBody.eTag = $existingFull.eTag }
+
+                # If there's nothing to patch, just return the existing node
+                    if (-not $patchBody -or $patchBody.Count -eq 0) {
+                    try { Add-InitMetric -Category 'queries' -Action 'skipped' -Increment 1 } catch { }
+                    Write-LogLevelVerbose "[Ensure-AdoQuery] Returning Created = $($false) for '$Name' (existing found)"
+                    return @{ Name = $Name; Created = $false; Node = $existing }
+                }
+
+                $updated = Invoke-AdoRest PATCH "/$projEnc/_apis/wit/queries/$($existing.id)" -Body $patchBody
+                try { Add-InitMetric -Category 'queries' -Action 'skipped' -Increment 1 } catch { }
+                Write-LogLevelVerbose "[Ensure-AdoQuery] Returning Created = $($false) for '$Name' (updated)"
+                return @{ Name = $Name; Created = $false; Node = $updated }
             }
             catch {
-                Write-Warning "[Ensure-AdoQuery] Duplicate reported but failed to GET created node for '$Name' under '$ParentPath': $_"
+                Write-Warning "[Ensure-AdoQuery] Failed to resolve/update existing query '$Name' under '$ParentPath': $_"
+                try { Add-InitMetric -Category 'queries' -Action 'failed' -Increment 1 } catch { }
+                Write-LogLevelVerbose "[Ensure-AdoQuery] Returning failure for '$Name'"
                 return @{ Name = $Name; Created = $false; Node = $null; Error = $_ }
             }
         }
 
         Write-Warning "[Ensure-AdoQuery] Failed to create query/folder '$Name' under '$ParentPath': $_"
-        try { Add-InitMetric -Category 'queries' -Action 'failed' } catch { }
-        return @{ Name = $Name; Created = $false; Node = $null; Error = $_ }
+    try { Add-InitMetric -Category 'queries' -Action 'failed' -Increment 1 } catch { }
+    Write-LogLevelVerbose "[Ensure-AdoQuery] Returning failure for '$Name' (outer)"
+    return @{ Name = $Name; Created = $false; Node = $null; Error = $_ }
     }
 }
 
@@ -699,69 +719,41 @@ function New-AdoSharedQueries {
         $teamFolderId = $null
     }
     
-    # Check existing queries in team folder
-    $existingQueries = @{}
-    try {
-        if ($teamFolderId) {
-            $folderQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$teamFolderId?`$depth=1" -ReturnNullOnNotFound
-            # Handle both response structures: direct children or wrapped in value
-            $children = $null
-            if ($folderQueries -and $folderQueries.PSObject.Properties['children'] -and $folderQueries.children) {
-                $children = $folderQueries.children
-            }
-            elseif ($folderQueries -and $folderQueries.PSObject.Properties['value'] -and $folderQueries.value.PSObject.Properties['children'] -and $folderQueries.value.children) {
-                $children = $folderQueries.value.children
-            }
-
-            if ($children) {
-                $children | ForEach-Object { $existingQueries[$_.name] = $_ }
-            }
-        }
-    }
-    catch {
-        Write-LogLevelVerbose "[New-AdoSharedQueries] Could not retrieve existing queries: $_"
-    }
-    
-    $createdCount = 0
-    $skippedCount = 0
-    $createdQueries = @()
-    
     # Determine base endpoint for query creation
     $baseEndpoint = if ($teamFolderId) {
         "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$teamFolderId"
     } else {
         "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries"
     }
-    
+
+    # Use parent path notation (Shared Queries/Team) and a centralized ensure helper to try-create-then-update
+    $parentPath = if ($teamFolderId) { "Shared Queries/$Team" } else { "Shared Queries" }
+
+    $createdCount = 0
+    $skippedCount = 0
+    $createdQueries = @()
+
     foreach ($queryDef in $queries) {
-        if ($existingQueries.ContainsKey($queryDef.name)) {
-            Write-Host "[INFO] Query '$($queryDef.name)' already exists" -ForegroundColor Gray
-            $skippedCount++
-            continue
-        }
-        
         try {
-            $queryBody = @{
-                name = $queryDef.name
-                wiql = $queryDef.wiql
+            $ensureResult = Ensure-AdoQuery -Project $Project -ParentPath $parentPath -Name $queryDef.name -Body @{ wiql = $queryDef.wiql }
+            if ($ensureResult -and $ensureResult.Created) {
+                Write-Host "[SUCCESS] Created query: $($queryDef.name)" -ForegroundColor Green
+                $createdCount++
+                $createdQueries += $ensureResult.Node
             }
-            
-            Write-LogLevelVerbose "[New-AdoSharedQueries] Creating query: $($queryDef.name)"
-            $query = Invoke-AdoRest POST $baseEndpoint -Body $queryBody
-            Write-Host "[SUCCESS] Created query: $($queryDef.name)" -ForegroundColor Green
-            $createdQueries += $query
-            $createdCount++
-        }
-        catch {
-            $errorMessage = $_.Exception.Message
-            if ($errorMessage -match "TF401256.*Write permissions.*query" -or $errorMessage -match "403.*Forbidden") {
-                Write-Warning "Query '$($queryDef.name)' creation failed due to insufficient permissions. Contributors cannot create queries in the root Shared Queries folder. Consider creating team-specific query folders or granting appropriate permissions."
+            elseif ($ensureResult -and -not $ensureResult.Created) {
+                Write-Host "[INFO] Query '$($queryDef.name)' exists or was updated" -ForegroundColor Gray
                 $skippedCount++
+                if ($ensureResult.Node) { $createdQueries += $ensureResult.Node }
             }
             else {
-                Write-Warning "Failed to create query '$($queryDef.name)': $errorMessage"
+                Write-Warning "Unexpected result ensuring query '$($queryDef.name)'"
                 $skippedCount++
             }
+        }
+        catch {
+            Write-Warning "Failed to ensure query '$($queryDef.name)': $($_.Exception.Message)"
+            $skippedCount++
         }
     }
     
@@ -2773,6 +2765,7 @@ function Show-AllWorkItemStates {
 # Export functions
 Export-ModuleMember -Function @(
     'Ensure-WorkItemTypesCache',
+    'Ensure-AdoQuery',
     'Get-WorkItemTypesCache',
     'Initialize-AdoTeamTemplates',
     'New-AdoSharedQueries',

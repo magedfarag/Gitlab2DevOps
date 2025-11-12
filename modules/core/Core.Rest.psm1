@@ -403,7 +403,9 @@ function Get-CoreRestConfig {
 #>
 function Initialize-InitMetrics {
     [CmdletBinding()]
-    param()
+    param(
+        [switch]$Reset
+    )
     # Robust, minimal initialization that avoids Test-Path on variable: provider which
     # can be fragile across module import contexts. Use Get-Variable as a safer probe
     # and fall back to directly assigning the script-scoped variable.
@@ -421,7 +423,14 @@ function Initialize-InitMetrics {
 
     if (-not $script:InitMetrics) { $script:InitMetrics = @{} }
 
-    # Ensure common categories exist
+    if ($Reset.IsPresent) {
+        # Reset known categories to zeroed counters
+        $script:InitMetrics['iterations'] = @{ created = 0; skipped = 0; failed = 0 }
+        $script:InitMetrics['queries']    = @{ created = 0; skipped = 0; failed = 0 }
+        return $script:InitMetrics
+    }
+
+    # Ensure common categories exist (non-destructive)
     if (-not $script:InitMetrics.ContainsKey('iterations')) { $script:InitMetrics['iterations'] = @{ created = 0; skipped = 0; failed = 0 } }
     if (-not $script:InitMetrics.ContainsKey('queries'))    { $script:InitMetrics['queries']    = @{ created = 0; skipped = 0; failed = 0 } }
 
