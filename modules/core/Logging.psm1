@@ -136,7 +136,11 @@ function Get-ProjectPaths {
         reportsDir    = $reportsDir
         logsDir       = $logsDir
         repositoryDir = $repositoryDir
-        configFile    = $configFile
+    }
+
+    # Only include configFile for new self-contained structure
+    if ($PSCmdlet.ParameterSetName -eq 'ByAdo') {
+        $result.configFile = $configFile
     }
 
     # Only include gitlabDir for new self-contained structure
@@ -1342,6 +1346,99 @@ function New-MigrationsOverviewReport {
     }
 }
 
+<#
+.SYNOPSIS
+    Writes a message based on LOG_LEVEL environment variable.
+
+.DESCRIPTION
+    Checks the LOG_LEVEL environment variable and writes messages accordingly:
+    - Debug: All messages including verbose
+    - Info: Info, warnings, errors (default)
+    - Warning: Only warnings and errors
+    - Error: Only errors
+
+.PARAMETER Message
+    Message to display.
+
+.PARAMETER Level
+    Message level (DEBUG, INFO, WARN, ERROR).
+
+.PARAMETER Force
+    Force output regardless of LOG_LEVEL setting.
+
+.EXAMPLE
+    Write-LogLevelMessage "Debug information" -Level DEBUG
+    Write-LogLevelMessage "Info message" -Level INFO
+#>
+function Write-LogLevelMessage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Message,
+
+        [ValidateSet('DEBUG', 'INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO',
+
+        [switch]$Force
+    )
+
+    # Get LOG_LEVEL from environment, default to INFO
+    $logLevel = $env:LOG_LEVEL
+    if (-not $logLevel) { $logLevel = 'INFO' }
+
+    # Convert to uppercase for comparison
+    $logLevel = $logLevel.ToUpper()
+    $level = $Level.ToUpper()
+
+    # Determine if message should be shown
+    $shouldShow = $Force.IsPresent
+    if (-not $shouldShow) {
+        switch ($logLevel) {
+            'DEBUG' { $shouldShow = $true }  # Show all messages
+            'INFO' { $shouldShow = ($level -in @('INFO', 'WARN', 'ERROR')) }
+            'WARNING' { $shouldShow = ($level -in @('WARN', 'ERROR')) }
+            'WARN' { $shouldShow = ($level -in @('WARN', 'ERROR')) }
+            'ERROR' { $shouldShow = ($level -eq 'ERROR') }
+            default { $shouldShow = ($level -in @('INFO', 'WARN', 'ERROR')) }  # Default to INFO level
+        }
+    }
+
+    if ($shouldShow) {
+        # Use Write-MigrationMessage for consistent formatting
+        Write-MigrationMessage -Message $Message -Level $Level
+    }
+}
+
+<#
+.SYNOPSIS
+    Writes verbose output based on LOG_LEVEL setting.
+
+.DESCRIPTION
+    Enhanced Write-Verbose that respects LOG_LEVEL environment variable.
+    When LOG_LEVEL=Debug, all verbose messages are shown.
+    Otherwise, verbose messages are suppressed.
+
+.PARAMETER Message
+    Verbose message to display.
+
+.EXAMPLE
+    Write-LogLevelVerbose "Detailed debug information"
+#>
+function Write-LogLevelVerbose {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Message
+    )
+
+    $logLevel = if ($env:LOG_LEVEL) { $env:LOG_LEVEL.ToUpper() } else { 'INFO' }
+
+    # Only show verbose messages if LOG_LEVEL is Debug
+    if ($logLevel -eq 'DEBUG') {
+        Write-Verbose $Message
+    }
+}
+
 Export-ModuleMember -Function @(
     'Get-MigrationsDirectory',
     'Get-ProjectPaths',
@@ -1356,5 +1453,7 @@ Export-ModuleMember -Function @(
     'Update-RunManifest',
     'Write-RestCallLog',
     'New-MigrationHtmlReport',
-    'New-MigrationsOverviewReport'
+    'New-MigrationsOverviewReport',
+    'Write-LogLevelMessage',
+    'Write-LogLevelVerbose'
 )

@@ -7,6 +7,8 @@
 1. **Search official docs**: Use `microsoft_docs_search` to find relevant Azure DevOps documentation
 2. **Fetch complete pages**: Use `microsoft_docs_fetch` for detailed API specifications
 3. **Find code samples**: Use `microsoft_code_sample_search` for PowerShell examples
+4. **Verify on-premise compatibility**: Ensure the API works on Azure DevOps Server (on-premise) as well as Azure DevOps Cloud
+5. **Very important**: Make sure the calls are done through "script:HttpClient" with `-SkipCertificateCheck` for on-premise servers with SSL/TLS issues
 
 **Why this is critical**:
 - ⚠️ **Graph API is deprecated/unreliable** for on-premise servers (returns 404)

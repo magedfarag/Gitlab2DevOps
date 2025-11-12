@@ -33,7 +33,7 @@ function New-AdoRepositoryTemplates {
         $hasCommits = $commits.count -gt 0
     }
     catch {
-        Write-Verbose "[New-AdoRepositoryTemplates] Could not check commits: $_"
+        Write-LogLevelVerbose "[New-AdoRepositoryTemplates] Could not check commits: $_"
     }
     
     if (-not $hasCommits) {
@@ -84,7 +84,7 @@ function New-AdoRepositoryTemplates {
     catch {
         # File doesn't exist, create it
         try {
-            Write-Verbose "[New-AdoRepositoryTemplates] Creating README.md"
+            Write-LogLevelVerbose "[New-AdoRepositoryTemplates] Creating README.md"
             $pushBody = @{
                 refUpdates = @(
                     @{
@@ -130,7 +130,7 @@ function New-AdoRepositoryTemplates {
     catch {
         # File doesn't exist, create it
         try {
-            Write-Verbose "[New-AdoRepositoryTemplates] Creating .azuredevops/pull_request_template.md"
+            Write-LogLevelVerbose "[New-AdoRepositoryTemplates] Creating .azuredevops/pull_request_template.md"
             $pushBody = @{
                 refUpdates = @(
                     @{
@@ -198,13 +198,13 @@ function New-AdoRepository {
         [switch]$Replace
     )
     
-    Write-Verbose "[New-AdoRepository] Checking if repository '$RepoName' exists..."
+    Write-LogLevelVerbose "[New-AdoRepository] Checking if repository '$RepoName' exists..."
     
     $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories"
     $existing = $repos.value | Where-Object { $_.name -eq $RepoName }
     
     if ($existing) {
-        Write-Verbose "[New-AdoRepository] Repository '$RepoName' exists (ID: $($existing.id))"
+        Write-LogLevelVerbose "[New-AdoRepository] Repository '$RepoName' exists (ID: $($existing.id))"
         
         # Check if repository has commits
         try {
@@ -216,7 +216,7 @@ function New-AdoRepository {
         }
         
         if ($hasCommits) {
-            Write-Verbose "[New-AdoRepository] Repository has $($commits.count) commit(s)"
+            Write-LogLevelVerbose "[New-AdoRepository] Repository has $($commits.count) commit(s)"
             
             if ($Replace) {
                 if ($PSCmdlet.ShouldProcess($RepoName, "DELETE and recreate repository (has existing commits)")) {
@@ -281,7 +281,7 @@ function Get-AdoRepoDefaultBranch {
     try {
         $r = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories/$RepoId"
         if ($r.PSObject.Properties['defaultBranch'] -and $r.defaultBranch) {
-            Write-Verbose "[Get-AdoRepoDefaultBranch] Found default branch: $($r.defaultBranch)"
+            Write-LogLevelVerbose "[Get-AdoRepoDefaultBranch] Found default branch: $($r.defaultBranch)"
             return $r.defaultBranch
         }
         else {
@@ -315,7 +315,7 @@ function New-Adobranchpolicies {
         [string]$StatusContext = ""
     )
     
-    Write-Verbose "[New-Adobranchpolicies] Checking existing policies for ref '$Ref'..."
+    Write-LogLevelVerbose "[New-Adobranchpolicies] Checking existing policies for ref '$Ref'..."
     
     $cfgs = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/policy/configurations"
     $scope = @{ repositoryId = $RepoId; refName = $Ref; matchKind = "exact" }
@@ -330,7 +330,7 @@ function New-Adobranchpolicies {
         }
     }
     catch {
-        Write-Verbose "[New-Adobranchpolicies] Could not verify ref existence: $_"
+        Write-LogLevelVerbose "[New-Adobranchpolicies] Could not verify ref existence: $_"
         Write-Host "[INFO] Skipping branch policies due to inability to verify repository refs." -ForegroundColor Yellow
         return
     }
@@ -359,7 +359,7 @@ function New-Adobranchpolicies {
         }
     }
     else {
-        Write-Verbose "[New-Adobranchpolicies] Required reviewers policy already exists"
+        Write-LogLevelVerbose "[New-Adobranchpolicies] Required reviewers policy already exists"
     }
     
     # Work item link policy
@@ -376,7 +376,7 @@ function New-Adobranchpolicies {
         }
     }
     else {
-        Write-Verbose "[New-Adobranchpolicies] Work item link policy already exists"
+        Write-LogLevelVerbose "[New-Adobranchpolicies] Work item link policy already exists"
     }
     
     # Comment resolution policy
@@ -393,7 +393,7 @@ function New-Adobranchpolicies {
         }
     }
     else {
-        Write-Verbose "[New-Adobranchpolicies] Comment resolution policy already exists"
+        Write-LogLevelVerbose "[New-Adobranchpolicies] Comment resolution policy already exists"
     }
     
     # Build validation policy
@@ -417,7 +417,7 @@ function New-Adobranchpolicies {
             }
         }
         else {
-            Write-Verbose "[New-Adobranchpolicies] Build validation policy already exists"
+            Write-LogLevelVerbose "[New-Adobranchpolicies] Build validation policy already exists"
         }
     }
     
@@ -459,12 +459,12 @@ function Set-AdoRepoDeny {
     # Verify current permissions
     try {
         $currentAcl = Invoke-AdoRest GET "/_apis/securitynamespaces/$script:NS_GIT/accesscontrolentries?token=$([uri]::EscapeDataString($token))&descriptors=$([uri]::EscapeDataString($GroupDescriptor))"
-        Write-Verbose "[AzureDevOps] Current ACL for group $GroupDescriptor"
+        Write-LogLevelVerbose "[AzureDevOps] Current ACL for group $GroupDescriptor"
         if ($currentAcl.value.Count -gt 0) {
-            Write-Verbose "[AzureDevOps] Current permissions - Allow: $($currentAcl.value[0].allow), Deny: $($currentAcl.value[0].deny)"
+            Write-LogLevelVerbose "[AzureDevOps] Current permissions - Allow: $($currentAcl.value[0].allow), Deny: $($currentAcl.value[0].deny)"
         }
         else {
-            Write-Verbose "[AzureDevOps] No existing permissions found for this group"
+            Write-LogLevelVerbose "[AzureDevOps] No existing permissions found for this group"
         }
     }
     catch {
@@ -634,7 +634,7 @@ function Ensure-AdoRepoFiles {
         [string]$ProjectType = 'all'
     )
 
-    Write-Verbose "[Ensure-AdoRepoFiles] Delegating to New-AdoRepoFiles"
+    Write-LogLevelVerbose "[Ensure-AdoRepoFiles] Delegating to New-AdoRepoFiles"
     return New-AdoRepoFiles -Project $Project -RepoId $RepoId -RepoName $RepoName -ProjectType $ProjectType
 }
 

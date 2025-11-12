@@ -8,6 +8,7 @@ BeforeAll {
     $projectRoot = Split-Path $PSScriptRoot -Parent
     Import-Module (Join-Path $projectRoot "modules\AzureDevOps\WorkItems.psm1") -Force
     Import-Module (Join-Path $projectRoot "modules\core\Core.Rest.psm1") -Force
+    Import-Module (Join-Path $projectRoot "modules\core\Logging.psm1") -Force
     Import-Module ImportExcel -ErrorAction Stop
     
     # Create test Excel file in temp directory
@@ -49,6 +50,7 @@ BeforeAll {
             WorkItemType = "Test Case"
             Title = "Test Case 1"
             ParentLocalId = 3
+            State = "Design"
             TestSteps = "Step 1|Expected 1;;Step 2|Expected 2"
             Priority = 2
         }
@@ -144,6 +146,21 @@ Describe "Import-AdoWorkItemsFromExcel with Real Excel File" {
         
         # Mock only the ADO REST calls, use real Excel file
         Mock Invoke-AdoRest { 
+            param($Method, $Path, $Body, $Preview, $ApiVersion, $ContentType)
+            
+            # For the parent-child relationships test, count relationship operations
+            if ($script:relationshipsCreated -ne $null -and $Body -and $Method -eq "POST" -and $Path -like "*workitems*") {
+                try {
+                    $operations = $Body | ConvertFrom-Json
+                    $relationOps = @($operations) | Where-Object { $_.path -eq "/relations/-" }
+                    if ($relationOps) {
+                        $script:relationshipsCreated += @($relationOps).Count
+                    }
+                } catch {
+                    # Ignore JSON parsing errors in general mock
+                }
+            }
+            
             return @{ id = Get-Random -Minimum 1000 -Maximum 9999 } 
         } -ModuleName WorkItems
         
@@ -156,7 +173,7 @@ Describe "Import-AdoWorkItemsFromExcel with Real Excel File" {
     }
     
     It "Reads Excel file and processes hierarchy correctly" {
-        $result = Import-AdoWorkItemsFromExcel -Project "TestProject" -ExcelPath $script:testExcelPath
+        $result = Import-AdoWorkItemsFromExcel -Project "TestProject" -ExcelPath $script:testExcelPath -CollectionUrl "https://dev.azure.com/test"
         
         # Should succeed with all 4 work items
         $result.SuccessCount | Should -Be 4
@@ -177,7 +194,7 @@ Describe "Import-AdoWorkItemsFromExcel with Real Excel File" {
         } | Export-Excel -Path $singleRowPath -WorksheetName "Requirements"
         
         try {
-            $result = Import-AdoWorkItemsFromExcel -Project "TestProject" -ExcelPath $singleRowPath
+            $result = Import-AdoWorkItemsFromExcel -Project "TestProject" -ExcelPath $singleRowPath -CollectionUrl "https://dev.azure.com/test"
             
             # Should handle single row without errors
             $result.SuccessCount | Should -Be 1
@@ -192,7 +209,7 @@ Describe "Import-AdoWorkItemsFromExcel with Real Excel File" {
         # This test verifies work items are created successfully with standard fields
         # We can't easily inspect the JSON body due to mock scoping, but we can verify
         # that the import succeeds and returns correct counts
-        $result = Import-AdoWorkItemsFromExcel -Project "TestProject" -ExcelPath $script:testExcelPath
+        $result = Import-AdoWorkItemsFromExcel -Project "TestProject" -ExcelPath $script:testExcelPath -CollectionUrl "https://dev.azure.com/test"
         
         $result.SuccessCount | Should -Be 4
         $result.ErrorCount | Should -Be 0
@@ -202,22 +219,8 @@ Describe "Import-AdoWorkItemsFromExcel with Real Excel File" {
     It "Creates parent-child relationships" {
     # Track relationships created in the test script scope so Mock body can increment it
     $script:relationshipsCreated = 0
-        Mock Invoke-AdoRest { 
-            param($Method, $Endpoint, $Body)
-            
-            # Body is JSON string - parse it to check for relationships
-            if ($Body -and $Method -eq "POST") {
-                $operations = $Body | ConvertFrom-Json
-                $relationOps = @($operations) | Where-Object { $_.path -eq "/relations/-" }
-                if ($relationOps) {
-                    $script:relationshipsCreated += @($relationOps).Count
-                }
-            }
-            
-            return @{ id = Get-Random -Minimum 1000 -Maximum 9999 }
-        } -ModuleName WorkItems
         
-        $result = Import-AdoWorkItemsFromExcel -Project "TestProject" -ExcelPath $script:testExcelPath
+        $result = Import-AdoWorkItemsFromExcel -Project "TestProject" -ExcelPath $script:testExcelPath -CollectionUrl "https://dev.azure.com/test"
         
         # Should have created relationships (Feature->Epic, Story->Feature, TestCase->Story = 3 total)
         $script:relationshipsCreated | Should -BeGreaterThan 0
@@ -227,10 +230,44 @@ Describe "Import-AdoWorkItemsFromExcel with Real Excel File" {
         # This test verifies test cases are created successfully
         # The actual test steps XML conversion is already tested separately
         # Here we just verify that Test Case work items are processed
-        $result = Import-AdoWorkItemsFromExcel -Project "TestProject" -ExcelPath $script:testExcelPath
+        $result = Import-AdoWorkItemsFromExcel -Project "TestProject" -ExcelPath $script:testExcelPath -CollectionUrl "https://dev.azure.com/test"
         
         $result.SuccessCount | Should -Be 4
         # Test Case is the 4th item in our test data
         $result.WorkItemMap.ContainsKey("4") | Should -BeTrue
+    }
+    
+    It "Skips bugs without parent links" {
+        # Create test Excel file with bugs - some with parents, some without
+        $bugTestPath = Join-Path $env:TEMP "BugFilterTest.xlsx"
+        if (Test-Path $bugTestPath) {
+            Remove-Item -Path $bugTestPath -Force
+        }
+        
+        $bugTestData = @(
+            [PSCustomObject]@{ LocalId = 1; WorkItemType = "Epic"; Title = "Test Epic"; ParentLocalId = $null }
+            [PSCustomObject]@{ LocalId = 2; WorkItemType = "Bug"; Title = "Bug with parent"; ParentLocalId = 1 }  # Should be imported
+            [PSCustomObject]@{ LocalId = 3; WorkItemType = "Bug"; Title = "Bug without parent"; ParentLocalId = $null }  # Should be skipped
+            [PSCustomObject]@{ LocalId = 4; WorkItemType = "Task"; Title = "Task without parent"; ParentLocalId = $null }  # Should be imported (not a bug)
+        )
+        $bugTestData | Export-Excel -Path $bugTestPath -WorksheetName "Requirements" -AutoSize
+        
+        try {
+            $result = Import-AdoWorkItemsFromExcel -Project "TestProject" -ExcelPath $bugTestPath -CollectionUrl "https://dev.azure.com/test"
+            
+            # Should import Epic (1), Bug with parent (1), Task without parent (1) = 3 total
+            # Should skip Bug without parent (1)
+            $result.SuccessCount | Should -Be 3
+            $result.ErrorCount | Should -Be 0
+            
+            # Verify the work item map contains the expected items
+            $result.WorkItemMap.ContainsKey("1") | Should -BeTrue  # Epic
+            $result.WorkItemMap.ContainsKey("2") | Should -BeTrue  # Bug with parent
+            $result.WorkItemMap.ContainsKey("4") | Should -BeTrue  # Task without parent
+            $result.WorkItemMap.ContainsKey("3") | Should -BeFalse # Bug without parent should be skipped
+        }
+        finally {
+            Remove-Item -Path $bugTestPath -Force -ErrorAction SilentlyContinue
+        }
     }
 }

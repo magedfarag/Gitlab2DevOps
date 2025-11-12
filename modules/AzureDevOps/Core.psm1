@@ -160,8 +160,19 @@ function Get-AdoProjectList {
     
     # Fetch fresh data from API
     Write-Verbose "[Get-AdoProjectList] Fetching project list from Azure DevOps API..."
-    $list = Invoke-AdoRest GET "/_apis/projects?`$top=5000"
-    $projects = $list.value
+    try {
+        $list = Invoke-AdoRest GET "/_apis/projects?`$top=5000"
+        $projects = $list.value
+    }
+    catch {
+        Write-Warning "[Get-AdoProjectList] Failed to fetch project list: $_"
+        # Return cached data if available, even if stale
+        if ($cache.ContainsKey($cacheKey)) {
+            Write-Warning "[Get-AdoProjectList] Returning stale cached data"
+            return $cache[$cacheKey]
+        }
+        return @()
+    }
     
     # Update cache
     $cache[$cacheKey] = $projects

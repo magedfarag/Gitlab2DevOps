@@ -321,7 +321,7 @@ if ($PSCmdlet.ParameterSetName -eq 'CLI') {
     $runManifest = New-RunManifest @runParams
     $runId = $runManifest.run_id
     
-    Write-Verbose "[Run] Manifest ID: $runId"
+    Write-LogLevelVerbose "[Run] Manifest ID: $runId"
     
     $migrationErrors = @()
     $migrationWarnings = @()
@@ -422,7 +422,7 @@ if ($PSCmdlet.ParameterSetName -eq 'CLI') {
                 Write-Host "[INFO] Analyzing GitLab project to detect type..." -ForegroundColor Cyan
                 # Simple detection based on files in repository
                 # This would require GitLab API call - defaulting to 'all' for now
-                Write-Verbose "[DevInit] Source provided: $Source - using 'all' project type"
+                Write-LogLevelVerbose "[DevInit] Source provided: $Source - using 'all' project type"
             }
             
             Initialize-DevInit -DestProject $Project -ProjectType $projectType
@@ -455,7 +455,7 @@ if ($PSCmdlet.ParameterSetName -eq 'CLI') {
     
     Write-Host ""
     Write-Host "[SUCCESS] CLI operation completed" -ForegroundColor Green
-    Write-Verbose "[Run] Manifest: migrations/run-manifest-$runId.json"
+    Write-LogLevelVerbose "[Run] Manifest: migrations/run-manifest-$runId.json"
 }
 else {
     # Interactive mode - launch menu

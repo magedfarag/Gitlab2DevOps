@@ -8,69 +8,20 @@ BeforeAll {
     # Initialize Core.Rest with mock credentials
     Initialize-CoreRest -CollectionUrl "https://dev.azure.com/test" -AdoPat "mockpat" -GitLabBaseUrl "https://gitlab.com" -GitLabToken "mocktoken"
 
-    # Mock all REST API calls
-    Mock -ModuleName AzureDevOps Invoke-AdoRest {
+    # Mock Invoke-AdoRest globally to prevent any real API calls
+    Mock Invoke-AdoRest {
         param($Method, $Path, $Body)
         
-        # Mock project existence check
-        if ($Path -match "/_apis/projects/([^/?]+)") {
-            return @{ id = "proj-guid"; name = $Matches[1] }
-        }
-        
-        # Mock wiki creation
-        if ($Path -match "/wiki/wikis") {
-            return @{ id = "wiki-guid"; name = "wiki" }
-        }
-        
-        # Mock dashboard list
-        if ($Path -match "/_apis/dashboard/dashboards" -and $Method -eq "GET") {
-            return @{ dashboardEntries = @() }
-        }
-        
-        # Mock dashboard creation
-        if ($Path -match "/_apis/dashboard/dashboards" -and $Method -eq "POST") {
-            return @{ id = "dashboard-guid"; name = "Development Metrics" }
-        }
-        
-        # Mock query folder creation
-        if ($Path -match "/_apis/wit/queries") {
-            return @{ id = "query-guid"; name = "Development"; isFolder = $true }
-        }
-        
-        # Mock repository list
-        if ($Path -match "/_apis/git/repositories") {
-            return @{ 
-                value = @(
-                    @{ id = "repo-guid"; name = "PesterDevProj"; defaultBranch = "refs/heads/main" }
-                )
-            }
-        }
-        
-        # Mock ref list (branches)
-        if ($Path -match "/_apis/git/repositories/.*/refs") {
-            return @{
-                value = @(
-                    @{ name = "refs/heads/main"; objectId = "commit-sha" }
-                )
-            }
-        }
-        
-        # Mock push operation
-        if ($Path -match "/_apis/git/repositories/.*/pushes") {
-            return @{ pushId = 1; commits = @() }
-        }
-        
-        return @{}
-    }
-
-    Mock -ModuleName Core Test-AdoProjectExists { return $true }
-    Mock -ModuleName Migration Test-AdoProjectExists { return $true }
-    Mock -ModuleName Core Invoke-AdoRest {
-        param($Method, $Path, $Body)
+        # Return appropriate mock responses based on the path
         if ($Path -match "/_apis/projects/.+\?includeCapabilities") {
             return [PSCustomObject]@{ 
                 id = "proj-guid"
                 name = "PesterDevProj"
+                capabilities = @{
+                    processTemplate = @{
+                        templateName = "Agile"
+                    }
+                }
             }
         }
         if ($Path -match "/_apis/wiki/wikis" -and $Method -eq "GET") {
@@ -89,55 +40,58 @@ BeforeAll {
                 value = @()
             }
         }
-        return [PSCustomObject]@{ value = @() }
-    }
-    Mock -ModuleName Wikis Measure-Adoprojectwiki { 
-        return [PSCustomObject]@{ 
-            id = "wiki-guid"
-            name = "PesterDevProj.wiki"
-            type = "projectWiki"
-        } 
-    }
-    Mock -ModuleName Wikis Invoke-AdoRest {
-        param($Method, $Path, $Body)
-        if ($Path -match "/_apis/wiki/wikis" -and $Method -eq "GET") {
+        if ($Path -match "/_apis/wit/workitemtypes") {
             return [PSCustomObject]@{ 
                 value = @(
-                    [PSCustomObject]@{
-                        id = "wiki-guid"
-                        name = "PesterDevProj.wiki"
-                        type = "projectWiki"
-                    }
+                    [PSCustomObject]@{ name = "User Story" },
+                    [PSCustomObject]@{ name = "Task" },
+                    [PSCustomObject]@{ name = "Bug" }
                 )
             }
         }
-        return [PSCustomObject]@{ value = @() }
-    }
-    Mock -ModuleName Wikis Measure-Adodevwiki { }
-    Mock -ModuleName Dashboards New-Adodevdashboard { }
-    Mock -ModuleName WorkItems Search-Adodevqueries { }
-    Mock -ModuleName Repositories Ensure-AdoRepoFiles { }
-    # Don't mock Write-MigrationReport - let it create the summary file for testing
-    Mock -ModuleName Migration Invoke-AdoRest {
-        param($Method, $Path, $Body)
-        if ($Path -match "/_apis/projects/.+\?includeCapabilities") {
+        if ($Path -match "/_apis/wit/classificationnodes/areas") {
             return [PSCustomObject]@{ 
-                id = "proj-guid"
-                name = "PesterDevProj"
-            }
-        }
-        if ($Path -match "/_apis/wiki/wikis" -and $Method -eq "GET") {
-            return [PSCustomObject]@{ 
-                value = @(
-                    [PSCustomObject]@{
-                        id = "wiki-guid"
-                        name = "PesterDevProj.wiki"
-                        type = "projectWiki"
-                    }
+                children = @(
+                    [PSCustomObject]@{ name = "Frontend" },
+                    [PSCustomObject]@{ name = "Backend" }
                 )
             }
         }
-        if ($Path -match "/_apis/git/repositories") {
+        if ($Path -match "/_apis/wit/classificationnodes/iterations") {
+            return [PSCustomObject]@{ 
+                children = @(
+                    [PSCustomObject]@{ name = "Sprint 1" },
+                    [PSCustomObject]@{ name = "Sprint 2" }
+                )
+            }
+        }
+        if ($Path -match "/_apis/wiki/wikis/.+/pages") {
+            return [PSCustomObject]@{ 
+                subPages = @(
+                    [PSCustomObject]@{ path = "/Home" },
+                    [PSCustomObject]@{ path = "/Development" }
+                )
+            }
+        }
+        if ($Path -match "/_apis/wit/queries/Shared%20Queries") {
+            return [PSCustomObject]@{ 
+                children = @(
+                    [PSCustomObject]@{ name = "My Work" },
+                    [PSCustomObject]@{ name = "Development" }
+                )
+            }
+        }
+        if ($Path -match "/_apis/dashboard/dashboards") {
+            return [PSCustomObject]@{ 
+                dashboardEntries = @()
+            }
+        }
+        if ($Path -match "/_apis/build/definitions") {
+            return [PSCustomObject]@{ 
+                value = @()
+            }
+        }
+        if ($Path -match "/_apis/policy/configurations") {
             return [PSCustomObject]@{ 
                 value = @()
             }
@@ -148,6 +102,11 @@ BeforeAll {
         return @{
             reportsDir = Join-Path $env:TEMP "reports"
         }
+    }
+    Mock Test-AdoProjectExists {
+        param($ProjectName)
+        # Always return true for idempotency tests
+        return $true
     }
 }
 

@@ -816,16 +816,25 @@ function New-NormalizedError {
                 try {
                     $reader = New-Object System.IO.StreamReader($actualException.Response.GetResponseStream())
                     $reader.BaseStream.Position = 0
-                    $body = $reader.ReadToEnd() | ConvertFrom-Json -ErrorAction SilentlyContinue
-                    
-                    if ($body.message) {
-                        $message = $body.message
-                    }
-                    elseif ($body.error) {
-                        $message = $body.error
-                    }
-                    elseif ($body.error_description) {
-                        $message = $body.error_description
+                    $rawBody = $reader.ReadToEnd()
+                    # Expose raw body string for callers that want to log diagnostic info
+                    if ($rawBody) {
+                        try {
+                            $body = $rawBody | ConvertFrom-Json -ErrorAction SilentlyContinue
+                        }
+                        catch {
+                            $body = $null
+                        }
+
+                        if ($body -and $body.message) {
+                            $message = $body.message
+                        }
+                        elseif ($body -and $body.error) {
+                            $message = $body.error
+                        }
+                        elseif ($body -and $body.error_description) {
+                            $message = $body.error_description
+                        }
                     }
                 }
                 catch {
@@ -844,6 +853,7 @@ function New-NormalizedError {
         endpoint = Hide-Secret -Text $Endpoint
         status   = $status
         message  = $message
+        rawBody  = (if ($rawBody) { $rawBody } else { $null })
     }
 }
 
@@ -1458,6 +1468,7 @@ function Invoke-RestWithRetry {
     }
 }
 
+
 <#
 .SYNOPSIS
     Creates a basic authentication header for Azure DevOps.
@@ -1549,6 +1560,10 @@ function Invoke-AdoRest {
         # If provided, it takes priority over Detect-AdoMaxApiVersion/Preview.
         [string]$ApiVersion,
 
+        # Optional overrides for retry behavior (passed to Invoke-RestWithRetry)
+        [int]$MaxAttempts,
+        [int]$DelaySeconds,
+
         [string]$ContentType
     )
     
@@ -1622,7 +1637,18 @@ function Invoke-AdoRest {
     }
     
     try {
-        return Invoke-RestWithRetry -Method $Method -Uri $uri -Headers $headers -Body $Body -Side 'ado'
+        # Build parameters for Invoke-RestWithRetry and only include overrides when provided
+        $irtParams = @{
+            Method  = $Method
+            Uri     = $uri
+            Headers = $headers
+            Body    = $Body
+            Side    = 'ado'
+        }
+        if ($PSBoundParameters.ContainsKey('MaxAttempts')) { $irtParams['MaxAttempts'] = $MaxAttempts }
+        if ($PSBoundParameters.ContainsKey('DelaySeconds')) { $irtParams['DelaySeconds'] = $DelaySeconds }
+
+        return Invoke-RestWithRetry @irtParams
     }
     catch {
         Write-Error "[Core.Rest] Invoke-RestWithRetry failed. CollectionUrl present: $([bool]$script:CollectionUrl); AdoHeaders present: $([bool]$script:AdoHeaders); Headers keys: $($script:AdoHeaders.Keys -join ',')"

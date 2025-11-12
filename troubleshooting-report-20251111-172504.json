@@ -1,0 +1,132 @@
+[
+  {
+    "Details": null,
+    "Message": "Environment information collected",
+    "Timestamp": "2025-11-11T17:24:42.6037076+03:00",
+    "Success": true,
+    "TestName": "Environment Check"
+  },
+  {
+    "Details": null,
+    "Message": "Successfully imported C:\\Projects\\devops\\Gitlab2DevOps\\modules\\core\\Core.Rest.psm1",
+    "Timestamp": "2025-11-11T17:24:42.6308503+03:00",
+    "Success": true,
+    "TestName": "Import Core.Rest"
+  },
+  {
+    "Details": null,
+    "Message": "Successfully imported C:\\Projects\\devops\\Gitlab2DevOps\\modules\\AzureDevOps\\Projects.psm1",
+    "Timestamp": "2025-11-11T17:24:42.6405487+03:00",
+    "Success": true,
+    "TestName": "Import AzureDevOps.Projects"
+  },
+  {
+    "Details": null,
+    "Message": "Successfully imported C:\\Projects\\devops\\Gitlab2DevOps\\modules\\Migration\\Initialization\\ProjectInitialization.psm1",
+    "Timestamp": "2025-11-11T17:24:42.6612787+03:00",
+    "Success": true,
+    "TestName": "Import Migration.Initialization.ProjectInitialization"
+  },
+  {
+    "Details": null,
+    "Message": "TCP connection successful to dev.azure.com:443",
+    "Timestamp": "2025-11-11T17:24:42.7138646+03:00",
+    "Success": true,
+    "TestName": "Network Connectivity"
+  },
+  {
+    "Details": null,
+    "Message": "Initialize-CoreRest returned false",
+    "Timestamp": "2025-11-11T17:25:01.2884461+03:00",
+    "Success": false,
+    "TestName": "Initialize-CoreRest"
+  },
+  {
+    "Details": {
+      "StackTrace": "at Invoke-AdoRest, C:\\Projects\\devops\\Gitlab2DevOps\\modules\\core\\Core.Rest.psm1: line 1629\r\nat Test-BasicConnectivity, C:\\Projects\\devops\\Gitlab2DevOps\\Troubleshoot-AzureDevOps.ps1: line 159\r\nat <ScriptBlock>, C:\\Projects\\devops\\Gitlab2DevOps\\Troubleshoot-AzureDevOps.ps1: line 413\r\nat <ScriptBlock>, <No file>: line 1",
+      "CollectionUrl": "https://dev.azure.com/magedfarag",
+      "Exception": {
+        "TargetSite": null,
+        "Message": "[Core.Rest] Invoke-RestWithRetry failed. CollectionUrl present: True; AdoHeaders present: True; Headers keys: Authorization,Content-Type",
+        "Data": {},
+        "InnerException": null,
+        "HelpLink": null,
+        "Source": null,
+        "HResult": -2146233087,
+        "StackTrace": null
+      }
+    },
+    "Message": "Connection failed: [Core.Rest] Invoke-RestWithRetry failed. CollectionUrl present: True; AdoHeaders present: True; Headers keys: Authorization,Content-Type",
+    "Timestamp": "2025-11-11T17:25:02.7532367+03:00",
+    "Success": false,
+    "TestName": "Basic Connectivity"
+  },
+  {
+    "Details": {
+      "Method": "GET",
+      "Path": "/_apis",
+      "Exception": {
+        "TargetSite": null,
+        "Message": "[Core.Rest] Invoke-RestWithRetry failed. CollectionUrl present: True; AdoHeaders present: True; Headers keys: Authorization,Content-Type",
+        "Data": {},
+        "InnerException": null,
+        "HelpLink": null,
+        "Source": null,
+        "HResult": -2146233087,
+        "StackTrace": null
+      },
+      "StackTrace": "at Invoke-AdoRest, C:\\Projects\\devops\\Gitlab2DevOps\\modules\\core\\Core.Rest.psm1: line 1629\r\nat Test-InvokeAdoRestDirectly, C:\\Projects\\devops\\Gitlab2DevOps\\Troubleshoot-AzureDevOps.ps1: line 230\r\nat <ScriptBlock>, C:\\Projects\\devops\\Gitlab2DevOps\\Troubleshoot-AzureDevOps.ps1: line 413\r\nat <ScriptBlock>, <No file>: line 1"
+    },
+    "Message": "Failed: [Core.Rest] Invoke-RestWithRetry failed. CollectionUrl present: True; AdoHeaders present: True; Headers keys: Authorization,Content-Type",
+    "Timestamp": "2025-11-11T17:25:03.0499519+03:00",
+    "Success": false,
+    "TestName": "Invoke-AdoRest Root API endpoint"
+  },
+  {
+    "Details": {
+      "Method": "GET",
+      "Path": "/_apis/projects?$top=1",
+      "ResponseType": "System.Management.Automation.PSCustomObject"
+    },
+    "Message": "Success",
+    "Timestamp": "2025-11-11T17:25:03.4275187+03:00",
+    "Success": true,
+    "TestName": "Invoke-AdoRest Projects API (limited)"
+  },
+  {
+    "Details": {
+      "Method": "GET",
+      "Path": "/_apis/process/processes",
+      "ResponseType": "System.Management.Automation.PSCustomObject"
+    },
+    "Message": "Success",
+    "Timestamp": "2025-11-11T17:25:03.93978+03:00",
+    "Success": true,
+    "TestName": "Invoke-AdoRest Process templates"
+  },
+  {
+    "Details": {
+      "ProjectCount": 9,
+      "SampleProjects": [
+        "MeaDevHub",
+        "Ekhtibar",
+        "EmployeeManagerTask"
+      ]
+    },
+    "Message": "Successfully retrieved 9 projects",
+    "Timestamp": "2025-11-11T17:25:04.2326669+03:00",
+    "Success": true,
+    "TestName": "Get-AdoProjectList"
+  },
+  {
+    "Details": {
+      "TestRepoName": "test-repo",
+      "WhatIfMode": true,
+      "TestProjectName": "Gitlab2DevOps-Test-20251111-172504"
+    },
+    "Message": "WhatIf mode completed successfully",
+    "Timestamp": "2025-11-11T17:25:04.3913483+03:00",
+    "Success": true,
+    "TestName": "Initialize-AdoProject (WhatIf)"
+  }
+]

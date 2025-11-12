@@ -1,0 +1,499 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<test-results xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="nunit_schema_2.5.xsd" name="Pester" total="126" errors="0" failures="10" not-run="0" inconclusive="0" ignored="0" skipped="1" invalid="0" date="2025-11-12" time="05:54:50">
+  <environment cwd="C:\Projects\devops\Gitlab2DevOps" nunit-version="2.5.8.0" user-domain="MAGED" os-version="10.0.26200" clr-version="9.0.10" machine-name="MAGED" user="maged" platform="Microsoft Windows 11 Pro|C:\WINDOWS|\Device\Harddisk0\Partition3" />
+  <culture-info current-culture="en-US" current-uiculture="en-US" />
+  <test-suite type="TestFixture" name="Pester" executed="True" result="Failure" success="False" time="12.1597" asserts="0" description="Pester">
+    <results>
+      <test-suite type="TestFixture" name="C:\Projects\devops\Gitlab2DevOps\tests\BusinessInit.Idempotency.Tests.ps1" executed="True" result="Failure" success="False" time="0.6113" asserts="0" description="C:\Projects\devops\Gitlab2DevOps\tests\BusinessInit.Idempotency.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Initialize-BusinessInit idempotency" executed="True" result="Failure" success="False" time="0.1016" asserts="0" description="Initialize-BusinessInit idempotency">
+            <results>
+              <test-case description="runs successfully and writes a summary report" name="Initialize-BusinessInit idempotency.runs successfully and writes a summary report" time="0.0955" asserts="0" success="False" result="Failure" executed="True">
+                <failure>
+                  <message>RuntimeException: Project 'PesterBizProj' does not exist in Azure DevOps. Please create the project first or use Option 2 to initialize a new project.</message>
+                  <stack-trace>at Initialize-BusinessInit, C:\Projects\devops\Gitlab2DevOps\modules\Migration\TeamPacks\TeamPacks.psm1:103
+at &lt;ScriptBlock&gt;, C:\Projects\devops\Gitlab2DevOps\tests\BusinessInit.Idempotency.Tests.ps1:54</stack-trace>
+                </failure>
+              </test-case>
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Projects\devops\Gitlab2DevOps\tests\BusinessInit.Tests.ps1" executed="True" result="Success" success="True" time="0.1692" asserts="0" description="C:\Projects\devops\Gitlab2DevOps\tests\BusinessInit.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="BusinessInit CLI Mode" executed="True" result="Success" success="True" time="0.0313" asserts="0" description="BusinessInit CLI Mode">
+            <results>
+              <test-case description="Main script supports BusinessInit in ValidateSet and switch" name="BusinessInit CLI Mode.Main script supports BusinessInit in ValidateSet and switch" time="0.0107" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="CLI docs include BusinessInit mode and output path" name="BusinessInit CLI Mode.CLI docs include BusinessInit mode and output path" time="0.0146" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="BusinessInit Module Exports" executed="True" result="Success" success="True" time="0.0588" asserts="0" description="BusinessInit Module Exports">
+            <results>
+              <test-case description="Migration module exports Initialize-BusinessInit" name="BusinessInit Module Exports.Migration module exports Initialize-BusinessInit" time="0.0131" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Wikis sub-module exports Measure-Adobusinesswiki" name="BusinessInit Module Exports.Wikis sub-module exports Measure-Adobusinesswiki" time="0.004" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="WorkItems sub-module exports Measure-Adobusinessqueries" name="BusinessInit Module Exports.WorkItems sub-module exports Measure-Adobusinessqueries" time="0.0041" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Projects\devops\Gitlab2DevOps\tests\Core.Rest.Tests.ps1" executed="True" result="Failure" success="False" time="0.4973" asserts="0" description="C:\Projects\devops\Gitlab2DevOps\tests\Core.Rest.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Hide-Secret" executed="True" result="Failure" success="False" time="0.0885" asserts="0" description="Hide-Secret">
+            <results>
+              <test-suite type="TestFixture" name="Hide-Secret.When masking Azure DevOps PAT" executed="True" result="Failure" success="False" time="0.059" asserts="0" description="Hide-Secret.When masking Azure DevOps PAT">
+                <results>
+                  <test-case description="Should mask PAT in URL" name="Hide-Secret.When masking Azure DevOps PAT.Should mask PAT in URL" time="0.0066" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Should mask PAT in plain text" name="Hide-Secret.When masking Azure DevOps PAT.Should mask PAT in plain text" time="0.0401" asserts="0" success="False" result="Failure" executed="True">
+                    <failure>
+                      <message>Expected strings to be the same, but they were different.
+Expected length: 25
+Actual length:   45
+Strings differ at index 11.
+Expected: 'Token: PAT *** is invalid'
+But was:  'Token: PAT test-ado-pat-1234567890 is invalid'
+           -----------^</message>
+                      <stack-trace>at $masked | Should -Be "Token: PAT *** is invalid", C:\Projects\devops\Gitlab2DevOps\tests\Core.Rest.Tests.ps1:35
+at &lt;ScriptBlock&gt;, C:\Projects\devops\Gitlab2DevOps\tests\Core.Rest.Tests.ps1:35</stack-trace>
+                    </failure>
+                  </test-case>
+                  <test-case description="Should handle empty secret" name="Hide-Secret.When masking Azure DevOps PAT.Should handle empty secret" time="0.0042" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Should handle null text" name="Hide-Secret.When masking Azure DevOps PAT.Should handle null text" time="0.0031" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="Hide-Secret.When masking GitLab token" executed="True" result="Failure" success="False" time="0.0792" asserts="0" description="Hide-Secret.When masking GitLab token">
+                <results>
+                  <test-case description="Should mask token in URL" name="Hide-Secret.When masking GitLab token.Should mask token in URL" time="0.0147" asserts="0" success="False" result="Failure" executed="True">
+                    <failure>
+                      <message>Expected strings to be the same, but they were different.
+Expected length: 61
+Actual length:   67
+Strings differ at index 21.
+Expected: 'https://oauth2:token:***@gitlab.example.com/group/project.git'
+But was:  'https://oauth2:token:glpat-***@gitlab.example.com/group/proje...'
+           ---------------------^</message>
+                      <stack-trace>at $masked | Should -Be "https://oauth2:token:***@gitlab.example.com/group/project.git", C:\Projects\devops\Gitlab2DevOps\tests\Core.Rest.Tests.ps1:54
+at &lt;ScriptBlock&gt;, C:\Projects\devops\Gitlab2DevOps\tests\Core.Rest.Tests.ps1:54</stack-trace>
+                    </failure>
+                  </test-case>
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="New-NormalizedError" executed="True" result="Failure" success="False" time="0.1472" asserts="0" description="New-NormalizedError">
+            <results>
+              <test-suite type="TestFixture" name="New-NormalizedError.When normalizing ErrorRecord" executed="True" result="Failure" success="False" time="0.0207" asserts="0" description="New-NormalizedError.When normalizing ErrorRecord">
+                <results>
+                  <test-case description="Should extract HTTP status code from exception" name="New-NormalizedError.When normalizing ErrorRecord.Should extract HTTP status code from exception" time="0.0155" asserts="0" success="False" result="Failure" executed="True">
+                    <failure>
+                      <message>ParameterBindingException: A parameter cannot be found that matches parameter name 'Message'.</message>
+                      <stack-trace>at &lt;ScriptBlock&gt;, C:\Projects\devops\Gitlab2DevOps\tests\Core.Rest.Tests.ps1:62</stack-trace>
+                    </failure>
+                  </test-case>
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="New-NormalizedError.When normalizing plain Exception" executed="True" result="Failure" success="False" time="0.0352" asserts="0" description="New-NormalizedError.When normalizing plain Exception">
+                <results>
+                  <test-case description="Should create normalized error object" name="New-NormalizedError.When normalizing plain Exception.Should create normalized error object" time="0.01" asserts="0" success="False" result="Failure" executed="True">
+                    <failure>
+                      <message>ParameterBindingException: A parameter cannot be found that matches parameter name 'Message'.</message>
+                      <stack-trace>at &lt;ScriptBlock&gt;, C:\Projects\devops\Gitlab2DevOps\tests\Core.Rest.Tests.ps1:72</stack-trace>
+                    </failure>
+                  </test-case>
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="New-NormalizedError.When normalizing string error" executed="True" result="Failure" success="False" time="0.0534" asserts="0" description="New-NormalizedError.When normalizing string error">
+                <results>
+                  <test-case description="Should handle string input" name="New-NormalizedError.When normalizing string error.Should handle string input" time="0.0097" asserts="0" success="False" result="Failure" executed="True">
+                    <failure>
+                      <message>ParameterBindingException: A parameter cannot be found that matches parameter name 'Message'.</message>
+                      <stack-trace>at &lt;ScriptBlock&gt;, C:\Projects\devops\Gitlab2DevOps\tests\Core.Rest.Tests.ps1:82</stack-trace>
+                    </failure>
+                  </test-case>
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Get-CoreRestVersion" executed="True" result="Success" success="True" time="0.1636" asserts="0" description="Get-CoreRestVersion">
+            <results>
+              <test-case description="Should return semantic version" name="Get-CoreRestVersion.Should return semantic version" time="0.0053" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should return version 2.0.0 or higher" name="Get-CoreRestVersion.Should return version 2.0.0 or higher" time="0.0055" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Initialize-CoreRest" executed="True" result="Success" success="True" time="0.2094" asserts="0" description="Initialize-CoreRest">
+            <results>
+              <test-suite type="TestFixture" name="Initialize-CoreRest.When initializing with valid credentials" executed="True" result="Success" success="True" time="0.0199" asserts="0" description="Initialize-CoreRest.When initializing with valid credentials">
+                <results>
+                  <test-case description="Should set module-level variables" name="Initialize-CoreRest.When initializing with valid credentials.Should set module-level variables" time="0.0146" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="Initialize-CoreRest.When initializing with SkipCertificateCheck" executed="True" result="Success" success="True" time="0.0412" asserts="0" description="Initialize-CoreRest.When initializing with SkipCertificateCheck">
+                <results>
+                  <test-case description="Should accept SkipCertificateCheck parameter" name="Initialize-CoreRest.When initializing with SkipCertificateCheck.Should accept SkipCertificateCheck parameter" time="0.0071" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="New-AuthHeader" executed="True" result="Failure" success="False" time="0.273" asserts="0" description="New-AuthHeader">
+            <results>
+              <test-suite type="TestFixture" name="New-AuthHeader.When creating Azure DevOps auth header" executed="True" result="Failure" success="False" time="0.0271" asserts="0" description="New-AuthHeader.When creating Azure DevOps auth header">
+                <results>
+                  <test-case description="Should create base64 encoded header" name="New-AuthHeader.When creating Azure DevOps auth header.Should create base64 encoded header" time="0.0126" asserts="0" success="False" result="Failure" executed="True">
+                    <failure>
+                      <message>ParameterBindingException: A parameter cannot be found that matches parameter name 'AdoPat'.</message>
+                      <stack-trace>at &lt;ScriptBlock&gt;, C:\Projects\devops\Gitlab2DevOps\tests\Core.Rest.Tests.ps1:138</stack-trace>
+                    </failure>
+                  </test-case>
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="New-AuthHeader.When creating GitLab auth header" executed="True" result="Failure" success="False" time="0.0543" asserts="0" description="New-AuthHeader.When creating GitLab auth header">
+                <results>
+                  <test-case description="Should create token-based header" name="New-AuthHeader.When creating GitLab auth header.Should create token-based header" time="0.0186" asserts="0" success="False" result="Failure" executed="True">
+                    <failure>
+                      <message>ParameterBindingException: A parameter cannot be found that matches parameter name 'GitLabToken'.</message>
+                      <stack-trace>at &lt;ScriptBlock&gt;, C:\Projects\devops\Gitlab2DevOps\tests\Core.Rest.Tests.ps1:147</stack-trace>
+                    </failure>
+                  </test-case>
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Invoke-RestWithRetry" executed="True" result="Failure" success="False" time="0.3688" asserts="0" description="Invoke-RestWithRetry">
+            <results>
+              <test-suite type="TestFixture" name="Invoke-RestWithRetry.When API call succeeds" executed="True" result="Failure" success="False" time="0.0412" asserts="0" description="Invoke-RestWithRetry.When API call succeeds">
+                <results>
+                  <test-case description="Should return response on first attempt" name="Invoke-RestWithRetry.When API call succeeds.Should return response on first attempt" time="0.0192" asserts="0" success="False" result="Failure" executed="True">
+                    <failure>
+                      <message>ParameterBindingException: A parameter cannot be found that matches parameter name 'First'.</message>
+                      <stack-trace>at &lt;ScriptBlock&gt;, C:\Projects\devops\Gitlab2DevOps\tests\Core.Rest.Tests.ps1:176</stack-trace>
+                    </failure>
+                  </test-case>
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="Invoke-RestWithRetry.When API call fails with retryable error" executed="True" result="Success" success="True" time="0.0658" asserts="0" description="Invoke-RestWithRetry.When API call fails with retryable error">
+                <results>
+                  <test-case description="Should accept retryable error parameters" name="Invoke-RestWithRetry.When API call fails with retryable error.Should accept retryable error parameters" time="0.0134" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="Invoke-RestWithRetry.When API call fails permanently" executed="True" result="Success" success="True" time="0.0904" asserts="0" description="Invoke-RestWithRetry.When API call fails permanently">
+                <results>
+                  <test-case description="Should throw after max attempts" name="Invoke-RestWithRetry.When API call fails permanently.Should throw after max attempts" time="0.0071" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Module Exports" executed="True" result="Success" success="True" time="0.41" asserts="0" description="Module Exports">
+            <results>
+              <test-case description="Should export Hide-Secret function" name="Module Exports.Should export Hide-Secret function" time="0.0085" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should export New-NormalizedError function" name="Module Exports.Should export New-NormalizedError function" time="0.0084" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should export Get-CoreRestVersion function" name="Module Exports.Should export Get-CoreRestVersion function" time="0.0122" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should export Initialize-CoreRest function" name="Module Exports.Should export Initialize-CoreRest function" time="0.0073" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Projects\devops\Gitlab2DevOps\tests\DevInit.Idempotency.Tests.ps1" executed="True" result="Failure" success="False" time="2.159" asserts="0" description="C:\Projects\devops\Gitlab2DevOps\tests\DevInit.Idempotency.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Initialize-DevInit idempotency" executed="True" result="Failure" success="False" time="1.9758" asserts="0" description="Initialize-DevInit idempotency">
+            <results>
+              <test-case description="runs successfully and completes without errors" name="Initialize-DevInit idempotency.runs successfully and completes without errors" time="1.9658" asserts="0" success="False" result="Failure" executed="True">
+                <failure>
+                  <message>Expected no exception to be thrown, but an exception "Project 'PesterDevProj' does not exist in Azure DevOps. Please create the project first or use Option 2 to initialize a new project." was thrown from C:\Projects\devops\Gitlab2DevOps\modules\Migration\TeamPacks\TeamPacks.psm1:196 char:9
+    +         throw "Project '$DestProject' does not exist in Azure DevOps. …
+    +         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.</message>
+                  <stack-trace>at { Initialize-DevInit -DestProject "PesterDevProj" -ProjectType "dotnet" } | Should -Not -Throw, C:\Projects\devops\Gitlab2DevOps\tests\DevInit.Idempotency.Tests.ps1:121
+at &lt;ScriptBlock&gt;, C:\Projects\devops\Gitlab2DevOps\tests\DevInit.Idempotency.Tests.ps1:121</stack-trace>
+                </failure>
+              </test-case>
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Projects\devops\Gitlab2DevOps\tests\DevInit.Tests.ps1" executed="True" result="Success" success="True" time="0.1256" asserts="0" description="C:\Projects\devops\Gitlab2DevOps\tests\DevInit.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="DevInit CLI Mode" executed="True" result="Success" success="True" time="0.0143" asserts="0" description="DevInit CLI Mode">
+            <results>
+              <test-case description="Main script supports DevInit in ValidateSet and switch" name="DevInit CLI Mode.Main script supports DevInit in ValidateSet and switch" time="0.0054" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="CLI docs include DevInit mode and project types" name="DevInit CLI Mode.CLI docs include DevInit mode and project types" time="0.0041" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="DevInit Module Exports" executed="True" result="Success" success="True" time="0.0323" asserts="0" description="DevInit Module Exports">
+            <results>
+              <test-case description="Migration module exports Initialize-DevInit" name="DevInit Module Exports.Migration module exports Initialize-DevInit" time="0.0065" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Wikis sub-module exports Measure-Adodevwiki" name="DevInit Module Exports.Wikis sub-module exports Measure-Adodevwiki" time="0.0029" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Dashboards sub-module exports New-Adodevdashboard" name="DevInit Module Exports.Dashboards sub-module exports New-Adodevdashboard" time="0.002" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="WorkItems sub-module exports Search-Adodevqueries" name="DevInit Module Exports.WorkItems sub-module exports Search-Adodevqueries" time="0.0019" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Repositories sub-module exports New-AdoRepoFiles" name="DevInit Module Exports.Repositories sub-module exports New-AdoRepoFiles" time="0.0018" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Projects\devops\Gitlab2DevOps\tests\ExcelImport.Tests.ps1" executed="True" result="Ignored" success="True" time="0.8413" asserts="0" description="C:\Projects\devops\Gitlab2DevOps\tests\ExcelImport.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="ConvertTo-AdoTestStepsXml" executed="True" result="Ignored" success="True" time="0.0204" asserts="0" description="ConvertTo-AdoTestStepsXml">
+            <results>
+              <test-case description="Converts single test step correctly" name="ConvertTo-AdoTestStepsXml.Converts single test step correctly" time="0.0041" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Converts multiple test steps correctly" name="ConvertTo-AdoTestStepsXml.Converts multiple test steps correctly" time="0.0025" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="HTML encodes special characters" name="ConvertTo-AdoTestStepsXml.HTML encodes special characters" time="0.0018" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Handles steps without expected result" name="ConvertTo-AdoTestStepsXml.Handles steps without expected result" time="0.0017" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Returns null for empty input" name="ConvertTo-AdoTestStepsXml.Returns null for empty input" time="0.0039" asserts="0" success="False" result="Ignored" executed="False" />
+              <test-case description="Returns null for whitespace input" name="ConvertTo-AdoTestStepsXml.Returns null for whitespace input" time="0.0021" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Import-AdoWorkItemsFromExcel Parameter Validation" executed="True" result="Success" success="True" time="0.0297" asserts="0" description="Import-AdoWorkItemsFromExcel Parameter Validation">
+            <results>
+              <test-case description="Validates Excel file exists" name="Import-AdoWorkItemsFromExcel Parameter Validation.Validates Excel file exists" time="0.0024" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Validates Excel file extension" name="Import-AdoWorkItemsFromExcel Parameter Validation.Validates Excel file extension" time="0.0022" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Import-AdoWorkItemsFromExcel with Real Excel File" executed="True" result="Success" success="True" time="0.7136" asserts="0" description="Import-AdoWorkItemsFromExcel with Real Excel File">
+            <results>
+              <test-case description="Reads Excel file and processes hierarchy correctly" name="Import-AdoWorkItemsFromExcel with Real Excel File.Reads Excel file and processes hierarchy correctly" time="0.0809" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Handles single row Excel file" name="Import-AdoWorkItemsFromExcel with Real Excel File.Handles single row Excel file" time="0.1472" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Maps standard fields correctly" name="Import-AdoWorkItemsFromExcel with Real Excel File.Maps standard fields correctly" time="0.0893" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Creates parent-child relationships" name="Import-AdoWorkItemsFromExcel with Real Excel File.Creates parent-child relationships" time="0.0918" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Handles Test Case steps correctly" name="Import-AdoWorkItemsFromExcel with Real Excel File.Handles Test Case steps correctly" time="0.1031" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Maps field values correctly (Risk, ValueArea, State)" name="Import-AdoWorkItemsFromExcel with Real Excel File.Maps field values correctly (Risk, ValueArea, State)" time="0.1635" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Projects\devops\Gitlab2DevOps\tests\ExportGitLabIdentity.Tests.ps1" executed="True" result="Success" success="True" time="6.6266" asserts="0" description="C:\Projects\devops\Gitlab2DevOps\tests\ExportGitLabIdentity.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="export-gitlab-identity.ps1 - Parameter Validation" executed="True" result="Success" success="True" time="6.1397" asserts="0" description="export-gitlab-identity.ps1 - Parameter Validation">
+            <results>
+              <test-case description="Should require GitLabBaseUrl parameter" name="export-gitlab-identity.ps1 - Parameter Validation.Should require GitLabBaseUrl parameter" time="4.8126" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should require token parameter (plain or secure)" name="export-gitlab-identity.ps1 - Parameter Validation.Should require token parameter (plain or secure)" time="1.2996" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should accept valid Profile values" name="export-gitlab-identity.ps1 - Parameter Validation.Should accept valid Profile values" time="0.0056" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should reject invalid Profile values" name="export-gitlab-identity.ps1 - Parameter Validation.Should reject invalid Profile values" time="0.0072" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should accept valid ApiVersion values" name="export-gitlab-identity.ps1 - Parameter Validation.Should accept valid ApiVersion values" time="0.0048" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should accept Since parameter as datetime" name="export-gitlab-identity.ps1 - Parameter Validation.Should accept Since parameter as datetime" time="0.0061" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="export-gitlab-identity.ps1 - Profile Presets" executed="True" result="Success" success="True" time="6.2033" asserts="0" description="export-gitlab-identity.ps1 - Profile Presets">
+            <results>
+              <test-case description="Should skip projects with Minimal profile" name="export-gitlab-identity.ps1 - Profile Presets.Should skip projects with Minimal profile" time="0.0233" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should export users and groups with Minimal profile" name="export-gitlab-identity.ps1 - Profile Presets.Should export users and groups with Minimal profile" time="0.0055" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should export projects with Standard profile" name="export-gitlab-identity.ps1 - Profile Presets.Should export projects with Standard profile" time="0.0062" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should export all resources with Complete profile" name="export-gitlab-identity.ps1 - Profile Presets.Should export all resources with Complete profile" time="0.0059" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="export-gitlab-identity.ps1 - Since Date Filtering" executed="True" result="Success" success="True" time="6.2204" asserts="0" description="export-gitlab-identity.ps1 - Since Date Filtering">
+            <results>
+              <test-case description="Should filter users created before Since date" name="export-gitlab-identity.ps1 - Since Date Filtering.Should filter users created before Since date" time="0.0077" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should include resources without created_at when Since is specified" name="export-gitlab-identity.ps1 - Since Date Filtering.Should include resources without created_at when Since is specified" time="0.0064" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="export-gitlab-identity.ps1 - Dry-Run Mode" executed="True" result="Success" success="True" time="6.2366" asserts="0" description="export-gitlab-identity.ps1 - Dry-Run Mode">
+            <results>
+              <test-case description="Should return count estimates without exporting data" name="export-gitlab-identity.ps1 - Dry-Run Mode.Should return count estimates without exporting data" time="0.0081" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should estimate API calls based on page size" name="export-gitlab-identity.ps1 - Dry-Run Mode.Should estimate API calls based on page size" time="0.0054" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="export-gitlab-identity.ps1 - Resume Support" executed="True" result="Success" success="True" time="6.3011" asserts="0" description="export-gitlab-identity.ps1 - Resume Support">
+            <results>
+              <test-case description="Should detect existing export files" name="export-gitlab-identity.ps1 - Resume Support.Should detect existing export files" time="0.0098" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should skip phases with existing files when Resume is set" name="export-gitlab-identity.ps1 - Resume Support.Should skip phases with existing files when Resume is set" time="0.0124" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should load existing data from JSON files" name="export-gitlab-identity.ps1 - Resume Support.Should load existing data from JSON files" time="0.026" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="export-gitlab-identity.ps1 - Pagination" executed="True" result="Success" success="True" time="6.3326" asserts="0" description="export-gitlab-identity.ps1 - Pagination">
+            <results>
+              <test-case description="Should handle single page response" name="export-gitlab-identity.ps1 - Pagination.Should handle single page response" time="0.0246" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should handle multi-page response with X-Next-Page" name="export-gitlab-identity.ps1 - Pagination.Should handle multi-page response with X-Next-Page" time="0.0039" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="export-gitlab-identity.ps1 - Error Handling" executed="True" result="Success" success="True" time="6.3706" asserts="0" description="export-gitlab-identity.ps1 - Error Handling">
+            <results>
+              <test-case description="Should handle 401 Unauthorized gracefully" name="export-gitlab-identity.ps1 - Error Handling.Should handle 401 Unauthorized gracefully" time="0.0109" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should handle 403 Forbidden gracefully" name="export-gitlab-identity.ps1 - Error Handling.Should handle 403 Forbidden gracefully" time="0.006" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should handle 404 Not Found for missing resources" name="export-gitlab-identity.ps1 - Error Handling.Should handle 404 Not Found for missing resources" time="0.0085" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should retry on 429 Rate Limit" name="export-gitlab-identity.ps1 - Error Handling.Should retry on 429 Rate Limit" time="0.0098" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="export-gitlab-identity.ps1 - Access Level Mapping" executed="True" result="Success" success="True" time="6.3789" asserts="0" description="export-gitlab-identity.ps1 - Access Level Mapping">
+            <results>
+              <test-case description="Should map GitLab access level to name" name="export-gitlab-identity.ps1 - Access Level Mapping.Should map GitLab access level to name" time="0.0056" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="export-gitlab-identity.ps1 - Validation" executed="True" result="Success" success="True" time="6.3939" asserts="0" description="export-gitlab-identity.ps1 - Validation">
+            <results>
+              <test-case description="Should skip users with null id" name="export-gitlab-identity.ps1 - Validation.Should skip users with null id" time="0.0043" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should skip users with empty username" name="export-gitlab-identity.ps1 - Validation.Should skip users with empty username" time="0.0041" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="export-gitlab-identity.ps1 - Statistics" executed="True" result="Success" success="True" time="6.4047" asserts="0" description="export-gitlab-identity.ps1 - Statistics">
+            <results>
+              <test-case description="Should calculate top groups by member count" name="export-gitlab-identity.ps1 - Statistics.Should calculate top groups by member count" time="0.004" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should calculate access level distribution" name="export-gitlab-identity.ps1 - Statistics.Should calculate access level distribution" time="0.0042" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="export-gitlab-identity.ps1 - Memory Optimization" executed="True" result="Success" success="True" time="6.5488" asserts="0" description="export-gitlab-identity.ps1 - Memory Optimization">
+            <results>
+              <test-case description="Should use List instead of array concatenation" name="export-gitlab-identity.ps1 - Memory Optimization.Should use List instead of array concatenation" time="0.006" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should handle large datasets without OOM" name="export-gitlab-identity.ps1 - Memory Optimization.Should handle large datasets without OOM" time="0.1354" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Projects\devops\Gitlab2DevOps\tests\FolderStructure.Tests.ps1" executed="True" result="Success" success="True" time="0.1859" asserts="0" description="C:\Projects\devops\Gitlab2DevOps\tests\FolderStructure.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="v2.1.0 Folder Structure Validation" executed="True" result="Success" success="True" time="0.1414" asserts="0" description="v2.1.0 Folder Structure Validation">
+            <results>
+              <test-suite type="TestFixture" name="v2.1.0 Folder Structure Validation.Single Project Migration Structure" executed="True" result="Success" success="True" time="0.0647" asserts="0" description="v2.1.0 Folder Structure Validation.Single Project Migration Structure">
+                <results>
+                  <test-case description="Should create v2.1.0 self-contained structure with correct directories" name="v2.1.0 Folder Structure Validation.Single Project Migration Structure.Should create v2.1.0 self-contained structure with correct directories" time="0.0208" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Should return correct paths in hashtable" name="v2.1.0 Folder Structure Validation.Single Project Migration Structure.Should return correct paths in hashtable" time="0.0192" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="v2.1.0 Folder Structure Validation.Bulk Migration Structure" executed="True" result="Success" success="True" time="0.1116" asserts="0" description="v2.1.0 Folder Structure Validation.Bulk Migration Structure">
+                <results>
+                  <test-case description="Should create bulk migration structure without GitLab project" name="v2.1.0 Folder Structure Validation.Bulk Migration Structure.Should create bulk migration structure without GitLab project" time="0.0143" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Should create bulk migration structure WITH GitLab project" name="v2.1.0 Folder Structure Validation.Bulk Migration Structure.Should create bulk migration structure WITH GitLab project" time="0.0153" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="v2.1.0 Folder Structure Validation.Legacy Structure (Backward Compatibility)" executed="True" result="Success" success="True" time="0.139" asserts="0" description="v2.1.0 Folder Structure Validation.Legacy Structure (Backward Compatibility)">
+                <results>
+                  <test-case description="Should create legacy flat structure when using ProjectName parameter" name="v2.1.0 Folder Structure Validation.Legacy Structure (Backward Compatibility).Should create legacy flat structure when using ProjectName parameter" time="0.012" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Projects\devops\Gitlab2DevOps\tests\HtmlReporting.Tests.ps1" executed="True" result="Success" success="True" time="0.4104" asserts="0" description="C:\Projects\devops\Gitlab2DevOps\tests\HtmlReporting.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="HTML Reporting Functions" executed="True" result="Success" success="True" time="0.3571" asserts="0" description="HTML Reporting Functions">
+            <results>
+              <test-suite type="TestFixture" name="HTML Reporting Functions.New-MigrationHtmlReport" executed="True" result="Success" success="True" time="0.0804" asserts="0" description="HTML Reporting Functions.New-MigrationHtmlReport">
+                <results>
+                  <test-case description="generates HTML report for a single migration" name="HTML Reporting Functions.New-MigrationHtmlReport.generates HTML report for a single migration" time="0.0553" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="creates reports directory if it doesn't exist" name="HTML Reporting Functions.New-MigrationHtmlReport.creates reports directory if it doesn't exist" time="0.0184" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="returns null for non-existent project" name="HTML Reporting Functions.New-MigrationHtmlReport.returns null for non-existent project" time="0.0035" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="HTML Reporting Functions.New-MigrationsOverviewReport" executed="True" result="Success" success="True" time="0.2358" asserts="0" description="HTML Reporting Functions.New-MigrationsOverviewReport">
+                <results>
+                  <test-case description="generates overview HTML report" name="HTML Reporting Functions.New-MigrationsOverviewReport.generates overview HTML report" time="0.0513" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="includes all projects in overview" name="HTML Reporting Functions.New-MigrationsOverviewReport.includes all projects in overview" time="0.0499" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="generates stats correctly" name="HTML Reporting Functions.New-MigrationsOverviewReport.generates stats correctly" time="0.0514" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="HTML Reporting Functions.HTML Template" executed="True" result="Success" success="True" time="0.2479" asserts="0" description="HTML Reporting Functions.HTML Template">
+                <results>
+                  <test-case description="template file exists" name="HTML Reporting Functions.HTML Template.template file exists" time="0.0023" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="template contains all required placeholders" name="HTML Reporting Functions.HTML Template.template contains all required placeholders" time="0.0053" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="HTML Reporting Functions.Navigation Links" executed="True" result="Success" success="True" time="0.3546" asserts="0" description="HTML Reporting Functions.Navigation Links">
+                <results>
+                  <test-case description="overview report contains clickable project cards" name="HTML Reporting Functions.Navigation Links.overview report contains clickable project cards" time="0.0487" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="overview report contains links to individual reports" name="HTML Reporting Functions.Navigation Links.overview report contains links to individual reports" time="0.0418" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="individual report contains back navigation link" name="HTML Reporting Functions.Navigation Links.individual report contains back navigation link" time="0.0136" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Projects\devops\Gitlab2DevOps\tests\Logging.Tests.ps1" executed="True" result="Success" success="True" time="0.5332" asserts="0" description="C:\Projects\devops\Gitlab2DevOps\tests\Logging.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Get-MigrationsDirectory" executed="True" result="Success" success="True" time="0.0069" asserts="0" description="Get-MigrationsDirectory">
+            <results>
+              <test-case description="Should return migrations directory path" name="Get-MigrationsDirectory.Should return migrations directory path" time="0.0034" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Get-ProjectPaths" executed="True" result="Success" success="True" time="0.03" asserts="0" description="Get-ProjectPaths">
+            <results>
+              <test-suite type="TestFixture" name="Get-ProjectPaths.When getting paths for project" executed="True" result="Success" success="True" time="0.0125" asserts="0" description="Get-ProjectPaths.When getting paths for project">
+                <results>
+                  <test-case description="Should return all required paths" name="Get-ProjectPaths.When getting paths for project.Should return all required paths" time="0.005" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Should handle project names with special characters" name="Get-ProjectPaths.When getting paths for project.Should handle project names with special characters" time="0.0038" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="New-LogFilePath" executed="True" result="Success" success="True" time="0.0445" asserts="0" description="New-LogFilePath">
+            <results>
+              <test-case description="Should create timestamped log filename" name="New-LogFilePath.Should create timestamped log filename" time="0.0065" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should support different operations" name="New-LogFilePath.Should support different operations" time="0.0055" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="New-ReportFilePath" executed="True" result="Success" success="True" time="0.0573" asserts="0" description="New-ReportFilePath">
+            <results>
+              <test-case description="Should create report filename" name="New-ReportFilePath.Should create report filename" time="0.0057" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should support different report types" name="New-ReportFilePath.Should support different report types" time="0.0044" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Write-MigrationLog" executed="True" result="Success" success="True" time="0.1371" asserts="0" description="Write-MigrationLog">
+            <results>
+              <test-suite type="TestFixture" name="Write-MigrationLog.When writing to log file" executed="True" result="Success" success="True" time="0.0773" asserts="0" description="Write-MigrationLog.When writing to log file">
+                <results>
+                  <test-case description="Should create log file with message" name="Write-MigrationLog.When writing to log file.Should create log file with message" time="0.0247" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Should append to existing log file" name="Write-MigrationLog.When writing to log file.Should append to existing log file" time="0.0246" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Should include timestamp" name="Write-MigrationLog.When writing to log file.Should include timestamp" time="0.0236" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Write-MigrationReport" executed="True" result="Success" success="True" time="0.2003" asserts="0" description="Write-MigrationReport">
+            <results>
+              <test-suite type="TestFixture" name="Write-MigrationReport.When writing JSON report" executed="True" result="Success" success="True" time="0.0606" asserts="0" description="Write-MigrationReport.When writing JSON report">
+                <results>
+                  <test-case description="Should create JSON report file" name="Write-MigrationReport.When writing JSON report.Should create JSON report file" time="0.0306" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Should handle nested objects" name="Write-MigrationReport.When writing JSON report.Should handle nested objects" time="0.0274" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Write-MigrationMessage" executed="True" result="Success" success="True" time="0.2274" asserts="0" description="Write-MigrationMessage">
+            <results>
+              <test-case description="Should display INFO message" name="Write-MigrationMessage.Should display INFO message" time="0.0051" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should display WARN message" name="Write-MigrationMessage.Should display WARN message" time="0.0038" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should display ERROR message" name="Write-MigrationMessage.Should display ERROR message" time="0.0032" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should display SUCCESS message" name="Write-MigrationMessage.Should display SUCCESS message" time="0.0045" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should display DEBUG message" name="Write-MigrationMessage.Should display DEBUG message" time="0.0033" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should default to INFO level" name="Write-MigrationMessage.Should default to INFO level" time="0.0035" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="New-RunManifest" executed="True" result="Success" success="True" time="0.2784" asserts="0" description="New-RunManifest">
+            <results>
+              <test-suite type="TestFixture" name="New-RunManifest.When creating run manifest" executed="True" result="Success" success="True" time="0.0482" asserts="0" description="New-RunManifest.When creating run manifest">
+                <results>
+                  <test-case description="Should create manifest with required fields" name="New-RunManifest.When creating run manifest.Should create manifest with required fields" time="0.0168" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Should include parameters when provided" name="New-RunManifest.When creating run manifest.Should include parameters when provided" time="0.0142" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Should include environment information" name="New-RunManifest.When creating run manifest.Should include environment information" time="0.0127" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Update-RunManifest" executed="True" result="Success" success="True" time="0.3969" asserts="0" description="Update-RunManifest">
+            <results>
+              <test-suite type="TestFixture" name="Update-RunManifest.When updating manifest status" executed="True" result="Success" success="True" time="0.116" asserts="0" description="Update-RunManifest.When updating manifest status">
+                <results>
+                  <test-case description="Should update status to SUCCESS" name="Update-RunManifest.When updating manifest status.Should update status to SUCCESS" time="0.0478" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Should update status to FAILED with errors" name="Update-RunManifest.When updating manifest status.Should update status to FAILED with errors" time="0.0348" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Should include warnings" name="Update-RunManifest.When updating manifest status.Should include warnings" time="0.0306" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="New-MigrationSummary" executed="True" result="Success" success="True" time="0.4166" asserts="0" description="New-MigrationSummary">
+            <results>
+              <test-case description="Should create summary with all fields" name="New-MigrationSummary.Should create summary with all fields" time="0.0093" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should include additional data" name="New-MigrationSummary.Should include additional data" time="0.005" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Module Exports" executed="True" result="Success" success="True" time="0.45" asserts="0" description="Module Exports">
+            <results>
+              <test-case description="Should export Get-MigrationsDirectory" name="Module Exports.Should export Get-MigrationsDirectory" time="0.0065" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should export Write-MigrationLog" name="Module Exports.Should export Write-MigrationLog" time="0.0064" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should export Write-MigrationReport" name="Module Exports.Should export Write-MigrationReport" time="0.0062" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should export New-RunManifest" name="Module Exports.Should export New-RunManifest" time="0.0062" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Should export Update-RunManifest" name="Module Exports.Should export Update-RunManifest" time="0.0052" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+    </results>
+  </test-suite>
+</test-results>

@@ -10,11 +10,99 @@
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
 
-# Module-level initialization: ensure the script-scoped relationships tracker always exists.
-# This guarantees tests and early mocks can safely reference and increment it without
-# relying on a particular function path to have run first.
-if (-not (Test-Path variable:script:relationshipsCreated)) {
-    $script:relationshipsCreated = @{}
+# Module-level initialization: ensure the script-scoped relationships tracker and
+# workItemTypesCache always exist. Use Set-Variable to avoid StrictMode TerminatingErrors
+# when modules/functions reference these variables before they've been assigned.
+try {
+    Set-Variable -Name 'script:relationshipsCreated' -Scope Script -Value (@{}) -Force -ErrorAction Stop
+}
+catch {
+    # Fallback: if Set-Variable fails for some reason, ensure the plain assignment exists
+    if (-not (Test-Path variable:script:relationshipsCreated)) { $script:relationshipsCreated = @{} }
+}
+
+try {
+    Set-Variable -Name 'script:workItemTypesCache' -Scope Script -Value (@{}) -Force -ErrorAction Stop
+}
+catch {
+    if (-not (Test-Path variable:script:workItemTypesCache)) { $script:workItemTypesCache = @{} }
+}
+
+# Helper: ensure the module-level workItemTypesCache exists and optionally prepopulate for a project
+function Ensure-WorkItemTypesCache {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)][string]$Project,
+        [Parameter(Mandatory=$false)][object[]]$Types
+    )
+
+    # Ensure the module-level cache exists
+    if (-not (Test-Path variable:script:workItemTypesCache)) { $script:workItemTypesCache = @{} }
+
+    if ($Project) {
+        try {
+            if ($Types) {
+                # Normalize incoming types to simple string array and log for diagnostics
+                try {
+                    $normalized = @()
+                    foreach ($t in $Types) { if ($t -ne $null) { $normalized += [string]$t } }
+                    if ($normalized.Count -eq 0) { $normalized = $Types }
+                }
+                catch {
+                    $normalized = $Types
+                }
+
+                Write-LogLevelVerbose "[Ensure-WorkItemTypesCache] Seeding cache for project '$Project' with types: $($normalized -join ', ')"
+                $script:workItemTypesCache[$Project] = $normalized
+            }
+            elseif (-not ($script:workItemTypesCache -and $script:workItemTypesCache.ContainsKey($Project))) {
+                try {
+                    $types = @(Get-AdoWorkItemTypes -Project $Project)
+                }
+                catch {
+                    $types = @()
+                }
+
+                if (-not $types -or $types.Count -eq 0) {
+                    # Seed with static Agile defaults when detection fails
+                    $types = Get-StaticAgileWorkItemTypes
+                }
+
+                Write-LogLevelVerbose "[Ensure-WorkItemTypesCache] Detected types for project '$Project': $($types -join ', ')"
+                $script:workItemTypesCache[$Project] = $types
+            }
+        }
+        catch {
+            # On unexpected errors, seed with Agile defaults to allow operations to continue
+            Write-LogLevelVerbose "[Ensure-WorkItemTypesCache] Error while ensuring cache for '$Project': $_"
+            $script:workItemTypesCache[$Project] = Get-StaticAgileWorkItemTypes
+        }
+    }
+}
+
+# Return the cached work item types for a project (for diagnostics)
+function Get-WorkItemTypesCache {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)][string]$Project
+    )
+    try {
+        if ($Project) {
+            $val = $script:workItemTypesCache[$Project]
+            Write-LogLevelVerbose "[Get-WorkItemTypesCache] Returning cached types for '$Project': $($val -join ', ')"
+            return $val
+        }
+        Write-LogLevelVerbose "[Get-WorkItemTypesCache] Returning full cache keys: $($script:workItemTypesCache.Keys -join ', ')"
+        return $script:workItemTypesCache
+    }
+    catch {
+        return $null
+    }
+}
+# Static Agile WITs for seeding the cache when detection fails (safe, small set)
+function Get-StaticAgileWorkItemTypes {
+    # Return simple name list (strings) - other code expects string arrays
+    return @('User Story','Task','Bug','Epic','Feature','Test Case')
 }
 
 #>
@@ -49,13 +137,13 @@ function New-AdoQueryFolder {
         try {
             $existing = Invoke-AdoRest GET "/$projEnc/_apis/wit/queries/$encoded"
             if ($existing -and $existing.isFolder) {
-                Write-Verbose "[WorkItems] Query folder '$currentPath' already exists"
+                Write-LogLevelVerbose "[WorkItems] Query folder '$currentPath' already exists"
                 continue
             }
         }
         catch {
             # Folder doesn't exist, create it
-            Write-Verbose "[WorkItems] Creating query folder: $currentPath"
+            Write-LogLevelVerbose "[WorkItems] Creating query folder: $currentPath"
         }
         
         # Determine parent folder
@@ -74,7 +162,7 @@ function New-AdoQueryFolder {
             }
             
             Invoke-AdoRest POST "/$projEnc/_apis/wit/queries/$parentEnc" -Body $folderBody | Out-Null
-            Write-Verbose "[WorkItems] Successfully created query folder: $currentPath"
+            Write-LogLevelVerbose "[WorkItems] Successfully created query folder: $currentPath"
         }
         catch {
             if ($_ -notmatch 'already exists|409') {
@@ -94,20 +182,42 @@ function Resolve-AdoWorkItemType {
 
     if (-not $ExcelType) { return $null }
     $inputNorm = $ExcelType.Trim()
+         $available = @('User Story','Task','Bug','Epic','Feature','Test Case') 
 
-    # Get available types for the project (may return names like 'User Story' or 'Product Backlog Item')
-    $available = @()
+    # Cache work item types per project to avoid repeated API calls
+    # Access the module-level script-scoped cache defensively to avoid StrictMode
+    # TerminatingErrors when the variable hasn't been created in some run contexts.
     try {
-        $available = Get-AdoWorkItemTypes -Project $Project
+        if (-not (Test-Path variable:script:workItemTypesCache)) {
+            Set-Variable -Name 'script:workItemTypesCache' -Scope Script -Value @{} -Force -ErrorAction Stop
+        }
     }
     catch {
-        Write-Verbose "[Resolve-AdoWorkItemType] Could not retrieve available work item types: $_"
-        $available = @()
+        # Best-effort fallback
+        if (-not (Test-Path variable:script:workItemTypesCache)) { $script:workItemTypesCache = @{} }
     }
+
+    # Ensure the cache exists and retrieve the project's entry defensively
+    # Ensure module cache exists and access it directly
+    if (-not (Test-Path variable:script:workItemTypesCache)) { $script:workItemTypesCache = @{} }
+
+    if (-not $script:workItemTypesCache.ContainsKey($Project)) {
+        Write-LogLevelVerbose "[Resolve-AdoWorkItemType] Caching work item types for project: $Project"
+        try {
+            $script:workItemTypesCache[$Project] = @(Get-AdoWorkItemTypes -Project $Project)
+        }
+        catch {
+            $script:workItemTypesCache[$Project] = @()
+        }
+    }
+
+    try { $available = $script:workItemTypesCache[$Project] } catch { $available = @() }
+
+    Write-LogLevelVerbose "[Resolve-AdoWorkItemType] Available types for project '$Project': $($available -join ', ')"
 
     # If detection failed (empty), fall back to process-template defaults to improve chances of mapping
     if (-not $available -or $available.Count -eq 0) {
-        Write-Verbose "[Resolve-AdoWorkItemType] No work item types detected, falling back to process template defaults"
+        Write-LogLevelVerbose "[Resolve-AdoWorkItemType] No work item types detected, falling back to process template defaults"
         try {
             $proc = Get-AdoProjectProcessTemplate -ProjectId $Project
             switch ($proc) {
@@ -117,10 +227,10 @@ function Resolve-AdoWorkItemType {
                 'Basic'    { $available = @('Issue','Task','Epic') }
                 default    { $available = @('User Story','Product Backlog Item','Task','Bug','Epic','Feature','Test Case','Issue','Requirement') }
             }
-            Write-Verbose "[Resolve-AdoWorkItemType] Fallback available types: $($available -join ', ')"
+            Write-LogLevelVerbose "[Resolve-AdoWorkItemType] Fallback available types: $($available -join ', ')"
         }
         catch {
-            Write-Verbose "[Resolve-AdoWorkItemType] Fallback to defaults failed: $_"
+            Write-LogLevelVerbose "[Resolve-AdoWorkItemType] Fallback to defaults failed: $_"
             $available = @()
         }
     }
@@ -219,12 +329,12 @@ function Upsert-AdoQuery {
         try {
             $currentWiql = if ($existing.PSObject.Properties['wiql']) { $existing.wiql } else { $null }
             if ($currentWiql -and ($currentWiql -ne $Wiql)) {
-                Write-Verbose "[Upsert-AdoQuery] Updating query '$Path' wiql"
+                Write-LogLevelVerbose "[Upsert-AdoQuery] Updating query '$Path' wiql"
                 $patchBody = @{ wiql = $Wiql }
                 Invoke-AdoRest PATCH "/$projEnc/_apis/wit/queries/$($existing.id)" -Body $patchBody | Out-Null
             }
             else {
-                Write-Verbose "[Upsert-AdoQuery] Query '$Path' already exists and wiql unchanged"
+                Write-LogLevelVerbose "[Upsert-AdoQuery] Query '$Path' already exists and wiql unchanged"
             }
             return $existing
         }
@@ -239,7 +349,7 @@ function Upsert-AdoQuery {
         New-AdoQueryFolder -Project $Project -Path $parent
     }
     catch {
-        Write-Verbose "[Upsert-AdoQuery] Could not ensure parent folder '$parent': $_"
+        Write-LogLevelVerbose "[Upsert-AdoQuery] Could not ensure parent folder '$parent': $_"
     }
 
     # Create new query under parent
@@ -247,7 +357,7 @@ function Upsert-AdoQuery {
         $parentEnc = [uri]::EscapeDataString($parent)
         $body = @{ name = $name; wiql = $Wiql }
         $created = Invoke-AdoRest POST "/$projEnc/_apis/wit/queries/$parentEnc" -Body $body
-        Write-Verbose "[Upsert-AdoQuery] Created query '$Path'"
+        Write-LogLevelVerbose "[Upsert-AdoQuery] Created query '$Path'"
         return $created
     }
     catch {
@@ -266,7 +376,8 @@ function Initialize-AdoTeamTemplates {
         [Parameter(Mandatory)]
         [string]$Team
     )
-    
+ $available = @('User Story','Task','Bug','Epic','Feature','Test Case') 
+
     # Wait longer for project to fully initialize work item types after creation
     Write-Host "[INFO] Waiting 10 seconds for project work item types to initialize..." -ForegroundColor Yellow
     Start-Sleep -Seconds 10
@@ -291,14 +402,33 @@ function Initialize-AdoTeamTemplates {
             @('Issue', 'Task', 'Epic')
         }
         default {
-            # Unknown - try detection, fallback to common types
+            # Unknown - try detection, fallback to common types (excluding Issue for Agile-like projects)
             Write-Host "[INFO] Unknown process template, attempting work item type detection..." -ForegroundColor Yellow
-            $detected = Get-AdoWorkItemTypes -Project $Project
+            
+            # Cache work item types to avoid repeated API calls when multiple team packs are initialized
+            try {
+                if (-not (Test-Path variable:script:workItemTypesCache)) {
+                    Set-Variable -Name 'script:workItemTypesCache' -Scope Script -Value @{} -Force -ErrorAction Stop
+                }
+            }
+            catch {
+                if (-not (Test-Path variable:script:workItemTypesCache)) { $script:workItemTypesCache = @{} }
+            }
+
+            try {
+                if (-not ($script:workItemTypesCache -and $script:workItemTypesCache.ContainsKey($Project))) {
+                    $script:workItemTypesCache[$Project] = Get-AdoWorkItemTypes -Project $Project
+                }
+            }
+            catch { $script:workItemTypesCache[$Project] = @() }
+
+            try { $detected = $script:workItemTypesCache[$Project] } catch { $detected = @() }
+            
             if ($detected -and $detected.Count -gt 0) {
                 $detected
             } else {
-                # Last resort: include all common types
-                @('User Story', 'Product Backlog Item', 'Task', 'Bug', 'Epic', 'Feature', 'Test Case', 'Issue', 'Requirement')
+                # Last resort: include common types but exclude Issue (not part of Agile)
+                @('User Story', 'Product Backlog Item', 'Task', 'Bug', 'Epic', 'Feature', 'Test Case', 'Requirement')
             }
         }
     }
@@ -352,8 +482,8 @@ function Initialize-AdoTeamTemplates {
     $skippedCount = 0
     
     Write-Host "[INFO] Creating work item templates for $processTemplate process..." -ForegroundColor Cyan
-    Write-Verbose "[Initialize-AdoTeamTemplates] Available types in project: $($availableTypes -join ', ')"
-    Write-Verbose "[Initialize-AdoTeamTemplates] Template API endpoint: $base"
+    Write-LogLevelVerbose "[Initialize-AdoTeamTemplates] Available types in project: $($availableTypes -join ', ')"
+    Write-LogLevelVerbose "[Initialize-AdoTeamTemplates] Template API endpoint: $base"
     
     foreach ($workItemType in $availableTypes) {
         if ($templateDefinitions.ContainsKey($workItemType)) {
@@ -371,8 +501,8 @@ function Initialize-AdoTeamTemplates {
                         fields = $template.fields
                     }
                     
-                    Write-Verbose "[Initialize-AdoTeamTemplates] Creating template: $($template.name)"
-                    Write-Verbose "[Initialize-AdoTeamTemplates] Template body: $($templateBody | ConvertTo-Json -Depth 5)"
+                    Write-LogLevelVerbose "[Initialize-AdoTeamTemplates] Creating template: $($template.name)"
+                    Write-LogLevelVerbose "[Initialize-AdoTeamTemplates] Template body: $($templateBody | ConvertTo-Json -Depth 5)"
                     
                     Invoke-AdoRest POST $base -Body $templateBody | Out-Null
                     Write-Host "[SUCCESS] Created $workItemType template: $($template.name)" -ForegroundColor Green
@@ -380,9 +510,9 @@ function Initialize-AdoTeamTemplates {
                 }
                 catch {
                     Write-Warning "Failed to create $workItemType template: $_"
-                    Write-Verbose "[AzureDevOps] Error details: $($_.Exception.Message)"
+                    Write-LogLevelVerbose "[AzureDevOps] Error details: $($_.Exception.Message)"
                     if ($_.Exception.Response) {
-                        Write-Verbose "[AzureDevOps] HTTP Status: $($_.Exception.Response.StatusCode)"
+                        Write-LogLevelVerbose "[AzureDevOps] HTTP Status: $($_.Exception.Response.StatusCode)"
                     }
                 }
             }
@@ -467,21 +597,73 @@ function New-AdoSharedQueries {
         }
     )
     
-    # Check existing queries
-    $existingQueries = @{}
+    # Create team-specific folder under Shared Queries to avoid permission issues
+    $teamFolderPath = "Shared Queries/$Team"
+    $teamFolderId = $null
+    
     try {
-        $response = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=1"
-        if ($response -and $response.children) {
-            $response.children | ForEach-Object { $existingQueries[$_.name] = $_ }
+        # Check if team folder already exists
+        $sharedQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=2"
+        
+        if ($sharedQueries -and $sharedQueries.PSObject.Properties['children'] -and $sharedQueries.children) {
+            $teamFolder = $sharedQueries.children | Where-Object { $_.name -eq $Team -and $_.isFolder -eq $true }
+            if ($teamFolder) {
+                $teamFolderId = $teamFolder.id
+                Write-Host "[INFO] Team folder '$Team' already exists" -ForegroundColor Gray
+            }
+        }
+        
+        # Create team folder if it doesn't exist
+        if (-not $teamFolderId) {
+            Write-Host "[INFO] Creating team folder '$Team' under Shared Queries..." -ForegroundColor Cyan
+            $folderBody = @{
+                name = $Team
+                isFolder = $true
+            }
+            $teamFolder = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" -Body $folderBody
+            $teamFolderId = $teamFolder.id
+            Write-Host "[SUCCESS] Created team folder '$Team'" -ForegroundColor Green
         }
     }
     catch {
-        Write-Verbose "[New-AdoSharedQueries] Could not retrieve existing queries: $_"
+        Write-Warning "Failed to create/access team folder: $_"
+        # Fall back to Shared Queries root (may fail due to permissions)
+        $teamFolderId = $null
+    }
+    
+    # Check existing queries in team folder
+    $existingQueries = @{}
+    try {
+        if ($teamFolderId) {
+            $folderQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$teamFolderId?`$depth=1"
+            # Handle both response structures: direct children or wrapped in value
+            $children = $null
+            if ($folderQueries -and $folderQueries.PSObject.Properties['children'] -and $folderQueries.children) {
+                $children = $folderQueries.children
+            }
+            elseif ($folderQueries -and $folderQueries.PSObject.Properties['value'] -and $folderQueries.value.PSObject.Properties['children'] -and $folderQueries.value.children) {
+                $children = $folderQueries.value.children
+            }
+
+            if ($children) {
+                $children | ForEach-Object { $existingQueries[$_.name] = $_ }
+            }
+        }
+    }
+    catch {
+        Write-LogLevelVerbose "[New-AdoSharedQueries] Could not retrieve existing queries: $_"
     }
     
     $createdCount = 0
     $skippedCount = 0
     $createdQueries = @()
+    
+    # Determine base endpoint for query creation
+    $baseEndpoint = if ($teamFolderId) {
+        "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$teamFolderId"
+    } else {
+        "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries"
+    }
     
     foreach ($queryDef in $queries) {
         if ($existingQueries.ContainsKey($queryDef.name)) {
@@ -496,14 +678,22 @@ function New-AdoSharedQueries {
                 wiql = $queryDef.wiql
             }
             
-            Write-Verbose "[New-AdoSharedQueries] Creating query: $($queryDef.name)"
-            $query = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" -Body $queryBody
+            Write-LogLevelVerbose "[New-AdoSharedQueries] Creating query: $($queryDef.name)"
+            $query = Invoke-AdoRest POST $baseEndpoint -Body $queryBody
             Write-Host "[SUCCESS] Created query: $($queryDef.name)" -ForegroundColor Green
             $createdQueries += $query
             $createdCount++
         }
         catch {
-            Write-Warning "Failed to create query '$($queryDef.name)': $_"
+            $errorMessage = $_.Exception.Message
+            if ($errorMessage -match "TF401256.*Write permissions.*query" -or $errorMessage -match "403.*Forbidden") {
+                Write-Warning "Query '$($queryDef.name)' creation failed due to insufficient permissions. Contributors cannot create queries in the root Shared Queries folder. Consider creating team-specific query folders or granting appropriate permissions."
+                $skippedCount++
+            }
+            else {
+                Write-Warning "Failed to create query '$($queryDef.name)': $errorMessage"
+                $skippedCount++
+            }
         }
     }
     
@@ -512,9 +702,10 @@ function New-AdoSharedQueries {
     Write-Host "[INFO] Shared queries summary:" -ForegroundColor Cyan
     Write-Host "  ✅ Created: $createdCount queries" -ForegroundColor Green
     if ($skippedCount -gt 0) {
-        Write-Host "  ⏭️ Skipped: $skippedCount queries (already exist)" -ForegroundColor Yellow
+        Write-Host "  ⏭️ Skipped: $skippedCount queries (already exist or permission denied)" -ForegroundColor Yellow
     }
-    Write-Host "  📂 Location: Shared Queries folder" -ForegroundColor Gray
+    $location = if ($teamFolderId) { "Shared Queries/$Team folder" } else { "Shared Queries folder" }
+    Write-Host "  📂 Location: $location" -ForegroundColor Gray
     
     return $createdQueries
 }
@@ -550,16 +741,16 @@ function New-AdoTestPlan {
             $teamIterations = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($teamName))/_apis/work/teamsettings/iterations?``$timeframe=current"
             if ($teamIterations -and $teamIterations.value -and $teamIterations.value.Count -gt 0) {
                 $Iteration = $teamIterations.value[0].path
-                Write-Verbose "[New-AdoTestPlan] Using current iteration: $Iteration"
+                Write-LogLevelVerbose "[New-AdoTestPlan] Using current iteration: $Iteration"
             } else {
                 # Fallback to project root iteration
                 $Iteration = $Project
-                Write-Verbose "[New-AdoTestPlan] No current iteration found, using project root: $Iteration"
+                Write-LogLevelVerbose "[New-AdoTestPlan] No current iteration found, using project root: $Iteration"
             }
         }
         catch {
             $Iteration = $Project
-            Write-Verbose "[New-AdoTestPlan] Error getting current iteration, using project root: $Iteration"
+            Write-LogLevelVerbose "[New-AdoTestPlan] Error getting current iteration, using project root: $Iteration"
         }
     }
     
@@ -572,7 +763,7 @@ function New-AdoTestPlan {
         }
     }
     catch {
-        Write-Verbose "[New-AdoTestPlan] Could not retrieve existing test plans: $_"
+        Write-LogLevelVerbose "[New-AdoTestPlan] Could not retrieve existing test plans: $_"
     }
     
     $testPlan = $null
@@ -592,7 +783,7 @@ function New-AdoTestPlan {
                 state = "Active"
             }
             
-            Write-Verbose "[New-AdoTestPlan] Creating test plan with body: $($testPlanBody | ConvertTo-Json -Depth 5)"
+            Write-LogLevelVerbose "[New-AdoTestPlan] Creating test plan with body: $($testPlanBody | ConvertTo-Json -Depth 5)"
             $testPlan = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/testplan/plans" -Body $testPlanBody
             Write-Host "[SUCCESS] Created test plan '$Name' (ID: $($testPlan.id))" -ForegroundColor Green
         }
@@ -631,7 +822,7 @@ function New-AdoTestPlan {
         }
     }
     catch {
-        Write-Verbose "[New-AdoTestPlan] Could not retrieve existing test suites: $_"
+        Write-LogLevelVerbose "[New-AdoTestPlan] Could not retrieve existing test suites: $_"
     }
     
     $createdCount = 0
@@ -659,7 +850,7 @@ function New-AdoTestPlan {
                 inheritDefaultConfigurations = $true
             }
             
-            Write-Verbose "[New-AdoTestPlan] Creating suite: $($suiteDef.name)"
+            Write-LogLevelVerbose "[New-AdoTestPlan] Creating suite: $($suiteDef.name)"
             $suite = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/testplan/plans/$($testPlan.id)/suites" -Body $suiteBody
             Write-Host "[SUCCESS] Created test suite '$($suiteDef.name)' (ID: $($suite.id))" -ForegroundColor Green
             $createdSuites += $suite
@@ -745,7 +936,7 @@ function New-AdoQAQueries {
         # Check if QA folder already exists
         $sharedQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=2"
         
-        if ($sharedQueries -and $sharedQueries.children) {
+        if ($sharedQueries -and $sharedQueries.PSObject.Properties['children'] -and $sharedQueries.children) {
             $qaFolder = $sharedQueries.children | Where-Object { $_.name -eq "QA" -and $_.isFolder -eq $true }
             if ($qaFolder) {
                 $qaFolderId = $qaFolder.id
@@ -776,13 +967,22 @@ function New-AdoQAQueries {
     try {
         if ($qaFolderId) {
             $folderQueries = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$qaFolderId?`$depth=1"
-            if ($folderQueries -and $folderQueries.children) {
-                $folderQueries.children | ForEach-Object { $existingQueries[$_.name] = $_ }
+            # Handle both response structures: direct children or wrapped in value
+            $children = $null
+            if ($folderQueries -and $folderQueries.PSObject.Properties['children'] -and $folderQueries.children) {
+                $children = $folderQueries.children
+            }
+            elseif ($folderQueries -and $folderQueries.PSObject.Properties['value'] -and $folderQueries.value.PSObject.Properties['children']) {
+                $children = $folderQueries.value.children
+            }
+
+            if ($children) {
+                $children | ForEach-Object { $existingQueries[$_.name] = $_ }
             }
         }
     }
     catch {
-        Write-Verbose "[New-AdoQAQueries] Could not retrieve existing queries: $_"
+        Write-LogLevelVerbose "[New-AdoQAQueries] Could not retrieve existing queries: $_"
     }
     
     $createdCount = 0
@@ -882,7 +1082,7 @@ function New-AdoTestConfigurations {
             Write-Host "✓ Found $($existingVariables.Count) existing test variable(s)" -ForegroundColor Green
         }
         catch {
-            Write-Verbose "[New-AdoTestConfigurations] Could not retrieve existing variables: $_"
+            Write-LogLevelVerbose "[New-AdoTestConfigurations] Could not retrieve existing variables: $_"
         }
         
         # Create test variables
@@ -905,7 +1105,7 @@ function New-AdoTestConfigurations {
                         $existingVar = $updated
                     }
                     catch {
-                        Write-Verbose "[New-AdoTestConfigurations] Failed to update variable '$($varDef.Name)': $_"
+                        Write-LogLevelVerbose "[New-AdoTestConfigurations] Failed to update variable '$($varDef.Name)': $_"
                     }
                 }
 
@@ -956,7 +1156,7 @@ function New-AdoTestConfigurations {
             Write-Host "✓ Found $($existingConfigurations.Count) existing test configuration(s)" -ForegroundColor Green
         }
         catch {
-            Write-Verbose "[New-AdoTestConfigurations] Could not retrieve existing configurations: $_"
+            Write-LogLevelVerbose "[New-AdoTestConfigurations] Could not retrieve existing configurations: $_"
         }
         
         # Create test configurations
@@ -996,7 +1196,7 @@ function New-AdoTestConfigurations {
 
                     $allowedNames = $allowedEntries | ForEach-Object { $_.name }
                     if ($allowedNames -and ($varValue -notin $allowedNames)) {
-                        Write-Verbose "[New-AdoTestConfigurations] Skipping value '$varValue' for variable '$varName' (not in allowed values)"
+                        Write-LogLevelVerbose "[New-AdoTestConfigurations] Skipping value '$varValue' for variable '$varName' (not in allowed values)"
                         continue
                     }
 
@@ -1045,7 +1245,7 @@ function New-AdoTestConfigurations {
     }
     catch {
         Write-Warning "Failed to create test configurations: $_"
-        Write-Verbose "[New-AdoTestConfigurations] Error details: $($_.Exception.Message)"
+        Write-LogLevelVerbose "[New-AdoTestConfigurations] Error details: $($_.Exception.Message)"
         return @{
             variables = @()
             configurations = @()
@@ -1061,7 +1261,11 @@ function Measure-Adocommontags {
         [string]$Project,
         
         [Parameter(Mandatory)]
-        [string]$WikiId
+        [string]$WikiId,
+        
+        [string]$CollectionUrl,
+        [string]$AdoPat,
+        [string]$AdoApiVersion
     )
     
     Write-Host "[INFO] Creating tag guidelines wiki page..." -ForegroundColor Cyan
@@ -1074,7 +1278,7 @@ function Measure-Adocommontags {
         try {
             $tagGuidelinesTemplate = Get-Content -Path $templatePath -Raw -Encoding UTF8
             $tagGuidelinesContent = $tagGuidelinesTemplate -replace '{{CURRENT_DATE}}', (Get-Date -Format 'yyyy-MM-dd')
-            Write-Verbose "[Measure-Adocommontags] Loaded template from: $templatePath"
+            Write-LogLevelVerbose "[Measure-Adocommontags] Loaded template from: $templatePath"
         }
         catch {
             Write-Warning "Failed to load template from '$templatePath': $_"
@@ -1083,7 +1287,7 @@ function Measure-Adocommontags {
     
     # Fallback to embedded template if file not found or failed to load
     if (-not $tagGuidelinesContent) {
-        Write-Verbose "[Measure-Adocommontags] Using embedded fallback template"
+        Write-LogLevelVerbose "[Measure-Adocommontags] Using embedded fallback template"
         $currentDate = Get-Date -Format 'yyyy-MM-dd'
         $tagGuidelinesContent = @"
 # Tag Guidelines
@@ -1131,13 +1335,14 @@ Use these tags to categorize work items effectively:
     try {
         # Check if page exists
         try {
-            $existingPage = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis/$WikiId/pages?path=/Tag-Guidelines"
+            # Do a non-retried existence check for this wiki page to avoid noisy retries on server errors
+            $existingPage = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis/$WikiId/pages?path=/Tag-Guidelines" -MaxAttempts 1 -DelaySeconds 0
             Write-Host "[INFO] Tag Guidelines page already exists" -ForegroundColor Gray
             return $existingPage
         }
         catch {
             # Page doesn't exist, create it
-            Write-Verbose "[Measure-Adocommontags] Creating Tag Guidelines page"
+            Write-LogLevelVerbose "[Measure-Adocommontags] Creating Tag Guidelines page"
             $page = Set-AdoWikiPage $Project $WikiId "/Tag-Guidelines" $tagGuidelinesContent
             Write-Host "[SUCCESS] Created Tag Guidelines wiki page" -ForegroundColor Green
             Write-Host ""
@@ -1175,10 +1380,10 @@ function Measure-Adobusinessqueries {
     $existing = @{}
     try {
         $resp = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries?`$depth=1"
-        if ($resp -and $resp.children) { $resp.children | ForEach-Object { $existing[$_.name] = $_ } }
+    if ($resp -and $resp.PSObject.Properties['children'] -and $resp.children) { $resp.children | ForEach-Object { $existing[$_.name] = $_ } }
     }
     catch {
-        Write-Verbose "[Measure-Adobusinessqueries] Could not retrieve existing queries: $_"
+        Write-LogLevelVerbose "[Measure-Adobusinessqueries] Could not retrieve existing queries: $_"
     }
 
     $created = 0; $skipped = 0
@@ -1221,11 +1426,11 @@ function Search-Adodevqueries {
             isFolder = $true
         }
         Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" -Body $folderPayload | Out-Null
-        Write-Verbose "[Search-Adodevqueries] Created Development queries folder"
+        Write-LogLevelVerbose "[Search-Adodevqueries] Created Development queries folder"
     }
     catch {
         # Folder might already exist
-        Write-Verbose "[Search-Adodevqueries] Development folder exists or creation skipped"
+        Write-LogLevelVerbose "[Search-Adodevqueries] Development folder exists or creation skipped"
     }
     
     # Define queries
@@ -1237,7 +1442,6 @@ SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [System
 FROM WorkItems
 WHERE [System.WorkItemType] = 'Task'
   AND [System.Tags] CONTAINS 'needs-review'
-  AND [System.CreatedBy] = @Me
   AND [System.State] <> 'Closed'
 ORDER BY [System.CreatedDate] DESC
 "@
@@ -1249,7 +1453,6 @@ SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [System
 FROM WorkItems
 WHERE [System.WorkItemType] = 'Task'
   AND [System.Tags] CONTAINS 'needs-review'
-  AND [System.AssignedTo] = @Me
   AND [System.State] = 'Active'
 ORDER BY [System.CreatedDate] ASC
 "@
@@ -1259,7 +1462,7 @@ ORDER BY [System.CreatedDate] ASC
             wiql = @"
 SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [Microsoft.VSTS.Scheduling.StoryPoints]
 FROM WorkItems
-WHERE [System.TeamProject] = @project
+WHERE [System.TeamProject] = '$Project'
   AND [System.WorkItemType] IN ('User Story', 'Task', 'Bug')
   AND [System.Tags] CONTAINS 'tech-debt'
   AND [System.State] <> 'Closed'
@@ -1269,13 +1472,12 @@ ORDER BY [Microsoft.VSTS.Common.Priority] ASC, [Microsoft.VSTS.Scheduling.StoryP
         @{
             name = "Recently Completed"
             wiql = @"
-SELECT [System.Id], [System.Title], [System.WorkItemType], [System.AssignedTo], [Microsoft.VSTS.Common.ClosedDate]
+SELECT [System.Id], [System.Title], [System.WorkItemType], [System.AssignedTo], [System.ChangedDate]
 FROM WorkItems
-WHERE [System.TeamProject] = @project
+WHERE [System.TeamProject] = '$Project'
   AND [System.WorkItemType] IN ('User Story', 'Task', 'Bug')
   AND [System.State] = 'Closed'
-  AND [Microsoft.VSTS.Common.ClosedDate] >= @Today - 14
-ORDER BY [Microsoft.VSTS.Common.ClosedDate] DESC
+ORDER BY [System.ChangedDate] DESC
 "@
         },
         @{
@@ -1283,9 +1485,8 @@ ORDER BY [Microsoft.VSTS.Common.ClosedDate] DESC
             wiql = @"
 SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [System.ChangedDate]
 FROM WorkItems
-WHERE [System.TeamProject] = @project
+WHERE [System.TeamProject] = '$Project'
   AND [System.WorkItemType] IN ('User Story', 'Task')
-  AND [System.Tags] CONTAINS 'review-feedback'
   AND [System.State] = 'Active'
 ORDER BY [System.ChangedDate] DESC
 "@
@@ -1293,29 +1494,60 @@ ORDER BY [System.ChangedDate] DESC
     )
     
     # Create each query
-    foreach ($q in $queries) {
-        try {
-            $queryPayload = @{
-                name  = $q.name
-                wiql  = $q.wiql
-            }
-            
-            $encodedPath = [uri]::EscapeDataString("Shared Queries/Development/$($q.name)")
+    try {
+        foreach ($q in $queries) {
             try {
-                # Try to get existing query
-                $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$encodedPath"
-                Write-Host "  ✓ Query exists: $($q.name)" -ForegroundColor Gray
+                $queryPayload = @{
+                    name  = $q.name
+                    wiql  = $q.wiql
+                }
+                $encodedPath = [uri]::EscapeDataString("Shared Queries/Development/$($q.name)")
+                try {
+                    # Try to get existing query
+                    $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$encodedPath"
+                    Write-Host "  ✓ Query exists: $($q.name)" -ForegroundColor Gray
+                }
+                catch {
+                    # Create new query
+                    $encodedFolder = [uri]::EscapeDataString("Shared Queries/Development")
+                    try {
+                        Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$encodedFolder" -Body $queryPayload | Out-Null
+                        Write-Host "  ✅ Created query: $($q.name)" -ForegroundColor Gray
+                    }
+                    catch {
+                        Write-Warning "Failed to create query '$($q.name)' (POST): $_"
+                        # Temporary debug capture: write exception + context to logs/debug-failing-post-<guid>.json
+                        try {
+                            $logsDir = Join-Path (Get-Location) 'logs'
+                            if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
+
+                            $payload = [ordered]@{
+                                timestamp = (Get-Date).ToString('o')
+                                project   = $Project
+                                queryName = $q.name
+                                endpoint  = "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries"
+                                exception = ($_ | Out-String).Trim()
+                            }
+
+                            $fname = Join-Path $logsDir ("debug-failing-post-" + [guid]::NewGuid().ToString() + ".json")
+                            $payload | ConvertTo-Json -Depth 10 | Out-File -FilePath $fname -Encoding UTF8 -Force
+                            Write-LogLevelVerbose "[Search-Adodevqueries] Wrote debug failure details to: $fname"
+                        }
+                        catch {
+                            Write-LogLevelVerbose "[Search-Adodevqueries] Failed to write debug file: $_"
+                        }
+
+                        continue
+                    }
+                }
             }
             catch {
-                # Create new query
-                $encodedFolder = [uri]::EscapeDataString("Shared Queries/Development")
-                Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$encodedFolder" -Body $queryPayload | Out-Null
-                Write-Host "  ✅ Created query: $($q.name)" -ForegroundColor Gray
+                Write-Warning "Failed to create query '$($q.name)': $_"
             }
         }
-        catch {
-            Write-Warning "Failed to create query '$($q.name)': $_"
-        }
+    }
+    catch {
+        Write-Warning "[Search-Adodevqueries] Unhandled error during query creation: $_"
     }
     
     Write-Host "[SUCCESS] Development queries created" -ForegroundColor Green
@@ -1678,7 +1910,8 @@ function Import-AdoWorkItemsFromExcel {
         [string]$WorksheetName = "Requirements",
         [string]$ApiVersion = $null,
         # Optional explicit collection URL - caller should prefer Initialize-CoreRest, but this keeps backwards compatibility
-        [string]$CollectionUrl
+        [string]$CollectionUrl,
+        [string]$TeamName = $null
     )
 
     # Validate Excel file exists early to provide clear error message for callers/tests
@@ -1714,6 +1947,10 @@ function Import-AdoWorkItemsFromExcel {
         }
     }
 
+    # Diagnostic: report effective collection URL for easier troubleshooting
+    Write-Verbose "[Import-AdoWorkItemsFromExcel] Effective CollectionUrl: $effectiveCollectionUrl"
+    Write-Host "[INFO] Using CollectionUrl: $effectiveCollectionUrl" -ForegroundColor Gray
+
     Write-Host "[INFO] Importing work items from Excel: $ExcelPath" -ForegroundColor Cyan
 
     # Import Excel data. Do not proactively Import-Module here so that tests can mock Import-Excel freely.
@@ -1727,7 +1964,7 @@ function Import-AdoWorkItemsFromExcel {
     }
 
     try {
-        Write-Verbose "Reading Excel file: $ExcelPath"
+        Write-LogLevelVerbose "Reading Excel file: $ExcelPath"
         $rows = Invoke-ImportExcel -Path $ExcelPath -WorksheetName $WorksheetName
 
         # Normalize to array to handle single-row returns from Import-Excel
@@ -1772,6 +2009,7 @@ function Import-AdoWorkItemsFromExcel {
     # Resolve and normalize WorkItemType values from Excel to ADO project types.
     $resolvedRows = @()
     $skippedRows = @()
+    $importErrors = @()
 
     # Build a default hierarchy order (will be filtered to resolved types below)
     $hierarchyOrder = @{
@@ -1795,13 +2033,17 @@ function Import-AdoWorkItemsFromExcel {
             $resolvedRows += $r
         }
         else {
-            Write-Warning "[SKIP] Row skipped: Title='$($r.Title)', WorkItemType='$excelType' (could not resolve to ADO type)"
+            $msg = "[SKIP] Row skipped: Title='$($r.Title)', WorkItemType='$excelType' (could not resolve to ADO type)"
+            Write-Warning $msg
             $skippedRows += $r
+            $importErrors += $msg
         }
     }
 
     if (@($skippedRows).Count -gt 0) {
-        Write-Warning "Skipping $(@($skippedRows).Count) row(s) due to unknown WorkItemType. See warnings above for details."
+        $count = @($skippedRows).Count
+        Write-Warning "Skipping $count row(s) due to unknown WorkItemType. See warnings above for details."
+        $importErrors += "Skipping $count row(s) due to unknown WorkItemType"
     }
 
     # Sort by hierarchy to ensure parents are created before children
@@ -1814,6 +2056,95 @@ function Import-AdoWorkItemsFromExcel {
     }
 
     Write-Host "[INFO] Processing $(@($orderedRows).Count) work items in hierarchical order" -ForegroundColor Cyan
+    
+    # Cache field definitions to avoid repeated API calls
+    Write-LogLevelVerbose "Initializing field cache for validation..."
+    $fieldCache = @{}  # Will store per work item type: $fieldCache["User Story"]["System.State"] = @("New", "Active", ...)
+    
+    # Helper function to get allowed values for a field on a specific work item type
+    function Get-FieldAllowedValues {
+        param(
+            [string]$WorkItemType,
+            [string]$FieldName
+        )
+        
+        $cacheKey = "$WorkItemType|$FieldName"
+        if ($fieldCache.ContainsKey($cacheKey)) {
+            return $fieldCache[$cacheKey]
+        }
+        
+        try {
+            $witEncoded = [uri]::EscapeDataString($WorkItemType)
+            $fieldEncoded = [uri]::EscapeDataString($FieldName)
+            $fieldInfo = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/workitemtypes/$witEncoded/fields/$fieldEncoded?api-version=7.1"
+            if ($fieldInfo -and $fieldInfo.allowedValues) {
+                $fieldCache[$cacheKey] = $fieldInfo.allowedValues
+                Write-LogLevelVerbose "Cached $($fieldInfo.allowedValues.Count) allowed values for $WorkItemType.$FieldName"
+                return $fieldInfo.allowedValues
+            } else {
+                $fieldCache[$cacheKey] = @()
+                Write-LogLevelVerbose "No allowed values found for $WorkItemType.$FieldName"
+                return @()
+            }
+        }
+        catch {
+            $fieldCache[$cacheKey] = @()
+            Write-LogLevelVerbose "Could not cache $WorkItemType.$FieldName`: $_"
+            # Also log a warning for state field failures as they are more critical
+            if ($FieldName -eq "System.State") {
+                Write-LogLevelVerbose "State validation will be skipped for $WorkItemType - API unavailable"
+            }
+            return @()
+        }
+    }
+    
+    # Get current iteration for default assignment
+    $currentIterationPath = $null
+    try {
+        Write-LogLevelVerbose "Getting current iteration for project: $Project"
+        if ($TeamName) {
+            $currentIterationResponse = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($TeamName))/_apis/work/teamsettings/iterations?`$timeframe=current"
+            if ($currentIterationResponse -and $currentIterationResponse.value -and $currentIterationResponse.value.Count -gt 0) {
+                $currentIterationPath = $currentIterationResponse.value[0].path
+                Write-LogLevelVerbose "Current iteration path: $currentIterationPath"
+            }
+        } else {
+            Write-Host "[INFO] No team name provided - skipping current iteration retrieval" -ForegroundColor Yellow
+        }
+    }
+    catch {
+        Write-Warning "Could not retrieve current iteration, work items may fail if iteration path is required: $_"
+    }
+    
+    # Get first area and first iteration for default assignment to all work items
+    $firstAreaPath = $null
+    $firstIterationPath = $null
+    try {
+        Write-LogLevelVerbose "Getting first area and iteration for project: $Project"
+        
+        # Get first area
+        $areasResponse = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/areas?`$depth=1"
+        if ($areasResponse -and $areasResponse.value -and $areasResponse.value.Count -gt 0) {
+            $firstAreaPath = $areasResponse.value[0].name
+            Write-LogLevelVerbose "First area path: $firstAreaPath"
+        } elseif ($areasResponse -and $areasResponse.name) {
+            $firstAreaPath = $areasResponse.name
+            Write-LogLevelVerbose "First area path: $firstAreaPath"
+        }
+        
+        # Get first iteration
+        $iterationsResponse = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/iterations?`$depth=1"
+        if ($iterationsResponse -and $iterationsResponse.value -and $iterationsResponse.value.Count -gt 0) {
+            $firstIterationPath = $iterationsResponse.value[0].name
+            Write-LogLevelVerbose "First iteration path: $firstIterationPath"
+        } elseif ($iterationsResponse -and $iterationsResponse.name) {
+            $firstIterationPath = $iterationsResponse.name
+            Write-LogLevelVerbose "First iteration path: $firstIterationPath"
+        }
+    }
+    catch {
+        Write-Warning "Could not retrieve first area/iteration, work items will not have default area/iteration assigned: $_"
+    }
     
     # Map Excel LocalId to Azure DevOps work item ID (string keys to avoid JSON serialization issues)
     $localToAdoMap = @{}
@@ -1828,6 +2159,12 @@ function Import-AdoWorkItemsFromExcel {
         # Use resolved work item type (from Resolve-AdoWorkItemType)
         $wit = if ($row.PSObject.Properties['ResolvedWorkItemType']) { $row.ResolvedWorkItemType } else { $row.WorkItemType }
         
+        # Skip bugs that are not linked to a parent
+        if ($wit -eq "Bug" -and (-not $row.PSObject.Properties['ParentLocalId'] -or [string]::IsNullOrWhiteSpace($row.ParentLocalId))) {
+            Write-Warning "Skipping Bug work item '$($row.Title)' - bugs must be linked to a parent work item"
+            continue
+        }
+        
         # Guard against cycles and invalid parent references
         if ($row.PSObject.Properties['ParentLocalId'] -and $row.ParentLocalId) {
             if ($row.LocalId -eq $row.ParentLocalId) {
@@ -1839,7 +2176,7 @@ function Import-AdoWorkItemsFromExcel {
                 continue
             }
         }
-        try {
+    try {
             # Build JSON Patch operations array (use PSCustomObject to ensure ConvertTo-Json serializes cleanly)
             $operations = @()
             
@@ -1855,40 +2192,112 @@ function Import-AdoWorkItemsFromExcel {
                 value = $row.Title.ToString()
             }
             
-            # Optional standard fields - check if property exists first using PSObject.Properties
-            # AreaPath is intentionally ignored during Excel import to use default project area
-            # if ($row.PSObject.Properties['AreaPath'] -and $row.AreaPath) {
-            #     $operations += [pscustomobject]@{ op="add"; path="/fields/System.AreaPath"; value=$row.AreaPath.ToString() }
-            # }
-            if ($row.PSObject.Properties['IterationPath'] -and $row.IterationPath) {
-                $operations += @{ op="add"; path="/fields/System.IterationPath"; value=$row.IterationPath.ToString() }
-            }
-            if ($row.PSObject.Properties['State'] -and $row.State) {
-                # Query allowed values for System.State and only add if allowed (case-insensitive)
-                try {
-                    $fieldInfo = Invoke-AdoRest GET "/_apis/wit/fields/System.State?api-version=7.1"
-                    $allowed = @()
-                    if ($fieldInfo -and $fieldInfo.allowedValues) { $allowed = $fieldInfo.allowedValues }
+            # Assign first area and iteration to all work items
+            if ($firstAreaPath) {
+                $operations += [pscustomobject]@{
+                    op    = "add"
+                    path  = "/fields/System.AreaPath"
+                    value = $firstAreaPath
                 }
-                catch {
-                    $allowed = @()
+                Write-LogLevelVerbose "Assigned area path '$firstAreaPath' to work item '$($row.Title)'"
+            }
+            
+            if ($firstIterationPath) {
+                $operations += [pscustomobject]@{
+                    op    = "add"
+                    path  = "/fields/System.IterationPath"
+                    value = $firstIterationPath
+                }
+                Write-LogLevelVerbose "Assigned iteration path '$firstIterationPath' to work item '$($row.Title)'"
+            }
+            
+            # IterationPath is intentionally ignored during Excel import to use default project area
+            # Skip all iteration path logic to prevent "Invalid tree name" errors
+            # if ($row.PSObject.Properties['IterationPath']) {
+            #     $iterationPath = $null
+            #     if (-not [string]::IsNullOrWhiteSpace($row.IterationPath)) {
+            #         # Use the Excel value if it's not empty
+            #         $iterationPath = $row.IterationPath.ToString()
+            #
+            #         # Replace template placeholders with actual project values
+            #         $iterationPath = $iterationPath -replace '\{\{ITERATION_ROOT\}\}', $Project
+            #         $iterationPath = $iterationPath -replace '\{\{AREA_PATH_ROOT\}\}', $Project
+            #     }
+            #     elseif ($currentIterationPath) {
+            #         # Use current iteration as default if Excel value is empty
+            #         $iterationPath = $currentIterationPath
+            #         Write-LogLevelVerbose "Using current iteration '$currentIterationPath' for work item '$($row.Title)'"
+            #     }
+            #
+            #     # Only set iteration path if we have a valid path AND current iteration was successfully retrieved
+            #     # This prevents failures when iterations haven't been created yet (e.g., bulk initialization)
+            #     if ($iterationPath -and $currentIterationPath) {
+            #         $operations += [pscustomobject]@{ op="add"; path="/fields/System.IterationPath"; value=$iterationPath }
+            #     }
+            #     elseif ($iterationPath -and -not $currentIterationPath) {
+            #         Write-LogLevelVerbose "Skipping iteration path '$iterationPath' for work item '$($row.Title)' - no iterations available yet"
+            #     }
+            # }
+            if ($row.PSObject.Properties['State'] -and $row.State) {
+                $originalStateVal = $row.State.ToString()
+                $stateVal = $originalStateVal
+
+                # Special handling for "New" state - map to appropriate initial state based on work item type
+                if ($originalStateVal -eq "New") {
+                    # Test Cases use "Design" as their initial state, not "New"
+                    if ($wit -eq "Test Case") {
+                        $stateVal = "Design"
+                        Write-LogLevelVerbose "Mapping 'New' state to 'Design' for Test Case work item type"
+                    }
+                    else {
+                        # For other work item types, try to map to first allowed state if "New" not allowed
+                        $allowedStates = Get-FieldAllowedValues -WorkItemType $wit -FieldName "System.State"
+                        if (-not $allowedStates) { $allowedStates = @() }
+
+                        # Check if "New" is directly allowed
+                        $newIsAllowed = $false
+                        if ($allowedStates -and $allowedStates.Count -gt 0) {
+                            foreach ($av in $allowedStates) {
+                                if ($av -ieq "New") {
+                                    $newIsAllowed = $true
+                                    break
+                                }
+                            }
+                        }
+
+                        if (-not $newIsAllowed -and $allowedStates.Count -gt 0) {
+                            # "New" not allowed, use first state in the workflow
+                            $stateVal = $allowedStates[0]
+                            Write-LogLevelVerbose "Mapping 'New' state to first allowed state: '$stateVal' (allowed: $($allowedStates -join ', '))"
+                        }
+                    }
                 }
 
-                $stateVal = $row.State.ToString()
+                # Validate the final state value
+                $allowed = Get-FieldAllowedValues -WorkItemType $wit -FieldName "System.State"
+                if (-not $allowed) { $allowed = @() }
+
                 $isAllowed = $false
                 if ($allowed -and $allowed.Count -gt 0) {
                     foreach ($av in $allowed) { if ($av -ieq $stateVal) { $isAllowed = $true; break } }
+                }
+
+                # If API calls failed (empty allowed values), skip validation and allow the state
+                # This prevents false warnings when Azure DevOps API is not available
+                if ($allowed.Count -eq 0) {
+                    Write-LogLevelVerbose "API unavailable for state validation - allowing state '$stateVal' without validation"
+                    $isAllowed = $true
                 }
 
                 if ($isAllowed) {
                     $operations += [pscustomobject]@{ op="add"; path="/fields/System.State"; value=$stateVal }
                 }
                 else {
-                    Write-Warning "Skipping setting State='$stateVal' (not in allowed values for System.State)"
+                    Write-Warning "Skipping setting State='$originalStateVal' (mapped to '$stateVal' but not in allowed values for $wit.System.State - will use default state)"
                 }
             }
             if ($row.PSObject.Properties['Description'] -and $row.Description) {
-                $operations += @{ op="add"; path="/fields/System.Description"; value=$row.Description.ToString() }
+                $operations += [pscustomobject]@{ op="add"; path="/fields/System.Description"; value=$row.Description.ToString() }
             }
             if ($row.PSObject.Properties['Priority'] -and $row.Priority) {
                 $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Common.Priority"; value=[int]$row.Priority }
@@ -1896,69 +2305,94 @@ function Import-AdoWorkItemsFromExcel {
             
             # Work item type specific fields
             if ($row.PSObject.Properties['StoryPoints'] -and $row.StoryPoints -and $wit -eq "User Story") {
-                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StoryPoints"; value=[double]$row.StoryPoints }
+                $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StoryPoints"; value=[double]$row.StoryPoints }
             }
             if ($row.PSObject.Properties['BusinessValue'] -and $row.BusinessValue) {
-                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Common.BusinessValue"; value=[int]$row.BusinessValue }
+                $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Common.BusinessValue"; value=[int]$row.BusinessValue }
             }
             if ($row.PSObject.Properties['ValueArea'] -and $row.ValueArea) {
-                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Common.ValueArea"; value=$row.ValueArea.ToString() }
-            }
-            if ($row.PSObject.Properties['Risk'] -and $row.Risk) {
-                # Try to validate Risk allowed values; if not available, add cautiously
-                try {
-                    $riskField = Invoke-AdoRest GET "/_apis/wit/fields/Microsoft.VSTS.Common.Risk?api-version=7.1"
-                    $riskAllowed = @()
-                    if ($riskField -and $riskField.allowedValues) { $riskAllowed = $riskField.allowedValues }
-                }
-                catch {
-                    $riskAllowed = @()
+                # Map Excel ValueArea values to Azure DevOps Agile process values
+                $valueAreaMapping = @{
+                    "Enabler" = "Architectural"  # Map Enabler to Architectural (valid ADO value)
                 }
 
-                $riskVal = $row.Risk.ToString()
+                $originalValueAreaVal = $row.ValueArea.ToString()
+                $valueAreaVal = if ($valueAreaMapping.ContainsKey($originalValueAreaVal)) {
+                    $valueAreaMapping[$originalValueAreaVal]
+                } else {
+                    $originalValueAreaVal
+                }
+
+                $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Common.ValueArea"; value=$valueAreaVal }
+            }
+            if ($row.PSObject.Properties['Risk'] -and $row.Risk) {
+                # Map Excel Risk values to Azure DevOps Agile process values
+                $riskMapping = @{
+                    "High" = "1 - High"
+                    "Medium" = "2 - Medium"
+                    "Low" = "3 - Low"
+                }
+
+                $originalRiskVal = $row.Risk.ToString()
+                $riskVal = if ($riskMapping.ContainsKey($originalRiskVal)) {
+                    $riskMapping[$originalRiskVal]
+                } else {
+                    $originalRiskVal
+                }
+
+                # Try to validate Risk allowed values; if not available, add cautiously
+                $riskAllowed = Get-FieldAllowedValues -WorkItemType $wit -FieldName "Microsoft.VSTS.Common.Risk"
+                if (-not $riskAllowed) { $riskAllowed = @() }
+
                 $riskOk = $false
                 if ($riskAllowed -and $riskAllowed.Count -gt 0) {
                     foreach ($rv in $riskAllowed) { if ($rv -ieq $riskVal) { $riskOk = $true; break } }
                 }
 
-                if ($riskOk -or $riskAllowed.Count -eq 0) {
+                # If API calls failed (empty allowed values), skip validation and allow the risk
+                if ($riskAllowed.Count -eq 0) {
+                    Write-LogLevelVerbose "API unavailable for risk validation - allowing risk '$riskVal' without validation"
+                    $riskOk = $true
+                }
+
+                if ($riskOk) {
                     $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Common.Risk"; value=$riskVal }
                 }
                 else {
-                    Write-Warning "Skipping setting Risk='$riskVal' (not in allowed values for Risk)"
+                    Write-Warning "Skipping setting Risk='$originalRiskVal' (mapped to '$riskVal' but not in allowed values for $wit.Risk)"
                 }
             }
             
             # Scheduling fields
             if ($row.PSObject.Properties['StartDate'] -and $row.StartDate) {
-                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StartDate"; value=[datetime]$row.StartDate }
+                $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StartDate"; value=[datetime]$row.StartDate }
             }
             if ($row.PSObject.Properties['FinishDate'] -and $row.FinishDate) {
-                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.FinishDate"; value=[datetime]$row.FinishDate }
+                $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.FinishDate"; value=[datetime]$row.FinishDate }
             }
             if ($row.PSObject.Properties['TargetDate'] -and $row.TargetDate) {
-                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.TargetDate"; value=[datetime]$row.TargetDate }
+                $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.TargetDate"; value=[datetime]$row.TargetDate }
             }
             if ($row.PSObject.Properties['DueDate'] -and $row.DueDate) {
-                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.DueDate"; value=[datetime]$row.DueDate }
+                $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.DueDate"; value=[datetime]$row.DueDate }
             }
             
             # Effort tracking
             if ($row.PSObject.Properties['OriginalEstimate'] -and $row.OriginalEstimate) {
-                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.OriginalEstimate"; value=[double]$row.OriginalEstimate }
+                $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.OriginalEstimate"; value=[double]$row.OriginalEstimate }
             }
             if ($row.PSObject.Properties['RemainingWork'] -and $row.RemainingWork) {
-                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.RemainingWork"; value=[double]$row.RemainingWork }
+                $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.RemainingWork"; value=[double]$row.RemainingWork }
             }
             if ($row.PSObject.Properties['CompletedWork'] -and $row.CompletedWork) {
-                $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.CompletedWork"; value=[double]$row.CompletedWork }
+                $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.CompletedWork"; value=[double]$row.CompletedWork }
             }
             
             # Test Case specific: Test Steps
             if ($wit -eq "Test Case" -and $row.PSObject.Properties['TestSteps'] -and $row.TestSteps) {
                 $stepsXml = ConvertTo-AdoTestStepsXml -StepsText $row.TestSteps
                 if ($stepsXml) {
-                    $operations += @{
+                    $operations += [pscustomobject]@{
                         op    = "add"
                         path  = "/fields/Microsoft.VSTS.TCM.Steps"
                         value = $stepsXml
@@ -1968,7 +2402,7 @@ function Import-AdoWorkItemsFromExcel {
             
             # Tags
             if ($row.PSObject.Properties['Tags'] -and $row.Tags) {
-                $operations += @{ op="add"; path="/fields/System.Tags"; value=$row.Tags.ToString() }
+                $operations += [pscustomobject]@{ op="add"; path="/fields/System.Tags"; value=$row.Tags.ToString() }
             }
             
             # Parent relationship (if parent was already created)
@@ -1990,7 +2424,7 @@ function Import-AdoWorkItemsFromExcel {
                     }
                 }
                 else {
-                    Write-Verbose "Parent LocalId $($row.ParentLocalId) not yet created for work item '$($row.Title)'"
+                    Write-LogLevelVerbose "Parent LocalId $($row.ParentLocalId) not yet created for work item '$($row.Title)'"
                 }
             }
             
@@ -2013,7 +2447,9 @@ function Import-AdoWorkItemsFromExcel {
             $successCount++
         }
         catch {
-            Write-Warning "Failed to create $wit '$($row.Title)': $_"
+            $errMsg = "Failed to create $wit '$($row.Title)': $($_.Exception.Message)"
+            Write-Warning $errMsg
+            $importErrors += $errMsg
             $errorCount++
         }
     }
@@ -2024,11 +2460,14 @@ function Import-AdoWorkItemsFromExcel {
     if ($errorCount -gt 0) {
         Write-Host "[WARN] $errorCount work items failed to import" -ForegroundColor Yellow
     }
-    
+
+    # Include errors array in return value for caller diagnostics
     return @{
         SuccessCount = $successCount
         ErrorCount   = $errorCount
         WorkItemMap  = $localToAdoMap
+        Errors       = $importErrors
+        SkippedRows  = $(@($skippedRows).Count)
     }
 }
 
@@ -2090,8 +2529,142 @@ function ConvertTo-AdoTestStepsXml {
     return $xmlBuilder.ToString()
 }
 
+<#
+.SYNOPSIS
+    Shows the allowed states for a specific work item type in Azure DevOps.
+
+.DESCRIPTION
+    Queries Azure DevOps to retrieve the allowed values for the System.State field
+    of a specific work item type. This helps understand what states are valid
+    when importing work items from Excel.
+
+.PARAMETER Project
+    The Azure DevOps project name.
+
+.PARAMETER WorkItemType
+    The work item type to query (Epic, Feature, User Story, Task, Bug, Test Case, etc.).
+
+.PARAMETER ApiVersion
+    The Azure DevOps API version to use (default: 7.1).
+
+.EXAMPLE
+    Show-AdoWorkItemStates -Project "MyProject" -WorkItemType "Feature"
+#>
+function Show-AdoWorkItemStates {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+
+        [Parameter(Mandatory)]
+        [ValidateSet("Epic", "Feature", "User Story", "Task", "Bug", "Test Case", "Issue", "Impediment", "Change Request", "Review", "Risk")]
+        [string]$WorkItemType,
+
+        [string]$ApiVersion = "7.1"
+    )
+
+    Write-Host "🔍 Querying allowed states for $WorkItemType in project '$Project'..." -ForegroundColor Cyan
+
+    try {
+        # Get the allowed values for System.State field
+        $witEncoded = [uri]::EscapeDataString($WorkItemType)
+        $fieldEncoded = [uri]::EscapeDataString("System.State")
+        $projEnc = [uri]::EscapeDataString($Project)
+
+        $fieldInfo = Invoke-AdoRest GET "/$projEnc/_apis/wit/workitemtypes/$witEncoded/fields/$fieldEncoded`?api-version=$ApiVersion"
+
+        if ($fieldInfo -and $fieldInfo.allowedValues) {
+            Write-Host ""
+            Write-Host "✅ Allowed states for $WorkItemType.System.State:" -ForegroundColor Green
+            Write-Host "─" * 50 -ForegroundColor Gray
+
+            foreach ($state in $fieldInfo.allowedValues) {
+                Write-Host "  • $state" -ForegroundColor White
+            }
+
+            Write-Host ""
+            Write-Host "📋 Summary:" -ForegroundColor Cyan
+            Write-Host "  Total allowed states: $($fieldInfo.allowedValues.Count)" -ForegroundColor White
+            Write-Host "  Field is required: $($fieldInfo.required)" -ForegroundColor White
+            Write-Host "  Default value: $($fieldInfo.defaultValue)" -ForegroundColor White
+
+            return @{
+                WorkItemType = $WorkItemType
+                AllowedStates = $fieldInfo.allowedValues
+                IsRequired = $fieldInfo.required
+                DefaultValue = $fieldInfo.defaultValue
+            }
+        } else {
+            Write-Warning "No allowed values found for $WorkItemType.System.State"
+            return $null
+        }
+    }
+    catch {
+        Write-Error "Failed to query allowed states: $_"
+        return $null
+    }
+}
+
+<#
+.SYNOPSIS
+    Shows the allowed states for all common work item types in Azure DevOps.
+
+.DESCRIPTION
+    Queries Azure DevOps to retrieve the allowed values for the System.State field
+    for all common work item types (Epic, Feature, User Story, Task, Bug, Test Case).
+    This provides a comprehensive view of valid states across the project.
+
+.PARAMETER Project
+    The Azure DevOps project name.
+
+.EXAMPLE
+    Show-AllWorkItemStates -Project "MyProject"
+#>
+function Show-AllWorkItemStates {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project
+    )
+
+    Write-Host "🔍 Querying allowed states for all work item types in project '$Project'..." -ForegroundColor Cyan
+    Write-Host ""
+
+    $workItemTypes = @("Epic", "Feature", "User Story", "Task", "Bug", "Test Case")
+    $results = @{}
+
+    foreach ($wit in $workItemTypes) {
+        try {
+            $result = Show-AdoWorkItemStates -Project $Project -WorkItemType $wit
+            if ($result) {
+                $results[$wit] = $result
+            }
+        }
+        catch {
+            Write-Warning "Could not query states for $wit`: $_"
+        }
+    }
+
+    Write-Host ""
+    Write-Host "📊 Summary of all work item type states:" -ForegroundColor Magenta
+    Write-Host "=" * 60 -ForegroundColor Magenta
+
+    foreach ($wit in $workItemTypes) {
+        if ($results.ContainsKey($wit)) {
+            $states = $results[$wit].AllowedStates -join ", "
+            Write-Host "$wit`: $states" -ForegroundColor White
+        } else {
+            Write-Host "$wit`: Could not determine" -ForegroundColor Yellow
+        }
+    }
+
+    return $results
+}
+
 # Export functions
 Export-ModuleMember -Function @(
+    'Ensure-WorkItemTypesCache',
+    'Get-WorkItemTypesCache',
     'Initialize-AdoTeamTemplates',
     'New-AdoSharedQueries',
     'New-AdoTestPlan',
@@ -2105,7 +2678,9 @@ Export-ModuleMember -Function @(
     'Import-AdoWorkItemsFromExcel',
     'Resolve-AdoWorkItemType',
     'ConvertTo-AdoTestStepsXml',
-    'Convert-ExcelLocalId'
+    'Convert-ExcelLocalId',
+    'Show-AdoWorkItemStates',
+    'Show-AllWorkItemStates'
 )
 
 # Note: Upsert-AdoQuery removed from exports - internal helper function only

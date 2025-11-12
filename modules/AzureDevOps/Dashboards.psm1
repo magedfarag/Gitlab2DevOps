@@ -26,7 +26,7 @@ function Set-AdoTeamSettings {
     
     # Configure backlog levels (show Epics and Features)
     try {
-        Write-Verbose "[Set-AdoTeamSettings] Configuring backlog visibility"
+        Write-LogLevelVerbose "[Set-AdoTeamSettings] Configuring backlog visibility"
         $backlogBody = @{
             backlogVisibilities = @{
                 "Microsoft.EpicCategory" = $true
@@ -46,7 +46,7 @@ function Set-AdoTeamSettings {
     
     # Configure working days (Monday-Friday)
     try {
-        Write-Verbose "[Set-AdoTeamSettings] Configuring working days"
+        Write-LogLevelVerbose "[Set-AdoTeamSettings] Configuring working days"
         $workingDaysBody = @{
             workingDays = @("monday", "tuesday", "wednesday", "thursday", "friday")
         }
@@ -65,7 +65,7 @@ function Set-AdoTeamSettings {
         if ($iterations -and $iterations.value -and $iterations.value.Count -gt 0) {
             $firstSprint = $iterations.value[0]
             
-            Write-Verbose "[Set-AdoTeamSettings] Setting default iteration to: $($firstSprint.name)"
+            Write-LogLevelVerbose "[Set-AdoTeamSettings] Setting default iteration to: $($firstSprint.name)"
             $defaultIterationBody = @{
                 backlogIteration = $firstSprint.id
                 defaultIteration = $firstSprint.id
@@ -80,7 +80,7 @@ function Set-AdoTeamSettings {
         }
     }
     catch {
-        Write-Verbose "[Set-AdoTeamSettings] Could not set default iteration: $_"
+        Write-LogLevelVerbose "[Set-AdoTeamSettings] Could not set default iteration: $_"
         Write-Host "[INFO] Default iteration not set (will use current date)" -ForegroundColor Yellow
     }
     
@@ -135,7 +135,7 @@ function Search-Adodashboard {
         $teamId = $teamContext.id
     }
     catch {
-        Write-Verbose "[Search-Adodashboard] Team context not available; will attempt project-level dashboards as fallback. Error: $_"
+        Write-LogLevelVerbose "[Search-Adodashboard] Team context not available; will attempt project-level dashboards as fallback. Error: $_"
     }
     
     # Check if dashboard already exists
@@ -150,7 +150,7 @@ function Search-Adodashboard {
                 break
             }
             catch {
-                Write-Verbose "[Search-Adodashboard] Dashboard GET failed for endpoint $ep - trying next. Error: $_"
+                Write-LogLevelVerbose "[Search-Adodashboard] Dashboard GET failed for endpoint $ep - trying next. Error: $_"
             }
         }
 
@@ -170,12 +170,12 @@ function Search-Adodashboard {
         }
     }
     catch {
-        Write-Verbose "[Search-Adodashboard] Could not check existing dashboards: $_"
+        Write-LogLevelVerbose "[Search-Adodashboard] Could not check existing dashboards: $_"
     }
     
     # Create dashboard
     try {
-        Write-Verbose "[Search-Adodashboard] Creating dashboard: $dashboardName"
+        Write-LogLevelVerbose "[Search-Adodashboard] Creating dashboard: $dashboardName"
         
         $dashboardBody = @{
             name = $dashboardName
@@ -259,7 +259,7 @@ function Search-Adodashboard {
                 $postErr = $_.Exception.Message
                 # If duplicate dashboard name was reported, try to locate and return existing dashboard instead
                 if ($postErr -and ($postErr -match 'DuplicateDashboardNameException' -or $postErr -match 'DuplicateDashboardName')) {
-                    Write-Verbose "[Search-Adodashboard] Duplicate dashboard name detected when posting to $ep - attempting to find existing dashboard"
+                    Write-LogLevelVerbose "[Search-Adodashboard] Duplicate dashboard name detected when posting to $ep - attempting to find existing dashboard"
                     try {
                         $existingDashboards = Invoke-AdoRest GET $ep -Preview
                         $entries = @()
@@ -276,11 +276,11 @@ function Search-Adodashboard {
                         }
                     }
                     catch {
-                        Write-Verbose "[Search-Adodashboard] Failed to locate existing dashboard after duplicate error: $_"
+                        Write-LogLevelVerbose "[Search-Adodashboard] Failed to locate existing dashboard after duplicate error: $_"
                     }
                 }
 
-                Write-Verbose "[Search-Adodashboard] Dashboard POST failed for endpoint $ep - trying next. Error: $_"
+                Write-LogLevelVerbose "[Search-Adodashboard] Dashboard POST failed for endpoint $ep - trying next. Error: $_"
             }
         }
         
@@ -309,7 +309,7 @@ function Search-Adodashboard {
         else {
             Write-Warning "Failed to create dashboard: $_"
         }
-        Write-Verbose "[Search-Adodashboard] Error details: $($_.Exception.Message)"
+        Write-LogLevelVerbose "[Search-Adodashboard] Error details: $($_.Exception.Message)"
         return $null
     }
 }
@@ -333,7 +333,7 @@ function Test-Adoqadashboard {
         $teamId = $teamContext.id
     }
     catch {
-        Write-Verbose "[Test-Adoqadashboard] Team context not available; will attempt project-level dashboards as fallback. Error: $_"
+        Write-LogLevelVerbose "[Test-Adoqadashboard] Team context not available; will attempt project-level dashboards as fallback. Error: $_"
     }
     
     # Check if QA dashboard already exists
@@ -348,7 +348,7 @@ function Test-Adoqadashboard {
                 break
             }
             catch {
-                Write-Verbose "[Test-Adoqadashboard] Dashboard GET failed for endpoint $ep - trying next. Error: $_"
+                Write-LogLevelVerbose "[Test-Adoqadashboard] Dashboard GET failed for endpoint $ep - trying next. Error: $_"
             }
         }
 
@@ -368,12 +368,12 @@ function Test-Adoqadashboard {
         }
     }
     catch {
-        Write-Verbose "[Test-Adoqadashboard] Could not check existing dashboards: $_"
+        Write-LogLevelVerbose "[Test-Adoqadashboard] Could not check existing dashboards: $_"
     }
     
     # Create QA dashboard with test and quality widgets
     try {
-        Write-Verbose "[Test-Adoqadashboard] Creating QA dashboard: $dashboardName"
+        Write-LogLevelVerbose "[Test-Adoqadashboard] Creating QA dashboard: $dashboardName"
         
         $dashboardBody = @{
             name = $dashboardName
@@ -456,7 +456,7 @@ function Test-Adoqadashboard {
             catch {
                 $postErr = $_.Exception.Message
                 if ($postErr -and ($postErr -match 'DuplicateDashboardNameException' -or $postErr -match 'DuplicateDashboardName')) {
-                    Write-Verbose "[Test-Adoqadashboard] Duplicate dashboard name detected when posting to $ep - attempting to find existing dashboard"
+                    Write-LogLevelVerbose "[Test-Adoqadashboard] Duplicate dashboard name detected when posting to $ep - attempting to find existing dashboard"
                     try {
                         $existingDashboards = Invoke-AdoRest GET $ep -Preview
                         $entries = @()
@@ -473,11 +473,11 @@ function Test-Adoqadashboard {
                         }
                     }
                     catch {
-                        Write-Verbose "[Test-Adoqadashboard] Failed to locate existing QA dashboard after duplicate error: $_"
+                        Write-LogLevelVerbose "[Test-Adoqadashboard] Failed to locate existing QA dashboard after duplicate error: $_"
                     }
                 }
 
-                Write-Verbose "[Test-Adoqadashboard] Dashboard POST failed for endpoint $ep - trying next. Error: $_"
+                Write-LogLevelVerbose "[Test-Adoqadashboard] Dashboard POST failed for endpoint $ep - trying next. Error: $_"
             }
         }
         
@@ -509,7 +509,7 @@ function Test-Adoqadashboard {
         else {
             Write-Warning "Failed to create QA dashboard: $_"
         }
-        Write-Verbose "[Test-Adoqadashboard] Error details: $($_.Exception.Message)"
+        Write-LogLevelVerbose "[Test-Adoqadashboard] Error details: $($_.Exception.Message)"
         return $null
     }
 }
@@ -537,7 +537,7 @@ function New-Adodevdashboard {
                 break
             }
             catch {
-                Write-Verbose "[New-Adodevdashboard] Dashboard GET failed for endpoint $ep - trying next. Error: $_"
+                Write-LogLevelVerbose "[New-Adodevdashboard] Dashboard GET failed for endpoint $ep - trying next. Error: $_"
             }
         }
 

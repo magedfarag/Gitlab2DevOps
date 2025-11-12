@@ -24,7 +24,6 @@ $script:DEFAULT_SPRINT_DURATION_DAYS = 14
 $script:DEFAULT_AREA_PATHS = @('Frontend', 'Backend', 'Infrastructure', 'Documentation')
 $script:REPO_INIT_MAX_RETRIES = 5
 $script:REPO_INIT_RETRY_DELAYS = @(2, 4, 8, 16, 32)  # Exponential backoff in seconds
-$script:PARALLEL_WIKI_MAX_THREADS = 10
 $script:BRANCH_POLICY_WAIT_SECONDS = 2
 
 <#
@@ -196,41 +195,6 @@ function Get-PreparedProjects {
 
 <#
 .SYNOPSIS
-    Gets Core REST configuration parameters for threaded operations.
-
-.DESCRIPTION
-    Retrieves current Core.Rest module configuration and formats it
-    for passing to background jobs/threads that need to reinitialize
-    the REST context.
-
-.OUTPUTS
-    Hashtable with Core.Rest initialization parameters.
-#>
-function Get-CoreRestThreadParams {
-    $config = Get-CoreRestConfig
-    if (-not $config -or [string]::IsNullOrWhiteSpace([string]$config.CollectionUrl) -or [string]::IsNullOrWhiteSpace([string]$config.AdoPat)) {
-        throw "Core REST module is not initialized. Run Initialize-CoreRest before executing migration operations."
-    }
-
-    $params = @{
-        CollectionUrl     = $config.CollectionUrl
-        AdoPat            = $config.AdoPat
-        GitLabBaseUrl     = if ($config.GitLabBaseUrl) { $config.GitLabBaseUrl } else { "" }
-        GitLabToken       = if ($config.GitLabToken) { $config.GitLabToken } else { "" }
-        AdoApiVersion     = if ($config.AdoApiVersion) { $config.AdoApiVersion } else { "7.1" }
-        RetryAttempts     = if ($config.RetryAttempts) { $config.RetryAttempts } else { 3 }
-        RetryDelaySeconds = if ($config.RetryDelaySeconds) { $config.RetryDelaySeconds } else { 5 }
-        MaskSecrets       = if ($null -ne $config.MaskSecrets) { $config.MaskSecrets } else { $true }
-    }
-
-    if ($config.SkipCertificateCheck) { $params.SkipCertificateCheck = $true }
-    if ($config.LogRestCalls) { $params.LogRestCalls = $true }
-
-    return $params
-}
-
-<#
-.SYNOPSIS
     Loads wiki template content with fallback support.
 
 .DESCRIPTION
@@ -372,6 +336,5 @@ Tag work items by component for better tracking.
 # Export public functions
 Export-ModuleMember -Function @(
     'Get-PreparedProjects',
-    'Get-CoreRestThreadParams',
     'Get-WikiTemplateContent'
 )

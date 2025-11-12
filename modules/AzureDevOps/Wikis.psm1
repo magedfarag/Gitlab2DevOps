@@ -18,11 +18,16 @@ function Measure-Adoprojectwiki {
         [string]$ProjId,
         
         [Parameter(Mandatory)]
-        [string]$Project
+        [string]$Project,
+        
+        [string]$CollectionUrl,
+        [string]$AdoPat,
+        [string]$AdoApiVersion
     )
     
     try {
-        $w = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis"
+        # Do a fast, non-retried check for existing project wikis to avoid noisy retries
+        $w = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis" -MaxAttempts 1 -DelaySeconds 0
     }
     catch {
         # Use format operator to avoid ambiguous "$Var: ..." parsing inside double-quoted strings
@@ -47,10 +52,38 @@ function Measure-Adoprojectwiki {
     }
     
     Write-Host "[INFO] Creating project wiki"
-    Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis" -Body @{
-        name      = "$Project.wiki"
-        type      = "projectWiki"
-        projectId = $ProjId
+        try {
+        # Create wiki without core-layer retries to avoid noisy global retry logs
+        $newWiki = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis" -Body @{
+            name      = "$Project.wiki"
+            type      = "projectWiki"
+            projectId = $ProjId
+        } -MaxAttempts 1 -DelaySeconds 0
+        Write-Host "[SUCCESS] Project wiki created successfully" -ForegroundColor Green
+        return $newWiki
+    }
+    catch {
+        $errorMsg = $_.Exception.Message
+        Write-Warning "[AzureDevOps] Failed to create project wiki for $Project`: $errorMsg"
+        
+        # Provide specific guidance based on error type
+        if ($errorMsg -match '403|Forbidden') {
+            Write-Warning "  → Check PAT permissions: Ensure 'Project and Team (read, write, & manage)' scope"
+        }
+        elseif ($errorMsg -match '401|Unauthorized') {
+            Write-Warning "  → Check PAT validity: Token may be expired or invalid"
+        }
+        elseif ($errorMsg -match '400|Bad Request') {
+            Write-Warning "  → Check project configuration: Project may not support wikis"
+        }
+        elseif ($errorMsg -match '409|Conflict') {
+            Write-Warning "  → Wiki may already exist with different name, check Azure DevOps UI"
+        }
+        else {
+            Write-Warning "  → Check server configuration and network connectivity"
+        }
+        
+        return $null
     }
 }
 
@@ -68,7 +101,11 @@ function Set-AdoWikiPage {
         [string]$Path,
         
         [Parameter(Mandatory)]
-        [string]$Markdown
+        [string]$Markdown,
+        
+        [string]$CollectionUrl,
+        [string]$AdoPat,
+        [string]$AdoApiVersion
     )
     
     $enc = [uri]::EscapeDataString($Path)
@@ -79,73 +116,178 @@ function Set-AdoWikiPage {
     # - PATCH: Update existing page (fails if page doesn't exist with 405)
     # Strategy: Try PUT first, if it fails with "already exists", use PATCH
     
-    try {
-        # Try PUT first to create new page
-        Write-Verbose "[Wikis] Creating wiki page: $Path"
-        Invoke-AdoRest PUT "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{ content = $Markdown } | Out-Null
-        Write-Verbose "[Wikis] Successfully created wiki page: $Path"
-        return
-    }
-    catch {
-        $errorMsg = $_.Exception.Message
-
-        # If page already exists, try to update it with PATCH using ETag (If-Match) and small retries
-        if ($errorMsg -match 'WikiPageAlreadyExistsException|already exists|409') {
-            Write-Verbose "[Wikis] Page $Path already exists, attempting PATCH with ETag"
-
-            # Acquire existing page to retrieve ETag
-            try {
-                $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc"
+    # Add retry logic for wiki availability (handle potential race conditions after wiki creation)
+    $maxWikiRetries = 5  # Increased from 3
+    $wikiRetryDelay = 3  # Increased from 2
+    $lastError = $null
+    $pageAlreadyExists = $false
+    
+    for ($wikiAttempt = 1; $wikiAttempt -le $maxWikiRetries; $wikiAttempt++) {
+        try {
+            # If page already exists, skip PUT and go directly to PATCH
+            if ($pageAlreadyExists) {
+                break
             }
-            catch {
-                Write-Warning ("[Wikis] Could not retrieve existing page for {0}: {1}" -f $Path, $_)
+            
+            # Try PUT first to create new page
+                Write-Verbose "[Wikis] Creating wiki page: $Path (attempt $wikiAttempt)"
+            # Disable REST-layer retries for wiki PUT (treat 500 as informational at wiki layer)
+            Invoke-AdoRest PUT "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{ content = $Markdown } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
+            Write-Verbose "[Wikis] Successfully created wiki page: $Path"
+            return
+        }
+        catch {
+            $errorMsg = $_.Exception.Message
+            $lastError = $_
+
+            # Get normalized error for better status code detection
+            $normalizedError = New-NormalizedError -Exception $_ -Side 'ado' -Endpoint $Path
+            $status = $normalizedError.status
+
+            # Check for various wiki-related errors that indicate the wiki isn't ready
+            # Do NOT treat Internal Server Error (500) as a 'wiki not ready' transient condition
+            # so we don't retry on it here. Service Unavailable (503) may still be retried.
+            $isWikiNotReady = $errorMsg -match 'WikiNotFoundException|Wiki.*not found|404' -or 
+                             $errorMsg -match 'Service Unavailable' -or
+                             $status -eq 404
+
+            # If it's a wiki not ready error and we haven't exhausted retries, wait and retry
+            if ($isWikiNotReady -and $wikiAttempt -lt $maxWikiRetries) {
+                Write-Verbose "[Wikis] Wiki not ready (status: $status), retrying in ${wikiRetryDelay}s (attempt $wikiAttempt/$maxWikiRetries)"
+                Start-Sleep -Seconds $wikiRetryDelay
+                $wikiRetryDelay *= 1.5  # Slower exponential backoff
+                continue
+            }
+
+            # Handle 500 errors - treat them as informational for wiki page creation and skip
+            # further retries here. This avoids noisy warnings and long retry chains when the
+            # server returns an internal error that is not improved by immediate retries.
+            if ($status -eq 500 -or $errorMsg -match '500|Internal Server Error') {
+                Write-Host "[Wikis] Server returned 500 for $Path — saving server response to logs and skipping page creation (info)" -ForegroundColor Cyan
+
+                # Attempt to extract raw response body from the exception and write to logs for diagnostics
+                try {
+                    $rawBody = $null
+                    # Normalize access to inner exception which may contain the Response stream
+                    $actualEx = $null
+                    if ($_.Exception -and ($_.Exception -is [System.Management.Automation.ErrorRecord])) { $actualEx = $_.Exception.Exception } else { $actualEx = $_.Exception }
+
+                    if ($actualEx -and (Get-Member -InputObject $actualEx -Name 'Response' -MemberType Properties -ErrorAction SilentlyContinue)) {
+                        if ($actualEx.Response) {
+                            try {
+                                $reader = New-Object System.IO.StreamReader($actualEx.Response.GetResponseStream())
+                                $rawBody = $reader.ReadToEnd()
+                            }
+                            catch {
+                                $rawBody = "<failed to read response stream: $_>"
+                            }
+                        }
+                    }
+
+                    # Build logs directory (same pattern as Core.Rest)
+                    $logsDir = Join-Path $PSScriptRoot "..\logs"
+                    if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
+
+                    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+                    $safePath = ($Path -replace '[^a-zA-Z0-9\-\._]', '-')
+                    $logFile = Join-Path $logsDir ("wiki-500-" + $([uri]::EscapeDataString($Project)) + "-" + $safePath + "-" + $timestamp + ".log")
+
+                    $payload = [ordered]@{
+                        timestamp = (Get-Date).ToString('o')
+                        project   = $Project
+                        wikiPath  = $Path
+                        status    = $status
+                        message   = $normalizedError.message
+                        rawBody   = if ($rawBody) { $rawBody } else { '<no body captured>' }
+                    }
+
+                    $payload | ConvertTo-Json -Depth 5 | Out-File -FilePath $logFile -Encoding UTF8 -Force
+                    Write-Host "[Wikis] Saved server 500 response to: $logFile" -ForegroundColor Cyan
+                }
+                catch {
+                    Write-Verbose "[Wikis] Failed to write 500 diagnostic log: $_"
+                }
+
                 return
             }
 
-            $etag = $null
-            if ($existing -and $existing.PSObject.Properties['eTag'] -and $existing.eTag) { $etag = $existing.eTag }
-
-            $maxAttempts = 3
-            for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-                try {
-                    # Temporarily add If-Match header to module ADO headers
-                    $origIfMatch = $null
-                    if ($script:AdoHeaders.ContainsKey('If-Match')) { $origIfMatch = $script:AdoHeaders['If-Match'] }
-                    if ($etag) { $script:AdoHeaders['If-Match'] = $etag }
-
-                    $patchBody = @{ content = $Markdown }
-
-                    Invoke-AdoRest PATCH "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body $patchBody | Out-Null
-
-                    # Restore original If-Match header state
-                    if ($null -ne $origIfMatch) { $script:AdoHeaders['If-Match'] = $origIfMatch } else { $script:AdoHeaders.Remove('If-Match') | Out-Null }
-
-                    Write-Verbose "[Wikis] Successfully updated wiki page: $Path (attempt $attempt)"
-                    return
+            # If page already exists, mark flag and break out of PUT retry loop to switch to PATCH
+            if ($errorMsg -match 'WikiPageAlreadyExistsException|already exists|409') {
+                Write-Verbose "[Wikis] Page $Path already exists, switching to PATCH mode"
+                $pageAlreadyExists = $true
+                break
+            }
+            else {
+                # Unexpected error - if it's the last retry, rethrow
+                if ($wikiAttempt -eq $maxWikiRetries) {
+                    throw
                 }
-                catch {
-                    # Restore header before retrying
-                    if ($null -ne $origIfMatch) { $script:AdoHeaders['If-Match'] = $origIfMatch } else { if ($script:AdoHeaders.ContainsKey('If-Match')) { $script:AdoHeaders.Remove('If-Match') | Out-Null } }
+                # Otherwise, wait and retry
+                Write-Verbose "[Wikis] Unexpected error, retrying in ${wikiRetryDelay}s (attempt $wikiAttempt/$maxWikiRetries): $errorMsg"
+                Start-Sleep -Seconds $wikiRetryDelay
+                $wikiRetryDelay *= 2
+            }
+        }
+    }
+    
+    # If we get here, either page already exists (switch to PATCH) or all PUT retries failed
+    if ($pageAlreadyExists) {
+        Write-Verbose "[Wikis] Page $Path already exists, attempting PATCH with ETag"
 
-                    $err = $_
-                    Write-Warning ("[Wikis] PATCH attempt {0} failed for {1}: {2}" -f $attempt, $Path, $err)
-                    if ($attempt -lt $maxAttempts) {
-                        Start-Sleep -Seconds (2 * $attempt)
-                        # Refresh ETag in case another client updated the page
-                        try { $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc"; if ($existing -and $existing.eTag) { $etag = $existing.eTag } } catch { }
-                        continue
-                    }
-                    else {
-                        Write-Warning ("[Wikis] Could not update page {0} after {1} attempts: {2}" -f $Path, $maxAttempts, $err)
-                        return
-                    }
+        # Acquire existing page to retrieve ETag
+        try {
+            # GET should not perform long retry loops for wiki page retrieval
+            $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -MaxAttempts 1 -DelaySeconds 0
+        }
+        catch {
+            Write-Warning ("[Wikis] Could not retrieve existing page for {0}: {1}" -f $Path, $_)
+            return
+        }
+
+        $etag = $null
+        if ($existing -and $existing.PSObject.Properties['eTag'] -and $existing.eTag) { $etag = $existing.eTag }
+
+        $maxAttempts = 3
+        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            try {
+                # Temporarily add If-Match header to module ADO headers
+                $origIfMatch = $null
+                if ($script:AdoHeaders.ContainsKey('If-Match')) { $origIfMatch = $script:AdoHeaders['If-Match'] }
+                if ($etag) { $script:AdoHeaders['If-Match'] = $etag }
+
+                $patchBody = @{ content = $Markdown }
+
+                # Disable REST-layer retries for wiki PATCH (we handle retries at wiki layer)
+                Invoke-AdoRest PATCH "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body $patchBody -MaxAttempts 1 -DelaySeconds 0 | Out-Null
+
+                # Restore original If-Match header state
+                if ($null -ne $origIfMatch) { $script:AdoHeaders['If-Match'] = $origIfMatch } else { $script:AdoHeaders.Remove('If-Match') | Out-Null }
+
+                Write-Verbose "[Wikis] Successfully updated wiki page: $Path (attempt $attempt)"
+                return
+            }
+            catch {
+                # Restore header before retrying
+                if ($null -ne $origIfMatch) { $script:AdoHeaders['If-Match'] = $origIfMatch } else { if ($script:AdoHeaders.ContainsKey('If-Match')) { $script:AdoHeaders.Remove('If-Match') | Out-Null } }
+
+                $err = $_
+                Write-Warning ("[Wikis] PATCH attempt {0} failed for {1}: {2}" -f $attempt, $Path, $err)
+                if ($attempt -lt $maxAttempts) {
+                    Start-Sleep -Seconds (2 * $attempt)
+                    # Refresh ETag in case another client updated the page
+                    try { $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -MaxAttempts 1 -DelaySeconds 0; if ($existing -and $existing.eTag) { $etag = $existing.eTag } } catch { }
+                    continue
+                }
+                else {
+                    Write-Warning ("[Wikis] Could not update page {0} after {1} attempts: {2}" -f $Path, $maxAttempts, $err)
+                    return
                 }
             }
         }
-        else {
-            # Unexpected error - rethrow
-            throw
-        }
+    }
+    else {
+        # If we get here, all retries failed
+        throw $lastError
     }
 }
 
@@ -223,7 +365,11 @@ function Measure-Adobestpracticeswiki {
         [string]$Project,
         
         [Parameter(Mandatory)]
-        [string]$WikiId
+        [string]$WikiId,
+        
+        [string]$CollectionUrl,
+        [string]$AdoPat,
+        [string]$AdoApiVersion
     )
     
     Write-Host "[INFO] Creating Best Practices wiki pages..." -ForegroundColor Cyan
@@ -246,7 +392,7 @@ Use the subpages navigation to explore each topic.
 "@
     
     try {
-        Set-AdoWikiPage $Project $WikiId "/Best-Practices" $bestPracticesParentContent
+        Set-AdoWikiPage $Project $WikiId "/Best-Practices" $bestPracticesParentContent | Out-Null
         Write-Host "  ✅ Best Practices (parent page)" -ForegroundColor Gray
     }
     catch {
@@ -615,16 +761,28 @@ function New-AdoProjectSummaryWikiPage {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string]$Project,
-        [Parameter(Mandatory)] [string]$WikiId
+        [Parameter(Mandatory)] [string]$WikiId,
+        
+        [string]$CollectionUrl,
+        [string]$AdoPat,
+        [string]$AdoApiVersion
     )
 
     Write-Host "[INFO] Creating Project Summary wiki page..." -ForegroundColor Cyan
 
     try {
         $proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))?includeCapabilities=true"
-        # Ensure core REST is initialized and get a validated config
-        $coreRestConfig = Ensure-CoreRestInitialized
-        $adoUrl = $coreRestConfig.CollectionUrl
+        # Use provided CollectionUrl or get from override parameters
+        $adoUrl = if ($CollectionUrl) { $CollectionUrl } else { 
+            # Fallback to getting from config if not provided
+            try {
+                $coreRestConfig = Ensure-CoreRestInitialized
+                $coreRestConfig.CollectionUrl
+            } catch {
+                Write-Warning "Could not get CollectionUrl from config, using default"
+                "https://dev.azure.com"  # fallback
+            }
+        }
 
         # Normalize project id and process template values (response shapes vary)
         $projId = ''
@@ -667,25 +825,26 @@ function New-AdoProjectSummaryWikiPage {
         $areas = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/areas" + '?$depth=2')
         $areaCount = 0
         if ($areas) {
-            if ($areas.PSObject.Properties['children']) { $areaCount = $areas.children.Count }
-            elseif ($areas.PSObject.Properties['value']) { $areaCount = ($areas.value | Measure-Object).Count }
+            if ($areas.PSObject.Properties['children'] -and $areas.children) { $areaCount = $areas.children.Count }
+            elseif ($areas.PSObject.Properties['value'] -and $areas.value) { $areaCount = ($areas.value | Measure-Object).Count }
             elseif ($areas -is [System.Array]) { $areaCount = $areas.Count }
         }
 
         $iterations = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/iterations" + '?$depth=2')
         $iterationCount = 0
         if ($iterations) {
-            if ($iterations.PSObject.Properties['children']) { $iterationCount = $iterations.children.Count }
-            elseif ($iterations.PSObject.Properties['value']) { $iterationCount = ($iterations.value | Measure-Object).Count }
+            if ($iterations.PSObject.Properties['children'] -and $iterations.children) { $iterationCount = $iterations.children.Count }
+            elseif ($iterations.PSObject.Properties['value'] -and $iterations.value) { $iterationCount = ($iterations.value | Measure-Object).Count }
             elseif ($iterations -is [System.Array]) { $iterationCount = $iterations.Count }
         }
 
         # wiki pages
-        $wikiPages = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis/$WikiId/pages?recursionLevel=full"
+    # Non-retried wiki pages listing to avoid global retry noise for large wiki trees
+    $wikiPages = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis/$WikiId/pages?recursionLevel=full" -MaxAttempts 1 -DelaySeconds 0
         $wikiPageCount = 0
         if ($wikiPages) {
-            if ($wikiPages.PSObject.Properties['subPages']) { $wikiPageCount = $wikiPages.subPages.Count }
-            elseif ($wikiPages.PSObject.Properties['value']) { $wikiPageCount = ($wikiPages.value | Measure-Object).Count }
+            if ($wikiPages.PSObject.Properties['subPages'] -and $wikiPages.subPages) { $wikiPageCount = $wikiPages.subPages.Count }
+            elseif ($wikiPages.PSObject.Properties['value'] -and $wikiPages.value) { $wikiPageCount = ($wikiPages.value | Measure-Object).Count }
             elseif ($wikiPages -is [System.Array]) { $wikiPageCount = $wikiPages.Count }
         }
 
@@ -693,8 +852,8 @@ function New-AdoProjectSummaryWikiPage {
         $queries = Invoke-AdoRest GET ("/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" + '?$depth=2')
         $queryCount = 0
         if ($queries) {
-            if ($queries.PSObject.Properties['children']) { $queryCount = $queries.children.Count }
-            elseif ($queries.PSObject.Properties['value']) { $queryCount = ($queries.value | Measure-Object).Count }
+            if ($queries.PSObject.Properties['children'] -and $queries.children) { $queryCount = $queries.children.Count }
+            elseif ($queries.PSObject.Properties['value'] -and $queries.value) { $queryCount = ($queries.value | Measure-Object).Count }
             elseif ($queries -is [System.Array]) { $queryCount = $queries.Count }
         }
 

@@ -201,40 +201,7 @@ else {
 }
 
 # ========================================
-# SCENARIO 5: Parallel Bulk Migration
-# ========================================
-# Migrate multiple projects in parallel for faster completion
-
-$projects = @(
-    @{ Source = "group/project1"; Project = "Project1" }
-    @{ Source = "group/project2"; Project = "Project2" }
-    @{ Source = "group/project3"; Project = "Project3" }
-    @{ Source = "group/project4"; Project = "Project4" }
-)
-
-# Run migrations in parallel (max 4 concurrent)
-$projects | ForEach-Object -Parallel {
-    $proj = $_
-    
-    Write-Host "Starting migration for $($proj.Project)..." -ForegroundColor Cyan
-    
-    & ".\Gitlab2DevOps.ps1" `
-        -Mode Migrate `
-        -Source $proj.Source `
-        -Project $proj.Project `
-        -AllowSync `
-        -ErrorAction Continue
-    
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "✅ Completed: $($proj.Project)" -ForegroundColor Green
-    }
-    else {
-        Write-Host "❌ Failed: $($proj.Project)" -ForegroundColor Red
-    }
-} -ThrottleLimit 4
-
-# ========================================
-# SCENARIO 6: Migration with Validation
+# SCENARIO 5: Migration with Validation
 # ========================================
 # Validate migration success by comparing commits
 
@@ -284,7 +251,7 @@ else {
 }
 
 # ========================================
-# SCENARIO 7: Metrics and Monitoring
+# SCENARIO 6: Metrics and Monitoring
 # ========================================
 # Track migration metrics over time
 
@@ -326,7 +293,7 @@ function Write-MigrationMetrics {
 Write-MigrationMetrics
 
 # ========================================
-# SCENARIO 8: Error Recovery and Retry
+# SCENARIO 7: Error Recovery and Retry
 # ========================================
 # Automatic retry with exponential backoff
 
@@ -392,7 +359,7 @@ Best Practices:
 3. Use -AllowSync for scheduled syncs to avoid conflicts
 4. Validate migrations after completion
 5. Keep metrics for monitoring and troubleshooting
-6. Use parallel execution for large-scale migrations
+6. Use sequential execution for reliable migrations
 7. Implement retry logic for transient failures
 8. Send notifications for failures requiring attention
 
@@ -405,7 +372,7 @@ Security Considerations:
 - Encrypt sensitive configuration files
 
 Performance Tips:
-- Use parallel execution for bulk migrations (max 4-6 concurrent)
+- Use sequential execution for reliable bulk migrations
 - Schedule large migrations during off-peak hours
 - Monitor Azure DevOps API rate limits
 - Cache preflight reports to avoid redundant downloads

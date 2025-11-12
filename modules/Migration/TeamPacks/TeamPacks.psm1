@@ -98,6 +98,11 @@ function Initialize-BusinessInit {
     Write-Host "[INFO] Starting Business Initialization Pack for '$DestProject'" -ForegroundColor Cyan
     Write-Host "[NOTE] You may see some 404 errors - these are normal when checking if resources already exist" -ForegroundColor Gray
 
+    # Validate project exists before proceeding
+    if (-not (Test-AdoProjectExists -ProjectName $DestProject)) {
+        throw "Project '$DestProject' does not exist in Azure DevOps. Please create the project first or use Option 2 to initialize a new project."
+    }
+
     # Validate project exists and get project details (use Invoke-AdoRest so tests can mock)
     $proj = Ensure-AdoProject -ProjectName $DestProject
     # Defensive extraction of project id (support PSCustomObject, hashtable, arrays)
@@ -186,6 +191,11 @@ function Initialize-DevInit {
     Write-Host "[INFO] Starting Development Initialization Pack for '$DestProject'" -ForegroundColor Cyan
     Write-Host "[NOTE] You may see some 404 errors - these are normal when checking if resources already exist" -ForegroundColor Gray
 
+    # Validate project exists before proceeding
+    if (-not (Test-AdoProjectExists -ProjectName $DestProject)) {
+        throw "Project '$DestProject' does not exist in Azure DevOps. Please create the project first or use Option 2 to initialize a new project."
+    }
+
     # Validate project exists and get project details (use Invoke-AdoRest so tests can mock)
     $proj = Ensure-AdoProject -ProjectName $DestProject
     $projId = $null
@@ -199,6 +209,14 @@ function Initialize-DevInit {
     if ($wiki -is [System.Collections.IDictionary]) { try { $wiki = [PSCustomObject]$wiki } catch { } }
     $wikiId = $null
     if ($wiki -and $wiki.PSObject.Properties['id']) { $wikiId = $wiki.id } else { $wikiId = $projId }
+
+    # Wait for wiki to be fully ready before creating pages
+    Write-Host "[INFO] Waiting for wiki to be fully initialized..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 5
+
+    # Provision management wiki pages
+    Write-Host "[INFO] Waiting for wiki to be fully initialized..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 5
 
     # Provision development wiki pages
     Write-Host "[INFO] Provisioning development wiki pages..." -ForegroundColor Cyan
@@ -283,6 +301,11 @@ function Initialize-SecurityInit {
     Write-Host "[INFO] Starting Security Initialization Pack for '$DestProject'" -ForegroundColor Cyan
     Write-Host "[NOTE] You may see some 404 errors - these are normal when checking if resources already exist" -ForegroundColor Gray
 
+    # Validate project exists before proceeding
+    if (-not (Test-AdoProjectExists -ProjectName $DestProject)) {
+        throw "Project '$DestProject' does not exist in Azure DevOps. Please create the project first or use Option 2 to initialize a new project."
+    }
+
     # Validate project exists and get project details (use Invoke-AdoRest so tests can mock)
     $proj = Ensure-AdoProject -ProjectName $DestProject
     $projId = $null
@@ -297,7 +320,11 @@ function Initialize-SecurityInit {
     $wikiId = $null
     if ($wiki -and $wiki.PSObject.Properties['id']) { $wikiId = $wiki.id } else { $wikiId = $projId }
 
-    # Provision security wiki pages
+    # Wait for wiki to be fully ready before creating pages
+    Write-Host "[INFO] Waiting for wiki to be fully initialized..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 5
+
+    # Provision business wiki pages
     Write-Host "[INFO] Provisioning security wiki pages..." -ForegroundColor Cyan
     New-AdoSecurityWiki -Project $DestProject -WikiId $wikiId
 
@@ -370,6 +397,11 @@ function Initialize-ManagementInit {
     Write-Host "[INFO] Starting Management Initialization Pack for '$DestProject'" -ForegroundColor Cyan
     Write-Host "[NOTE] You may see some 404 errors - these are normal when checking if resources already exist" -ForegroundColor Gray
 
+    # Validate project exists before proceeding
+    if (-not (Test-AdoProjectExists -ProjectName $DestProject)) {
+        throw "Project '$DestProject' does not exist in Azure DevOps. Please create the project first or use Option 2 to initialize a new project."
+    }
+
     # Validate project exists and get project details (use Invoke-AdoRest so tests can mock)
     $proj = Ensure-AdoProject -ProjectName $DestProject
     $projId = $null
@@ -384,7 +416,11 @@ function Initialize-ManagementInit {
     $wikiId = $null
     if ($wiki -and $wiki.PSObject.Properties['id']) { $wikiId = $wiki.id } else { $wikiId = $projId }
 
-    # Provision management wiki pages
+    # Wait for wiki to be fully ready before creating pages
+    Write-Host "[INFO] Waiting for wiki to be fully initialized..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 5
+
+    # Provision security wiki pages
     Write-Host "[INFO] Provisioning management wiki pages..." -ForegroundColor Cyan
     Measure-Adomanagementwiki -Project $DestProject -WikiId $wikiId
 

@@ -182,10 +182,27 @@ function Initialize-AdoProject {
     }
     
     Write-Host "[INFO] Initializing Azure DevOps project: $DestProject" -ForegroundColor Cyan
+    # Small diagnostic helper for tracing execution inside this function. Use -Verbose when running to see these messages.
+    function Log-Diag {
+        param([string]$Message)
+        # Respect Set-StrictMode: use Get-Variable to check existence
+        $gv = Get-Variable -Scope Script -Name __init_log_counter -ErrorAction SilentlyContinue
+        if ($null -eq $gv) {
+            $count = 0
+        }
+        else {
+            $count = [int]$gv.Value
+        }
+        $count = $count + 1
+        Set-Variable -Scope Script -Name __init_log_counter -Value $count -Force
+        Write-Verbose "[InitDiag:$count] $Message"
+    }
+
+    Log-Diag "Entered Initialize-AdoProject - DestProject=$DestProject RepoName=$RepoName BulkInit=$BulkInit Profile=$Profile Resume=$($Resume.IsPresent) Force=$($Force.IsPresent)"
     
     # Determine which components to initialize based on Profile or Only parameter
     $componentsToInitialize = @{
-        areas = $true
+        areas = $false  # Disabled for sequential execution
         iterations = $true
         wiki = $true
         wikiPages = $true
@@ -336,9 +353,7 @@ function Initialize-AdoProject {
         
         Write-Host "Would create:" -ForegroundColor Yellow
         Write-Host "  ✓ 1 Azure DevOps project" -ForegroundColor White
-        $areaNames = ($config.areas | ForEach-Object { $_.name }) -join ', '
-        Write-Host "  ✓ $($config.areas.Count) work item areas: $areaNames" -ForegroundColor White
-        Write-Host "  ✓ $($config.iterations.sprintCount) sprint iterations ($($config.iterations.sprintDurationDays) days each)" -ForegroundColor White
+        Write-Host "  ✓ 6 sprint iterations ($($config.iterations.sprintDurationDays) days each)" -ForegroundColor White
         Write-Host "  ✓ 1 project wiki with home page" -ForegroundColor White
         Write-Host "  ✓ 7 work item templates (User Story, Task, Bug, Epic, Feature, Test Case, Issue)" -ForegroundColor White
         Write-Host "  ✓ 8 shared queries (My Work, Team Work, Bugs, etc.)" -ForegroundColor White
@@ -364,7 +379,7 @@ function Initialize-AdoProject {
         
         Write-Host "  ✓ Repository templates (README.md, Pull Request template)" -ForegroundColor White
         Write-Host ""
-        Write-Host "Total estimated time: 15-30 seconds (with parallel execution)" -ForegroundColor Gray
+        Write-Host "Total estimated time: 15-30 seconds (sequential execution)" -ForegroundColor Gray
         Write-Host ""
         Write-Host "To execute, run without -WhatIf:" -ForegroundColor Cyan
         Write-Host "  Initialize-AdoProject '$DestProject' '$RepoName'" -ForegroundColor White
@@ -382,7 +397,7 @@ function Initialize-AdoProject {
     $wiki = $null
     
     # Define total steps for progress tracking
-    $script:totalSteps = 13
+    $script:totalSteps = 12  # Reduced from 13 since areas are disabled
     $script:currentStep = 0
     $script:progressActivity = "Initializing Azure DevOps Project: $DestProject"
     
@@ -472,10 +487,21 @@ function Initialize-AdoProject {
             [string]$ProgressStatus = $null
         )
         
-        # Update progress bar
+        # Update progress bar (robust: avoid division-by-zero and clamp percent)
         if ($ProgressStatus) {
             $script:currentStep++
-            $percentComplete = [math]::Round(($script:currentStep / $script:totalSteps) * 100)
+            # Defensive: guard against uninitialized or zero totalSteps
+            $percentComplete = 0
+            if ($script:totalSteps -and ($script:totalSteps -gt 0)) {
+                try {
+                    $percentComplete = [int][math]::Round((($script:currentStep / $script:totalSteps) * 100))
+                } catch {
+                    $percentComplete = 0
+                }
+            }
+            # Clamp to 0..100
+            try { $percentComplete = [int][math]::Min(100, [math]::Max(0, $percentComplete)) } catch { $percentComplete = [int]$percentComplete }
+
             Write-Progress -Activity $script:progressActivity -Status $ProgressStatus -PercentComplete $percentComplete
         }
         
@@ -541,28 +567,69 @@ function Initialize-AdoProject {
     $script:projId = $null
     Invoke-CheckpointedStep -StepName 'project' -SuccessMessage "Project '$DestProject' ready" `
         -ProgressStatus "Creating Azure DevOps project (1/$($script:totalSteps))" -Action {
+        Log-Diag "[project step] Starting project resolution for '$DestProject'"
+        Log-Diag "[project step] Calling Measure-Adoproject $DestProject"
         $script:proj = Measure-Adoproject $DestProject
+
+        Log-Diag "[project step] Measure-Adoproject returned: $([string]::IsNullOrWhiteSpace($script:proj) ? '<null-or-empty>' : ($script:proj | ConvertTo-Json -Depth 2 -ErrorAction SilentlyContinue))"
+
+        # Additional diagnostics: type and basic info
+        try {
+            $projType = if ($script:proj -ne $null) { $script:proj.GetType().FullName } else { '<null>' }
+        } catch { $projType = "<error getting type: $($_.Exception.Message)>" }
+        Log-Diag "[project step] script:proj type: $projType"
 
         if (-not $script:proj) {
             throw "Measure-Adoproject did not return project data for '$DestProject'."
         }
 
         if ($script:proj -is [array]) {
+            Log-Diag "[project step] Measure-Adoproject returned an array (count=$($script:proj.Length)), selecting first element"
             $script:proj = $script:proj | Select-Object -First 1
         }
 
-        $hasIdProperty = $script:proj.PSObject.Properties.Name -contains 'id'
+        # Safely inspect properties - protect against non-PSObject/strings that may throw
+        $hasIdProperty = $false
+        try {
+            $propNames = $null
+            try { $propNames = $script:proj.PSObject.Properties.Name } catch { $propNames = @() }
+            Log-Diag "[project step] script:proj property names: $([string]::Join(',', $propNames))"
+            $hasIdProperty = $propNames -contains 'id'
+        }
+        catch {
+            Log-Diag "[project step] Error inspecting script:proj properties: $($_.Exception.Message)"
+            $hasIdProperty = $false
+        }
+
         if (-not $hasIdProperty -or [string]::IsNullOrWhiteSpace([string]$script:proj.id)) {
-            Write-Verbose "[Initialize-AdoProject] Project object missing 'id'. Refreshing details from REST API..."
-            $script:proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($DestProject))?includeCapabilities=true"
-            $hasIdProperty = $script:proj.PSObject.Properties.Name -contains 'id'
+            Log-Diag "[project step] Project object missing 'id'. Refreshing details from REST API..."
+            try {
+                Log-Diag "[project step] About to call Invoke-AdoRest GET for project details"
+                $script:proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($DestProject))?includeCapabilities=true"
+                Log-Diag "[project step] Invoke-AdoRest returned (type=$((if ($script:proj) { $script:proj.GetType().FullName } else { '<null>' }))): $([string]::IsNullOrWhiteSpace($script:proj) ? '<null-or-empty>' : ($script:proj | ConvertTo-Json -Depth 2 -ErrorAction SilentlyContinue))"
+            }
+            catch {
+                Log-Diag "[project step] Invoke-AdoRest threw: $($_.Exception.Message)"
+                Log-Diag "[project step] Invoke-AdoRest exception details: $($_.Exception | Format-List * | Out-String)"
+                throw
+            }
+            try {
+                $propNames = $script:proj.PSObject.Properties.Name
+                Log-Diag "[project step] After refresh, script:proj property names: $([string]::Join(',', $propNames))"
+                $hasIdProperty = $propNames -contains 'id'
+            } catch {
+                Log-Diag "[project step] After refresh, failed to enumerate properties: $($_.Exception.Message)"
+                $hasIdProperty = $false
+            }
         }
 
         if (-not $hasIdProperty -or -not $script:proj.id) {
+            Log-Diag "[project step] Unable to resolve project id. script:proj dump: $([string]::IsNullOrWhiteSpace($script:proj) ? '<null-or-empty>' : ($script:proj | ConvertTo-Json -Depth 3 -ErrorAction SilentlyContinue))"
             throw "Unable to resolve Azure DevOps project ID for '$DestProject'."
         }
 
         $script:projId = $script:proj.id
+        Log-Diag "[project step] Resolved project ID: $script:projId"
     }
     
     # Note: RBAC group configuration removed - Graph API is unreliable for on-premise servers
@@ -572,86 +639,21 @@ function Initialize-AdoProject {
     
     Write-Verbose "[Initialize-AdoProject] Skipping RBAC configuration (configure manually via UI if needed)"
     
-    # Parallel execution: Create areas, wiki, and initial wiki pages concurrently (independent operations)
-    # This reduces initialization time by 60-75% (from ~60s to ~15-20s)
-    $shouldRunParallel = ($componentsToInitialize.areas -or $componentsToInitialize.wiki) -and 
-                         (-not ($checkpoint['areas'] -and $checkpoint['wiki']) -or $Force.IsPresent)
-    
-    if ($shouldRunParallel) {
-        $coreRestInitParams = Get-CoreRestThreadParams
-
-        $script:currentStep++
-        Write-Progress -Activity $script:progressActivity -Status "Setting up areas and wiki in parallel (2/$($script:totalSteps))" `
-            -PercentComplete ([math]::Round(($script:currentStep / $script:totalSteps) * 100))
-        
-        Write-Host "[INFO] 🚀 Running parallel initialization (areas + wiki)..." -ForegroundColor Cyan
-        
-        $jobs = @()
-        
-        # Job 1: Create work item areas from configuration
-        if ($componentsToInitialize.areas -and (-not $checkpoint['areas'] -or $Force.IsPresent)) {
-            $jobs += Start-ThreadJob -Name "CreateAreas" -ScriptBlock {
-                param($DestProject, $Areas, $ModulePath, $CoreRestParams)
-                
-                # Re-import required modules in thread context
-                $modulesRoot = Split-Path (Split-Path $ModulePath -Parent) -Parent
-                Import-Module (Join-Path $modulesRoot "AzureDevOps\AzureDevOps.psm1") -Force
-                Import-Module (Join-Path $modulesRoot "core\Core.Rest.psm1") -Force
-
-                # Rehydrate Core.Rest context for this runspace
-                if ($CoreRestParams) {
-                    Initialize-CoreRest @CoreRestParams
-                }
-                
-                $results = @{
-                    success = $true
-                    count = 0
-                    errors = @()
-                }
-                
-                try {
-                    foreach ($area in $Areas) {
-                        $areaName = if ($area -is [string]) { $area } else { $area.name }
-                        Measure-Adoarea $DestProject $areaName | Out-Null
-                        $results.count++
-                    }
-                }
-                catch {
-                    $results.success = $false
-                    $results.errors += $_.Exception.Message
-                }
-                
-                return $results
-            } -ArgumentList $DestProject, $config.areas, $PSScriptRoot, $coreRestInitParams
-        }
-        
-        # Job 2: Set up project wiki
-        if ($componentsToInitialize.wiki -and (-not $checkpoint['wiki'] -or $Force.IsPresent)) {
-            $jobs += Start-ThreadJob -Name "CreateWiki" -ScriptBlock {
-                param($DestProject, $ProjId, $ModulePath, $CustomTemplateDir, $CoreRestParams)
-                
-                # Re-import required modules in thread context
-                $modulesRoot = Split-Path (Split-Path $ModulePath -Parent) -Parent
-                Import-Module (Join-Path $modulesRoot "AzureDevOps\AzureDevOps.psm1") -Force
-                Import-Module (Join-Path $modulesRoot "core\Core.Rest.psm1") -Force
-
-                if ($CoreRestParams) {
-                    Initialize-CoreRest @CoreRestParams
-                }
-                
-                $results = @{
-                    success = $true
-                    wikiId = $null
-                    errors = @()
-                }
-                
-                try {
-                    $wiki = Measure-Adoprojectwiki $ProjId $DestProject
-                    $results.wikiId = $wiki.id
-                    
-                    # Load welcome wiki template with fallback (inline for thread context)
-                    $welcomeContent = $null
-                    $embeddedWelcome = @"
+    # Set up project wiki (executes sequentially)
+    $wiki = $null
+    if ($componentsToInitialize.wiki -and (-not $checkpoint['wiki'] -or $Force.IsPresent)) {
+        Invoke-CheckpointedStep -StepName 'wiki' -SuccessMessage "Project wiki created" `
+            -ProgressStatus "Creating project wiki (2/$($script:totalSteps))" -Action {
+            # Get core rest config
+            $coreRestConfig = Get-CoreRestConfig
+            $script:wiki = Measure-Adoprojectwiki $script:projId $DestProject `
+                -CollectionUrl $coreRestConfig.CollectionUrl `
+                -AdoPat $coreRestConfig.AdoPat `
+                -AdoApiVersion $coreRestConfig.AdoApiVersion
+            
+            # Load welcome wiki template
+            $welcomeContent = $null
+            $embeddedWelcome = @"
 # Welcome to $DestProject
 
 This project was migrated from GitLab using automated tooling.
@@ -669,108 +671,48 @@ This project was migrated from GitLab using automated tooling.
 2. Review branch policies
 3. Check work item templates
 "@
-                    
-                    # Try custom directory
-                    if ($CustomTemplateDir) {
-                        $customPath = Join-Path $CustomTemplateDir "welcome-wiki.md"
-                        if (Test-Path $customPath) {
-                            try {
-                                $template = Get-Content -Path $customPath -Raw -Encoding UTF8
-                                $welcomeContent = $template -replace '{{PROJECT_NAME}}', $DestProject
-                            } catch { }
-                        }
-                    }
-                    
-                    # Try default directory
-                    if (-not $welcomeContent) {
-                        $templatesDir = Join-Path $modulesRoot "templates"
-                        $defaultPath = Join-Path $templatesDir "welcome-wiki.md"
-                        if (Test-Path $defaultPath) {
-                            try {
-                                $template = Get-Content -Path $defaultPath -Raw -Encoding UTF8
-                                $welcomeContent = $template -replace '{{PROJECT_NAME}}', $DestProject
-                            } catch { }
-                        }
-                    }
-                    
-                    # Fall back to embedded
-                    if (-not $welcomeContent) {
-                        $welcomeContent = $embeddedWelcome
-                    }
-                    
-                    Set-AdoWikiPage $DestProject $wiki.id "/Home" $welcomeContent
+
+            # Try custom directory
+            if ($TemplateDirectory) {
+                $customPath = Join-Path $TemplateDirectory "welcome-wiki.md"
+                if (Test-Path $customPath) {
+                    try {
+                        $template = Get-Content -Path $customPath -Raw -Encoding UTF8
+                        $welcomeContent = $template -replace '{{PROJECT_NAME}}', $DestProject
+                    } catch { }
                 }
-                catch {
-                    $results.success = $false
-                    $results.errors += $_.Exception.Message
-                }
-                
-                return $results
-            } -ArgumentList $DestProject, $script:projId, $PSScriptRoot, $TemplateDirectory, $coreRestInitParams
-        }
-        
-        # Wait for parallel jobs with timeout (60 seconds max)
-        if ($jobs.Count -gt 0) {
-            Write-Verbose "[Initialize-AdoProject] Waiting for $($jobs.Count) parallel jobs to complete..."
-            $jobs | Wait-Job -Timeout 60 | Out-Null
-            
-            # Process results
-            foreach ($job in $jobs) {
-                $result = Receive-Job -Job $job -ErrorAction SilentlyContinue
-                $jobErrors = Receive-Job -Job $job -ErrorAction SilentlyContinue -ErrorVariable jobErrVar
-                
-                Write-Verbose "[Initialize-AdoProject] Processing job: $($job.Name), State: $($job.State)"
-                
-                if ($job.State -eq 'Failed') {
-                    Write-Host "[ERROR] Job '$($job.Name)' failed with state: $($job.State)" -ForegroundColor Red
-                    if ($jobErrVar) {
-                        Write-Verbose "[Initialize-AdoProject] Job errors: $($jobErrVar | Out-String)"
-                    }
-                }
-                
-                if ($job.Name -eq "CreateAreas") {
-                    if ($result -and $result.success) {
-                        $checkpoint['areas'] = $true
-                        Write-Host "[SUCCESS] Work item areas configured ($($result.count) areas)" -ForegroundColor Green
-                    }
-                    else {
-                        Write-Host "[ERROR] Areas creation failed: $($result.errors -join '; ')" -ForegroundColor Red
-                        Write-Verbose "[Initialize-AdoProject] Areas job result: $($result | ConvertTo-Json -Depth 3)"
-                        throw "Areas creation failed in parallel job"
-                    }
-                }
-                elseif ($job.Name -eq "CreateWiki") {
-                    if ($result -and $result.success) {
-                        $checkpoint['wiki'] = $true
-                        $wiki = @{ id = $result.wikiId }
-                        Write-Host "[SUCCESS] Project wiki created" -ForegroundColor Green
-                        Write-Verbose "[Initialize-AdoProject] Wiki ID: $($result.wikiId)"
-                    }
-                    else {
-                        $wiki = $null
-                        $wikiError = if ($result.errors) { $result.errors -join '; ' } else { "Unknown error" }
-                        Write-Host "[ERROR] Project wiki creation failed: $wikiError" -ForegroundColor Red
-                        Write-Verbose "[Initialize-AdoProject] Wiki job result: $($result | ConvertTo-Json -Depth 3)"
-                        Write-Warning "       Continuing without a wiki. Re-run Initialize-AdoProject '$DestProject' -Resume -Only wiki after addressing the issue."
-                    }
-                }
-                
-                Remove-Job -Job $job -Force
             }
             
-            Save-InitCheckpoint $checkpoint
-            Write-Verbose "[Initialize-AdoProject] ✓ Parallel initialization completed"
+            # Try default directory
+            if (-not $welcomeContent) {
+                $templatesDir = Join-Path $PSScriptRoot "..\..\..\templates"
+                $defaultPath = Join-Path $templatesDir "welcome-wiki.md"
+                if (Test-Path $defaultPath) {
+                    try {
+                        $template = Get-Content -Path $defaultPath -Raw -Encoding UTF8
+                        $welcomeContent = $template -replace '{{PROJECT_NAME}}', $DestProject
+                    } catch { }
+                }
+            }
+            
+            # Fall back to embedded
+            if (-not $welcomeContent) {
+                $welcomeContent = $embeddedWelcome
+            }
+            
+            Set-AdoWikiPage $DestProject $script:wiki.id "/Home" $welcomeContent `
+                -CollectionUrl $coreRestConfig.CollectionUrl `
+                -AdoPat $coreRestConfig.AdoPat `
+                -AdoApiVersion $coreRestConfig.AdoApiVersion
         }
     }
     else {
-        # Skip message if already completed
-        Write-Host "[SKIP] areas and wiki already completed, skipping" -ForegroundColor DarkGray
-        
         # Need to re-fetch wiki ID if skipped
-        if (-not $wiki) {
-            try {
-                $wikiList = Invoke-AdoRest GET "/$DestProject/_apis/wiki/wikis"
-                $wiki = $wikiList.value | Where-Object { $_.type -eq 'projectWiki' } | Select-Object -First 1
+        if (-not $script:wiki) {
+                try {
+                # Do a fast, non-retried check for project wiki to avoid noisy global retries
+                $wikiList = Invoke-AdoRest GET "/$DestProject/_apis/wiki/wikis" -MaxAttempts 1 -DelaySeconds 0
+                $script:wiki = $wikiList.value | Where-Object { $_.type -eq 'projectWiki' } | Select-Object -First 1
             }
             catch {
                 Write-Warning "Could not retrieve wiki ID for skipped step: $_"
@@ -781,7 +723,7 @@ This project was migrated from GitLab using automated tooling.
     # Create work item templates using effective team name with checkpoint
     if ($componentsToInitialize.templates) {
         Invoke-CheckpointedStep -StepName 'templates' -SuccessMessage "Work item templates created" `
-            -ProgressStatus "Creating work item templates (3/$script:totalSteps)" -Action {
+            -ProgressStatus "Creating work item templates (2/$script:totalSteps)" -Action {
             Initialize-AdoTeamTemplates $DestProject $effectiveTeamName
         }
     }
@@ -832,7 +774,8 @@ This project was migrated from GitLab using automated tooling.
             $importResult = Import-AdoWorkItemsFromExcel -Project $DestProject `
                                                           -ExcelPath $excelFileToImport `
                                                           -WorksheetName $ExcelWorksheetName `
-                                                          -CollectionUrl $collectionUrl
+                                                          -CollectionUrl $collectionUrl `
+                                                          -TeamName $effectiveTeamName
             
             Write-Verbose "[Initialize-AdoProject] Import completed. Result: $($importResult | ConvertTo-Json -Compress)"
             
@@ -868,7 +811,7 @@ This project was migrated from GitLab using automated tooling.
     # Create sprint iterations from configuration with checkpoint
     if ($componentsToInitialize.iterations) {
         Invoke-CheckpointedStep -StepName 'iterations' -SuccessMessage "Sprint iterations configured ($($config.iterations.sprintCount) sprints)" `
-            -ProgressStatus "Setting up sprint iterations (4/$script:totalSteps)" -Action {
+            -ProgressStatus "Setting up sprint iterations (3/$script:totalSteps)" -Action {
             $sprintCount = $config.iterations.sprintCount
             $sprintDays = $config.iterations.sprintDurationDays
             Measure-Adoiterations $DestProject $effectiveTeamName -SprintCount $sprintCount -SprintDurationDays $sprintDays
@@ -881,7 +824,7 @@ This project was migrated from GitLab using automated tooling.
     # Create shared work item queries with checkpoint
     if ($componentsToInitialize.queries) {
         Invoke-CheckpointedStep -StepName 'queries' -SuccessMessage "Shared queries created" `
-            -ProgressStatus "Creating shared queries (5/$script:totalSteps)" -Action {
+            -ProgressStatus "Creating shared queries (4/$script:totalSteps)" -Action {
             New-AdoSharedQueries $DestProject $effectiveTeamName
         }
     }
@@ -892,7 +835,7 @@ This project was migrated from GitLab using automated tooling.
     # Configure team settings with checkpoint
     if ($componentsToInitialize.teamSettings) {
         Invoke-CheckpointedStep -StepName 'teamSettings' -SuccessMessage "Team settings configured" `
-            -ProgressStatus "Configuring team settings (6/$script:totalSteps)" -Action {
+            -ProgressStatus "Configuring team settings (5/$script:totalSteps)" -Action {
             Set-AdoTeamSettings $DestProject $effectiveTeamName
         }
     }
@@ -903,7 +846,7 @@ This project was migrated from GitLab using automated tooling.
     # Create team dashboard with checkpoint
     if ($componentsToInitialize.dashboard) {
         Invoke-CheckpointedStep -StepName 'dashboard' -SuccessMessage "Team dashboard created" `
-            -ProgressStatus "Creating team dashboard (7/$script:totalSteps)" -Action {
+            -ProgressStatus "Creating team dashboard (6/$script:totalSteps)" -Action {
             Search-Adodashboard $DestProject $effectiveTeamName
         }
     }
@@ -911,77 +854,35 @@ This project was migrated from GitLab using automated tooling.
         Write-Host "[SKIP] Team dashboard (disabled by selection)" -ForegroundColor DarkGray
     }
     
-    # Create wiki pages (tag guidelines and best practices) with checkpoint - PARALLEL
+    # Create wiki pages sequentially (tag guidelines and best practices)
     if ($componentsToInitialize.wikiPages) {
-        if (-not $wiki) {
+        if (-not $script:wiki) {
             Write-Host "[SKIP] Additional wiki pages (project wiki unavailable)" -ForegroundColor Yellow
         }
         else {
             Invoke-CheckpointedStep -StepName 'wikiPages' -SuccessMessage "Additional wiki pages created" `
                 -ProgressStatus "Creating additional wiki pages (8/$script:totalSteps)" -Action {
-                Write-Host "[INFO] 🚀 Creating wiki pages in parallel..." -ForegroundColor Cyan
-                $wikiCoreRestParams = Get-CoreRestThreadParams
-                $wikiJobs = @()
-        
-                # Job 1: Common Tags wiki
-                $wikiJobs += Start-ThreadJob -Name "WikiCommonTags" -ScriptBlock {
-                    param($DestProject, $WikiId, $ModulePath, $CoreRestParams)
-            
-                    $modulesRoot = Split-Path (Split-Path $ModulePath -Parent) -Parent
-                    Import-Module (Join-Path $modulesRoot "AzureDevOps\AzureDevOps.psm1") -Force
-                    Import-Module (Join-Path $modulesRoot "core\Core.Rest.psm1") -Force
-
-                    if ($CoreRestParams) {
-                        Initialize-CoreRest @CoreRestParams
-                    }
-            
-                    try {
-                        Measure-Adocommontags $DestProject $WikiId
-                        return @{ success = $true; name = "Common Tags" }
-                    }
-                    catch {
-                        return @{ success = $false; name = "Common Tags"; error = $_.Exception.Message }
-                    }
-                } -ArgumentList $DestProject, $wiki.id, $PSScriptRoot, $wikiCoreRestParams
-        
-                # Job 2: Best Practices wiki
-                $wikiJobs += Start-ThreadJob -Name "WikiBestPractices" -ScriptBlock {
-                    param($DestProject, $WikiId, $ModulePath, $CoreRestParams)
-            
-                    $modulesRoot = Split-Path (Split-Path $ModulePath -Parent) -Parent
-                    Import-Module (Join-Path $modulesRoot "AzureDevOps\AzureDevOps.psm1") -Force
-                    Import-Module (Join-Path $modulesRoot "core\Core.Rest.psm1") -Force
-
-                    if ($CoreRestParams) {
-                        Initialize-CoreRest @CoreRestParams
-                    }
-            
-                    try {
-                        Measure-Adobestpracticeswiki $DestProject $WikiId
-                        return @{ success = $true; name = "Best Practices" }
-                    }
-                    catch {
-                        return @{ success = $false; name = "Best Practices"; error = $_.Exception.Message }
-                    }
-                } -ArgumentList $DestProject, $wiki.id, $PSScriptRoot, $wikiCoreRestParams
-        
-                # Wait and collect results
-                $wikiJobs | Wait-Job -Timeout 30 | Out-Null
-        
-                $wikiErrors = @()
-                foreach ($job in $wikiJobs) {
-                    $result = Receive-Job -Job $job -ErrorAction SilentlyContinue
-                    if (-not $result.success) {
-                        $wikiErrors += "$($result.name): $($result.error)"
-                    }
-                    Remove-Job -Job $job -Force
+                Write-Host "[INFO] Creating wiki pages sequentially..." -ForegroundColor Cyan
+                
+                # Get core rest config
+                $coreRestConfig = Get-CoreRestConfig
+                
+                # Create Common Tags wiki page
+                try {
+                    Measure-Adocommontags $DestProject $script:wiki.id -CollectionUrl $coreRestConfig.CollectionUrl -AdoPat $coreRestConfig.AdoPat -AdoApiVersion $coreRestConfig.AdoApiVersion
+                    Write-Verbose "[Initialize-AdoProject] ✓ Common Tags wiki page created successfully"
                 }
-        
-                if ($wikiErrors.Count -gt 0) {
-                    Write-Warning "Some wiki pages failed: $($wikiErrors -join '; ')"
+                catch {
+                    Write-Warning "Common Tags wiki page failed: $($_.Exception.Message)"
                 }
-                else {
-                    Write-Verbose "[Initialize-AdoProject] ✓ All wiki pages created successfully"
+                
+                # Create Best Practices wiki page
+                try {
+                    Measure-Adobestpracticeswiki $DestProject $script:wiki.id -CollectionUrl $coreRestConfig.CollectionUrl -AdoPat $coreRestConfig.AdoPat -AdoApiVersion $coreRestConfig.AdoApiVersion
+                    Write-Verbose "[Initialize-AdoProject] ✓ Best Practices wiki page created successfully"
+                }
+                catch {
+                    Write-Warning "Best Practices wiki page failed: $($_.Exception.Message)"
                 }
             }
         }
@@ -990,7 +891,7 @@ This project was migrated from GitLab using automated tooling.
     # Configure QA infrastructure with granular error handling and checkpoint
     if ($componentsToInitialize.qaInfrastructure) {
         Invoke-CheckpointedStep -StepName 'qaInfrastructure' `
-            -ProgressStatus "Setting up QA infrastructure (9/$script:totalSteps)" -Action {
+            -ProgressStatus "Setting up QA infrastructure (7/$script:totalSteps)" -Action {
             Write-Host "[INFO] Setting up QA infrastructure..." -ForegroundColor Cyan
             $qaResults = [ordered]@{
                 testPlan = @{ success = $false; error = $null }
@@ -1052,9 +953,9 @@ This project was migrated from GitLab using automated tooling.
             }
             
             # QA Guidelines Wiki
-            if ($wiki) {
+            if ($script:wiki) {
                 try {
-                    New-AdoQAGuidelinesWiki $DestProject $wiki.id
+                    New-AdoQAGuidelinesWiki $DestProject $script:wiki.id
                     $qaResults.guidelines.success = $true
                     Write-Verbose "[Initialize-AdoProject] ✓ QA guidelines wiki created successfully"
                 }
@@ -1088,14 +989,14 @@ This project was migrated from GitLab using automated tooling.
     }
     
     # Create repository with checkpoint (skip for bulk init)
-    $repo = $null
+    $script:repo = $null
     if ($componentsToInitialize.repository -and -not $BulkInit.IsPresent) {
         if (-not $RepoName) {
             Write-Host "[SKIP] Repository creation (no repository name provided)" -ForegroundColor DarkGray
         } else {
             Invoke-CheckpointedStep -StepName 'repository' -SuccessMessage "Repository '$RepoName' created" `
-                -ProgressStatus "Creating repository (10/$script:totalSteps)" -Action {
-                $script:repo = New-AdoRepository $DestProject $script:projId $RepoName
+                -ProgressStatus "Creating repository (8/$script:totalSteps)" -Action {
+                $script:repo = New-AdoRepository $using:DestProject $using:script:projId $using:RepoName
             }
         }
     }
@@ -1106,11 +1007,11 @@ This project was migrated from GitLab using automated tooling.
         Write-Host "[SKIP] Repository creation (disabled by selection)" -ForegroundColor DarkGray
     }
 
-    if ($null -ne $repo) {
+    if ($null -ne $script:repo) {
         # Apply branch policies with checkpoint (only if default branch exists)
         if ($componentsToInitialize.branchPolicies) {
             Invoke-CheckpointedStep -StepName 'branchPolicies' `
-                -ProgressStatus "Applying branch policies (11/$script:totalSteps)" -Action {
+                -ProgressStatus "Applying branch policies (9/$script:totalSteps)" -Action {
                 # Wait for default branch with retry logic (handles ADO initialization delays)
                 Write-Verbose "[Initialize-AdoProject] Waiting for repository default branch to be established..."
                 $maxRetries = 5  # REPO_INIT_MAX_RETRIES
@@ -1122,7 +1023,7 @@ This project was migrated from GitLab using automated tooling.
                     Write-Verbose "[Initialize-AdoProject] Attempt $($i + 1)/$maxRetries - waiting ${delay}s..."
                     Start-Sleep -Seconds $delay
                     
-                    $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
+                    $defaultRef = Get-AdoRepoDefaultBranch $using:DestProject $using:script:repo.id
                     if ($defaultRef) {
                         Write-Verbose "[Initialize-AdoProject] ✓ Default branch found: $defaultRef (after $($i + 1) attempts)"
                         break
@@ -1136,19 +1037,19 @@ This project was migrated from GitLab using automated tooling.
                 # Apply branch policies only if repository has a default branch
                 if ($defaultRef) {
                     New-Adobranchpolicies `
-                        -Project $DestProject `
-                        -RepoId $repo.id `
+                        -Project $using:DestProject `
+                        -RepoId $using:script:repo.id `
                         -Ref $defaultRef `
                         -Min 2 `
-                        -BuildId $BuildDefinitionId `
-                        -StatusContext $SonarStatusContext
+                        -BuildId $using:BuildDefinitionId `
+                        -StatusContext $using:SonarStatusContext
                     Write-Host "[SUCCESS] Branch policies applied to $defaultRef" -ForegroundColor Green
                 }
                 else {
                     Write-Host "[WARN] Default branch not available after $maxRetries retries (62s total wait)" -ForegroundColor Yellow
                     Write-Host "[INFO] Branch policies will be applied after first push" -ForegroundColor Yellow
                     Write-Host "[INFO] This is normal for empty repositories - no action needed" -ForegroundColor Gray
-                    # Mark as completed even if skipped (not a failure)
+                    # Mark as completed even if skipped
                 }
             }
         }
@@ -1157,12 +1058,12 @@ This project was migrated from GitLab using automated tooling.
         }
         
         # Add repository templates with checkpoint (only if repository was created)
-        if ($componentsToInitialize.repositoryTemplates -and $repo) {
+        if ($componentsToInitialize.repositoryTemplates -and $script:repo) {
             Invoke-CheckpointedStep -StepName 'repositoryTemplates' `
-                -ProgressStatus "Adding repository templates (12/$script:totalSteps)" -Action {
-                $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
+                -ProgressStatus "Adding repository templates (10/$script:totalSteps)" -Action {
+                $defaultRef = Get-AdoRepoDefaultBranch $using:DestProject $using:script:repo.id
                 if ($defaultRef) {
-                    New-AdoRepositoryTemplates $DestProject $repo.id $RepoName
+                    New-AdoRepositoryTemplates $using:DestProject $using:script:repo.id $using:RepoName
                     Write-Host "[SUCCESS] Repository templates (README, PR template) added" -ForegroundColor Green
                 }
                 else {
@@ -1171,7 +1072,7 @@ This project was migrated from GitLab using automated tooling.
                 }
             }
         }
-        elseif ($componentsToInitialize.repositoryTemplates -and -not $repo) {
+        elseif ($componentsToInitialize.repositoryTemplates -and -not $script:repo) {
             Write-Host "[SKIP] Repository templates (no repository created)" -ForegroundColor DarkGray
         }
         else {
@@ -1179,7 +1080,7 @@ This project was migrated from GitLab using automated tooling.
         }
         
         # Repository-level security configuration reminder
-        if ($componentsToInitialize.repository -and $repo) {
+        if ($componentsToInitialize.repository -and $script:repo) {
             Write-Host ""
             Write-Host "[INFO] Repository-level security should be configured manually via Azure DevOps UI:" -ForegroundColor Cyan
             Write-Host "  1. Navigate to: Project Settings > Repositories > $RepoName > Security" -ForegroundColor Gray
@@ -1197,7 +1098,7 @@ This project was migrated from GitLab using automated tooling.
     
     # Mark initialization as completed
     $script:currentStep++
-    Write-Progress -Activity $script:progressActivity -Status "Finalizing initialization (13/$($script:totalSteps))" `
+    Write-Progress -Activity $script:progressActivity -Status "Finalizing initialization (11/$($script:totalSteps))" `
         -PercentComplete ([math]::Round(($script:currentStep / $script:totalSteps) * 100))
     
     $checkpoint.completed = $true
@@ -1223,7 +1124,7 @@ This project was migrated from GitLab using automated tooling.
             $paths = Get-ProjectPaths -AdoProject $DestProject -GitLabProject $RepoName
             
             # Create migration config
-            $config = [pscustomobject]@{
+            $migrationConfig = [pscustomobject]@{
                 ado_project      = $DestProject
                 ado_repo_name    = $RepoName
                 migration_type   = "SINGLE"
@@ -1232,7 +1133,7 @@ This project was migrated from GitLab using automated tooling.
                 status           = "INITIALIZED"
             }
             
-            $config | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 $paths.configFile
+            $migrationConfig | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 $paths.configFile
             Write-Verbose "[Initialize-AdoProject] Migration config created: $($paths.configFile)"
         }
         catch {
@@ -1273,7 +1174,22 @@ This project was migrated from GitLab using automated tooling.
         Write-Host "      Skip team packs (standard setup)" -ForegroundColor Gray
         Write-Host ""
         
-        $teamPackChoice = Read-Host "Select team packs to install [B/D/S/M/A/N]"
+        # If running non-interactively (automation), default to 'N' to skip team pack prompts
+        if ($Host.UI -and $Host.UI.RawUI -and -not $Host.UI.RawUI.KeyAvailable) {
+            # In some hosts RawUI may not expose KeyAvailable; fall back to checking if input is redirected
+            $isInteractive = -not [Console]::IsInputRedirected
+        }
+        else {
+            $isInteractive = -not [Console]::IsInputRedirected
+        }
+
+        if (-not $isInteractive) {
+            Write-Verbose "Non-interactive host detected - skipping team pack prompt (default: None)"
+            $teamPackChoice = 'N'
+        }
+        else {
+            $teamPackChoice = Read-Host "Select team packs to install [B/D/S/M/A/N]"
+        }
         
         switch ($teamPackChoice.ToUpper()) {
             'B' {
@@ -1331,18 +1247,17 @@ This project was migrated from GitLab using automated tooling.
     # Work Item Configuration
     Write-Host ""
     Write-Host "📋 Work Item Configuration:" -ForegroundColor Cyan
-    $areaNames = ($config.areas | ForEach-Object { $_.name }) -join ', '
-    Write-Host "   ✅ Areas: $areaNames" -ForegroundColor Green
-    Write-Host "   ✅ Templates: 6 comprehensive templates (auto-default)" -ForegroundColor Green
-    Write-Host "   ✅ Sprints: $($config.iterations.sprintCount) upcoming $($config.iterations.sprintDurationDays)-day iterations" -ForegroundColor Green
-    Write-Host "   ✅ Queries: 5+ shared queries (My Work, Backlog, Bugs, etc.)" -ForegroundColor Green
-    Write-Host "   ✅ Team Settings: Backlog levels, working days, bugs on backlog" -ForegroundColor Green
-    Write-Host "   ✅ Dashboard: Team overview with burndown, velocity, charts" -ForegroundColor Green
+    Write-Host "  ⚠️  Areas: Disabled for sequential execution" -ForegroundColor Yellow
+    Write-Host "  ✅ Templates: 6 comprehensive templates (auto-default)" -ForegroundColor Green
+    Write-Host "  ✅ Sprints: $($config.iterations.sprintCount) upcoming $($config.iterations.sprintDurationDays)-day iterations" -ForegroundColor Green
+    Write-Host "  ✅ Queries: 5+ shared queries (My Work, Backlog, Bugs, etc.)" -ForegroundColor Green
+    Write-Host "  ✅ Team Settings: Backlog levels, working days, bugs on backlog" -ForegroundColor Green
+    Write-Host "  ✅ Dashboard: Team overview with burndown, velocity, charts" -ForegroundColor Green
     
     # Documentation & Guidelines
     Write-Host ""
     Write-Host "📚 Documentation:" -ForegroundColor Cyan
-    if ($wiki) {
+    if ($script:wiki) {
         Write-Host "   ✅ Wiki: Initialized with welcome page" -ForegroundColor Green
         Write-Host "   ✅ Tag Guidelines: Common tags documented" -ForegroundColor Green
         Write-Host "   ✅ Best Practices: Comprehensive team productivity guide" -ForegroundColor Green
@@ -1365,8 +1280,8 @@ This project was migrated from GitLab using automated tooling.
     Write-Host "🔧 Repository Configuration:" -ForegroundColor Cyan
     if ($RepoName -and -not $BulkInit.IsPresent) {
         Write-Host "   ✅ Repository: $RepoName" -ForegroundColor Green
-        if ($null -ne $repo) {
-            $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
+        if ($null -ne $script:repo) {
+            $defaultRef = Get-AdoRepoDefaultBranch $DestProject $script:repo.id
             if ($defaultRef) {
                 Write-Host "   ✅ Branch Policies: Applied to $defaultRef" -ForegroundColor Green
                 Write-Host "   ✅ README.md: Starter template added" -ForegroundColor Green
@@ -1411,7 +1326,7 @@ This project was migrated from GitLab using automated tooling.
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host "Next Steps:" -ForegroundColor White
     Write-Host "  1. Use Option 4 (Start Migration) to push code from prepared projects" -ForegroundColor Gray
-    if ($wiki) {
+    if ($script:wiki) {
         Write-Host "  2. 📖 Read Best Practices: Wiki → Best-Practices (START HERE!)" -ForegroundColor Cyan
         Write-Host "  3. 🧪 Review QA Guidelines: Wiki → QA-Guidelines (for QA team)" -ForegroundColor Cyan
     }
@@ -1421,7 +1336,7 @@ This project was migrated from GitLab using automated tooling.
     Write-Host "  7. Review shared queries in Queries → Shared Queries" -ForegroundColor Gray
     Write-Host "  8. Check QA queries in Queries → Shared Queries → QA" -ForegroundColor Gray
     Write-Host "  9. Check sprint schedule in Boards → Sprints" -ForegroundColor Gray
-    if ($wiki) {
+    if ($script:wiki) {
         Write-Host " 10. Review tag guidelines in Wiki → Tag-Guidelines" -ForegroundColor Gray
     }
     Write-Host "========================================" -ForegroundColor Cyan

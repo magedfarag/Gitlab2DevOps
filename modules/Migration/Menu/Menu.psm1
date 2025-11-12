@@ -19,6 +19,10 @@ Set-StrictMode -Version Latest
 $migrationRoot = Split-Path $PSScriptRoot -Parent
 Import-Module (Join-Path $migrationRoot "Core\MigrationCore.psm1") -Force -Global
 
+# Calculate absolute path to AzureDevOps module
+$azureDevOpsModulePath = Join-Path (Split-Path $migrationRoot -Parent) "AzureDevOps\AzureDevOps.psm1"
+Import-Module $azureDevOpsModulePath -Force -Global
+
 # Module-level variables for menu context
 $script:CollectionUrl = $null
 $script:AdoPat = $null
@@ -86,6 +90,17 @@ function Show-MigrationMenu {
     $script:GitLabBaseUrl = $GitLabBaseUrl
     $script:BuildDefinitionId = $BuildDefinitionId
     $script:SonarStatusContext = $SonarStatusContext
+    
+    # Initialize Core.Rest module in menu context
+    try {
+        Initialize-CoreRest -CollectionUrl $CollectionUrl -AdoPat $AdoPat -GitLabBaseUrl $GitLabBaseUrl -GitLabToken $GitLabToken -SkipCertificateCheck
+        Write-Verbose "[Menu] Core.Rest module initialized successfully"
+    }
+    catch {
+        Write-Warning "[Menu] Failed to initialize Core.Rest module: $_"
+        Write-Host "[ERROR] Failed to initialize connection modules. Please check your credentials." -ForegroundColor Red
+        return
+    }
     
     Write-Host ""
     Write-Host "╔═══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan

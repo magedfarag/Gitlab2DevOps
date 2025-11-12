@@ -48,6 +48,18 @@ function Get-AdoProjectList {
     # Fetch project list
     try {
         $result = Invoke-AdoRest GET "/_apis/projects?`$top=5000"
+        
+        # Check if result is valid
+        if (-not $result) {
+            Write-Warning "[Get-AdoProjectList] Invoke-AdoRest returned null result"
+            # Return cached data if available, even if stale
+            if ($script:ProjectListCache) {
+                Write-Warning "[Get-AdoProjectList] Returning stale cached data"
+                return $script:ProjectListCache
+            }
+            return @()
+        }
+        
         $projects = $result.value
         
         # Update cache
@@ -272,7 +284,7 @@ function Get-AdoWorkItemTypes {
         [Parameter(Mandatory)]
         [string]$Project
     )
-    
+
     try {
         $projEscaped = [uri]::EscapeDataString($Project)
         $types = Invoke-AdoRest GET "/$projEscaped/_apis/wit/workitemtypes"
@@ -280,27 +292,24 @@ function Get-AdoWorkItemTypes {
         # Normalize string payloads (some wrappers may return raw JSON)
         if ($types -is [string]) {
             try {
-                $types = $types | ConvertFrom-Json -ErrorAction Stop
-                Write-Verbose "[Get-AdoWorkItemTypes] Converted JSON string response to object"
-            }
-            catch [System.ArgumentException] {
-                # Handle JSON with empty property names by using -AsHashTable (PowerShell 7+)
-                if ($_.Exception.Message -like "*empty string*" -or $_.Exception.Message -like "*property name*") {
-                    try {
-                        Write-Verbose "[Get-AdoWorkItemTypes] Retrying JSON parsing with -AsHashTable due to empty property names"
-                        $types = $types | ConvertFrom-Json -AsHashTable -ErrorAction Stop
-                        Write-Verbose "[Get-AdoWorkItemTypes] Converted JSON string response to hashtable"
-                    }
-                    catch {
-                        Write-Verbose "[Get-AdoWorkItemTypes] Response was string but failed to parse JSON with -AsHashTable: $_"
-                    }
-                }
-                else {
-                    Write-Verbose "[Get-AdoWorkItemTypes] Response was string but failed to parse JSON: $_"
-                }
+                # Try -AsHashTable first as it's more robust for edge cases
+                Write-Verbose "[Get-AdoWorkItemTypes] Attempting JSON parsing with -AsHashTable"
+                $types = $types | ConvertFrom-Json -AsHashTable -ErrorAction Stop
+                Write-Verbose "[Get-AdoWorkItemTypes] Successfully parsed JSON string response to hashtable"
             }
             catch {
-                Write-Verbose "[Get-AdoWorkItemTypes] Response was string but failed to parse JSON: $_"
+                Write-Verbose "[Get-AdoWorkItemTypes] -AsHashTable failed, trying regular parsing: $_"
+                try {
+                    $types = $types | ConvertFrom-Json -ErrorAction Stop
+                    Write-Verbose "[Get-AdoWorkItemTypes] Successfully parsed JSON string response to object"
+                }
+                catch {
+                    Write-Verbose "[Get-AdoWorkItemTypes] Response was string but failed to parse JSON: $_"
+                    # If JSON parsing fails completely, log the raw response for debugging
+                    Write-Verbose "[Get-AdoWorkItemTypes] Raw response (first 500 chars): $($types.Substring(0, [Math]::Min(500, $types.Length)))"
+                    # Return empty array to avoid breaking the caller
+                    return @()
+                }
             }
         }
 
@@ -309,15 +318,53 @@ function Get-AdoWorkItemTypes {
 
         if ($types -is [array]) {
             Write-Verbose "[Get-AdoWorkItemTypes] Response is direct array with $($types.Count) items"
-            $typeNames = $types | ForEach-Object { $_.PSObject.Properties['name'] ? $_.name : ($_.PSObject.Properties['referenceName'] ? $_.referenceName : $null) }
+            $typeNames = $types | ForEach-Object {
+                if ($_.PSObject.Properties['name']) {
+                    $_.name
+                } elseif ($_.PSObject.Properties['referenceName']) {
+                    $_.referenceName
+                } else {
+                    $null
+                }
+            }
         }
         elseif ($types -and $types.PSObject.Properties['value']) {
             Write-Verbose "[Get-AdoWorkItemTypes] Response wrapped in 'value' property with $($types.value.Count) items"
-            $typeNames = $types.value | ForEach-Object { $_.PSObject.Properties['name'] ? $_.name : ($_.PSObject.Properties['referenceName'] ? $_.referenceName : $null) }
+            $typeNames = $types.value | ForEach-Object {
+                if ($_.PSObject.Properties['name']) {
+                    $_.name
+                } elseif ($_.PSObject.Properties['referenceName']) {
+                    $_.referenceName
+                } else {
+                    $null
+                }
+            }
         }
         elseif ($types -and $types.PSObject.Properties['workItemTypes']) {
             Write-Verbose "[Get-AdoWorkItemTypes] Response contains 'workItemTypes' property with $($types.workItemTypes.Count) items"
-            $typeNames = $types.workItemTypes | ForEach-Object { $_.PSObject.Properties['name'] ? $_.name : ($_.PSObject.Properties['referenceName'] ? $_.referenceName : $null) }
+            $typeNames = $types.workItemTypes | ForEach-Object {
+                if ($_.PSObject.Properties['name']) {
+                    $_.name
+                } elseif ($_.PSObject.Properties['referenceName']) {
+                    $_.referenceName
+                } else {
+                    $null
+                }
+            }
+        }
+        elseif ($types -is [hashtable] -and $types.ContainsKey('value')) {
+            Write-Verbose "[Get-AdoWorkItemTypes] Response is hashtable wrapped in 'value' property with $($types.value.Count) items"
+            $typeNames = $types.value | ForEach-Object {
+                if ($_ -is [hashtable] -and $_.ContainsKey('name')) {
+                    $_.name
+                } elseif ($_.PSObject.Properties['name']) {
+                    $_.name
+                } elseif ($_.PSObject.Properties['referenceName']) {
+                    $_.referenceName
+                } else {
+                    $null
+                }
+            }
         }
         else {
             # Try to enumerate any objects that look like work item type descriptors
@@ -367,7 +414,11 @@ function Measure-Adoarea {
         [string]$Project,
         
         [Parameter(Mandatory)]
-        [string]$Area
+        [string]$Area,
+        
+        [string]$CollectionUrl,
+        [string]$AdoPat,
+        [string]$AdoApiVersion
     )
     
     try {
@@ -418,7 +469,7 @@ function Measure-Adoiterations {
         function Get-IterationNamesFromNode($node) {
             $names = @()
             if ($node.name) { $names += $node.name }
-            if ($node.children) {
+            if ($node.PSObject.Properties['children'] -and $node.children) {
                 foreach ($c in $node.children) { $names += Get-IterationNamesFromNode $c }
             }
             return $names
@@ -437,7 +488,7 @@ function Measure-Adoiterations {
         Write-Verbose "[Measure-Adoiterations] Could not retrieve classification nodes for iterations: $_"
         # Fallback to teamsettings current iterations
         try {
-            $response = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/work/teamsettings/iterations?`$timeframe=current"
+            $response = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/work/teamsettings/iterations?`$timeframe=current"
             if ($response -and $response.value) { $existingIterations += $response.value | ForEach-Object { $_.name } }
             $existingIterations = $existingIterations | Select-Object -Unique
         }
@@ -530,6 +581,7 @@ function Measure-Adoiterations {
 
 # Export functions
 Export-ModuleMember -Function @(
+    'Get-AdoProjectList',
     'Get-AdoProjectRepositories',
     'Measure-Adoproject',
     'Test-AdoProjectExists',
