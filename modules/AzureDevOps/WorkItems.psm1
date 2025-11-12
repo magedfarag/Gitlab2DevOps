@@ -172,6 +172,69 @@ function New-AdoQueryFolder {
     }
 }
 
+# Idempotent ensure helper for queries and folders
+function Ensure-AdoQuery {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$Project,
+        [Parameter(Mandatory=$true)][string]$ParentPath,
+        [Parameter(Mandatory=$true)][string]$Name,
+        [switch]$IsFolder,
+        [hashtable]$Body
+    )
+
+    $projEnc = [uri]::EscapeDataString($Project)
+    $parentEnc = [uri]::EscapeDataString($ParentPath)
+
+    # Try to find existing child in parent folder
+    try {
+        $resp = Invoke-AdoRest GET "/$projEnc/_apis/wit/queries/$parentEnc?`$depth=1" -ReturnNullOnNotFound
+        if ($resp -and $resp.children) {
+            foreach ($c in $resp.children) {
+                if ($c.name -eq $Name) { try { Add-InitMetric -Category 'queries' -Action 'skipped' } catch { }; return @{ Name = $Name; Created = $false; Node = $c } }
+            }
+        }
+    }
+    catch {
+        Write-Verbose "[Ensure-AdoQuery] Could not enumerate parent folder '$ParentPath' (will attempt create): $_"
+    }
+
+    # Prepare payload
+    if ($IsFolder) {
+        $payload = @{ name = $Name; isFolder = $true }
+    }
+    else {
+        if ($Body) { $payload = $Body } else { $payload = @{ name = $Name } }
+    }
+
+    try {
+        Write-Verbose "[Ensure-AdoQuery] Creating $([string]($IsFolder ? 'folder' : 'query')) '$Name' under '$ParentPath'"
+    $created = Invoke-AdoRest POST "/$projEnc/_apis/wit/queries/$parentEnc" -Body $payload
+    try { Add-InitMetric -Category 'queries' -Action 'created' } catch { }
+    return @{ Name = $Name; Created = $true; Node = $created }
+    }
+    catch {
+        $err = $_
+        # Handle duplicate/409 by fetching the newly created child
+        if ($err.Exception.Message -match 'already exists|409') {
+            try {
+                $encodedFull = [uri]::EscapeDataString("$ParentPath/$Name")
+                $existing = Invoke-AdoRest GET "/$projEnc/_apis/wit/queries/$encodedFull"
+                if ($existing) { try { Add-InitMetric -Category 'queries' -Action 'skipped' } catch { }; return @{ Name = $Name; Created = $false; Node = $existing } }
+            }
+            catch {
+                Write-Warning "[Ensure-AdoQuery] Duplicate reported but failed to GET created node for '$Name' under '$ParentPath': $_"
+                return @{ Name = $Name; Created = $false; Node = $null; Error = $_ }
+            }
+        }
+
+        Write-Warning "[Ensure-AdoQuery] Failed to create query/folder '$Name' under '$ParentPath': $_"
+        try { Add-InitMetric -Category 'queries' -Action 'failed' } catch { }
+        return @{ Name = $Name; Created = $false; Node = $null; Error = $_ }
+    }
+}
+
+
 # Map/resolve incoming Excel WorkItemType values to project-available ADO work item types.
 function Resolve-AdoWorkItemType {
     [CmdletBinding()]
@@ -352,16 +415,21 @@ function Upsert-AdoQuery {
         Write-LogLevelVerbose "[Upsert-AdoQuery] Could not ensure parent folder '$parent': $_"
     }
 
-    # Create new query under parent
+    # Create new query under parent (use idempotent helper)
     try {
-        $parentEnc = [uri]::EscapeDataString($parent)
-        $body = @{ name = $name; wiql = $Wiql }
-        $created = Invoke-AdoRest POST "/$projEnc/_apis/wit/queries/$parentEnc" -Body $body
-        Write-LogLevelVerbose "[Upsert-AdoQuery] Created query '$Path'"
-        return $created
+        $ensureBody = @{ name = $name; wiql = $Wiql }
+        $ensure = Ensure-AdoQuery -Project $Project -ParentPath $parent -Name $name -Body $ensureBody
+        if ($ensure -and $ensure.Node) {
+            if ($ensure.Created) { Write-LogLevelVerbose "[Upsert-AdoQuery] Created query '$Path'" } else { Write-LogLevelVerbose "[Upsert-AdoQuery] Query '$Path' already existed" }
+            return $ensure.Node
+        }
+        else {
+            Write-Warning "[Upsert-AdoQuery] Ensure-AdoQuery did not return a node for '$Path'"
+            return $null
+        }
     }
     catch {
-        Write-Warning "[Upsert-AdoQuery] Failed to create query '$Path': $_"
+        Write-Warning "[Upsert-AdoQuery] Failed to create/query '$Path' via Ensure-AdoQuery: $_"
         return $null
     }
 }
@@ -2141,16 +2209,18 @@ function Import-AdoWorkItemsFromExcel {
             $projEnc = [uri]::EscapeDataString($Project)
             # Create root area node named after the project
             Invoke-AdoRest POST "/$projEnc/_apis/wit/classificationnodes/areas?api-version=7.1" -Body @{ name = $Project } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
-            # Create root iteration node named after the project
-            Invoke-AdoRest POST "/$projEnc/_apis/wit/classificationnodes/iterations?api-version=7.1" -Body @{ name = $Project } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
-            
+
+            # Create root iteration node named after the project using idempotent helper
+            $rootIter = Ensure-AdoIteration -Project $Project -Name $Project
+
             # Ensure a default Sprint 1 exists under the project for child work items
             try {
                 $sprintName = 'Sprint 1'
-                # Attempt to create Sprint 1 - if it already exists, API may return 409 and we'll ignore
-                Invoke-AdoRest POST "/$projEnc/_apis/wit/classificationnodes/iterations?api-version=7.1" -Body @{ name = $sprintName } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
-                $sprintIterationPath = "$Project\\$sprintName"
-                Write-Host "[SUCCESS] Default iteration '$sprintIterationPath' ensured" -ForegroundColor Green
+                $sprintResult = Ensure-AdoIteration -Project $Project -Name $sprintName
+                if ($sprintResult.Node) {
+                    $sprintIterationPath = "$Project\\$sprintName"
+                    Write-Host "[SUCCESS] Default iteration '$sprintIterationPath' ensured" -ForegroundColor Green
+                }
             }
             catch {
                 # If creation failed, attempt to use fallback path (project\Sprint 1) regardless

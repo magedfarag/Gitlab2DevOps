@@ -748,6 +748,7 @@ Use the subpages navigation to explore each topic.
 Export-ModuleMember -Function @(
     'Measure-Adoprojectwiki',
     'Set-AdoWikiPage',
+    'Initialize-AdoProjectWikis',
     'New-AdoQAGuidelinesWiki',
     'Measure-Adobestpracticeswiki',
     'Measure-Adobusinesswiki',
@@ -755,6 +756,48 @@ Export-ModuleMember -Function @(
     'New-AdoSecurityWiki',
     'Measure-Adomanagementwiki'
 )
+
+function Initialize-AdoProjectWikis {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Project,
+        [Parameter(Mandatory)][string]$WikiId
+    )
+
+    Write-Host "[INFO] Initializing all project wikis for project '$Project'..." -ForegroundColor Cyan
+
+    $results = @()
+
+    $handlers = @(
+        @{ Name = 'Project'; Func = { Measure-Adoprojectwiki -Project $Project -WikiId $WikiId } },
+        @{ Name = 'QA'; Func = { New-AdoQAGuidelinesWiki -Project $Project -WikiId $WikiId } },
+        @{ Name = 'BestPractices'; Func = { Measure-Adobestpracticeswiki -Project $Project -WikiId $WikiId } },
+        @{ Name = 'Business'; Func = { Measure-Adobusinesswiki -Project $Project -WikiId $WikiId } },
+        @{ Name = 'Dev'; Func = { Measure-Adodevwiki -Project $Project -WikiId $WikiId } },
+        @{ Name = 'Security'; Func = { New-AdoSecurityWiki -Project $Project -WikiId $WikiId } },
+        @{ Name = 'Management'; Func = { Measure-Adomanagementwiki -Project $Project -WikiId $WikiId } }
+    )
+
+    foreach ($h in $handlers) {
+        try {
+            & $($h.Func)
+            $results += [pscustomobject]@{ Wiki = $h.Name; Status = 'Success' }
+        }
+        catch {
+            Write-Warning "Failed to initialize $($h.Name) wiki: $_"
+            $results += [pscustomobject]@{ Wiki = $h.Name; Status = 'Failed'; Error = $_.Exception.Message }
+        }
+    }
+
+    Write-Host "";
+    Write-Host "[SUMMARY] Wiki initialization results for project '$Project':" -ForegroundColor Cyan
+    foreach ($r in $results) {
+        $statusColor = if ($r.Status -eq 'Success') { 'Green' } else { 'Yellow' }
+        Write-Host " - $($r.Wiki): $($r.Status)" -ForegroundColor $statusColor
+    }
+
+    return $results
+}
 
 
 function New-AdoProjectSummaryWikiPage {
@@ -797,6 +840,7 @@ function New-AdoProjectSummaryWikiPage {
 
         # Escaped project name for API paths
         $projEnc = [uri]::EscapeDataString($Project)
+        
 
     # repositories
     $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/git/repositories" -ReturnNullOnNotFound

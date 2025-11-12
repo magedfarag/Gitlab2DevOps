@@ -183,13 +183,15 @@ foreach ($row in $orderedRows) {
 
     $json = $ops | ConvertTo-Json -Depth 20
 
-    $url = "$CollectionUri/$Project/_apis/wit/workitems/`$$([uri]::EscapeDataString($wit))?api-version=$apiVersion"
+    # Build the ADO path for creating a work item of a given type. The endpoint expects a literal
+    # dollar sign before the type (e.g. /_apis/wit/workitems/$Bug). Create the literal by prefixing
+    # a backtick to the dollar sign and concatenating the escaped work item type.
+    $escapedWit = [uri]::EscapeDataString($wit)
+    $typeSegment = "`$" + $escapedWit
+    $path = "/$Project/_apis/wit/workitems/$typeSegment"
 
-    $wi = Invoke-RestMethod -Uri $url `
-                            -Method POST `
-                            -Headers @{Authorization = "Basic $base64AuthInfo"} `
-                            -ContentType "application/json-patch+json" `
-                            -Body $json
+    # Use the central Invoke-AdoRest wrapper so SkipCertificateCheck and curl fallback are applied consistently
+    $wi = Invoke-AdoRest -Method POST -Path $path -Body $json -ContentType 'application/json-patch+json'
 
     if ($row.LocalId) {
         $localToAdo[[int]$row.LocalId] = $wi.id

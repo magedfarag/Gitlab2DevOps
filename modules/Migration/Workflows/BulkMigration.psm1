@@ -245,6 +245,20 @@ function Invoke-BulkPreparationWorkflow {
     return $bulkConfig
 }
 
+# Write init metrics summary for bulk preparation (if metrics helper available)
+try {
+    if (Get-Command -Name Write-InitSummaryReport -ErrorAction SilentlyContinue) {
+        Write-Verbose "[Bulk] Writing init summary report to $($bulkPaths.reportsDir)"
+        Write-InitSummaryReport -ReportsDir $bulkPaths.reportsDir -FileName 'bulk-preparation-init-summary.json' | Out-Null
+    }
+    else {
+        Write-Verbose "[Bulk] Write-InitSummaryReport not available in this session"
+    }
+}
+catch {
+    Write-Warning "[WARN] Failed to write bulk preparation init summary: $_"
+}
+
 <#
 .SYNOPSIS
     Executes bulk migration based on prepared configuration.
@@ -418,6 +432,20 @@ function Invoke-BulkMigrationWorkflow {
         Write-Host "       $bulkLogFile"
     }
     
+    # Write init metrics summary for bulk execution (if metrics helper available)
+    try {
+        if (Get-Command -Name Write-InitSummaryReport -ErrorAction SilentlyContinue) {
+            Write-Verbose "[Bulk] Writing execution init summary to $($bulkPaths.reportsDir)"
+            Write-InitSummaryReport -ReportsDir $bulkPaths.reportsDir -FileName 'bulk-execution-init-summary.json' | Out-Null
+        }
+        else {
+            Write-Verbose "[Bulk] Write-InitSummaryReport not available in this session"
+        }
+    }
+    catch {
+        Write-Warning "[WARN] Failed to write bulk execution init summary: $_"
+    }
+
     return $config
 }
 

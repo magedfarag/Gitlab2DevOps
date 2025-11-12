@@ -292,6 +292,22 @@ Initialize-CoreRest `
     -AdoApiVersion $AdoApiVersion `
     @skipCertSwitch
 
+# Verify Core.Rest initialized correctly and HttpClient is available
+try {
+    # This will throw if basic initialization (CollectionUrl etc.) is missing
+    Ensure-CoreRestInitialized | Out-Null
+    if (-not (Test-HttpClientInitialized)) {
+        Write-Error "[Core.Rest] HttpClient initialization failed: script:HttpClient is missing. Ensure Initialize-CoreRest ran successfully and .NET HttpClient is available."
+        Stop-Transcript
+        exit 1
+    }
+}
+catch {
+    Write-Error "[Core.Rest] Initialization verification failed: $($_.Exception.Message)"
+    Stop-Transcript
+    exit 1
+}
+
 # Display configuration
 Write-Host "[INFO] Configuration loaded successfully"
 Write-Host "       Azure DevOps: $CollectionUrl (API v$AdoApiVersion)"

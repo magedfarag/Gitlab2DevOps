@@ -95,6 +95,21 @@ function Set-AdoTeamSettings {
     return $settingsConfigured
 }
 
+# Helper: Ensure dashboard names meet Azure DevOps length limits (32 chars)
+function Truncate-DashboardName {
+    param(
+        [Parameter(Mandatory=$true)][string]$Name,
+        [int]$MaxLength = 32
+    )
+
+    if (-not $Name) { return $Name }
+    if ($Name.Length -le $MaxLength) { return $Name }
+
+    $truncated = $Name.Substring(0, $MaxLength)
+    Write-Host "[WARN] Dashboard name too long (length $($Name.Length)). Truncating to $MaxLength chars: '$truncated'" -ForegroundColor Yellow
+    return $truncated
+}
+
 #>
 # Helper: Resolve dashboard endpoints for project/team - returns ordered endpoints to try
 function Resolve-AdoDashboardEndpoints {
@@ -140,6 +155,8 @@ function Search-Adodashboard {
     
     # Check if dashboard already exists
     $dashboardName = "$Team - Overview"
+    # Ensure dashboard name meets ADO max length
+    $dashboardName = Truncate-DashboardName $dashboardName
     try {
         $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId
 
@@ -383,6 +400,8 @@ function Test-Adoqadashboard {
     
     # Check if QA dashboard already exists
     $dashboardName = "$Team - QA Metrics"
+    # Ensure dashboard name meets ADO max length
+    $dashboardName = Truncate-DashboardName $dashboardName
     try {
         $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId
 
@@ -600,7 +619,7 @@ function New-Adodevdashboard {
 
         # Create dashboard
         $dashboardConfig = @{
-            name = "Development Metrics"
+            name = Truncate-DashboardName "Development Metrics"
             description = "Track PR velocity, code quality, and team productivity"
             dashboardScope = "project"
             widgets = @(
@@ -696,7 +715,7 @@ function New-AdoSecurityDashboard {
     
     try {
         $dashboardConfig = @{
-            name = "Security Metrics"
+            name = Truncate-DashboardName "Security Metrics"
             description = "Security vulnerability tracking, compliance status, and threat intelligence"
             dashboardScope = "project"
             widgets = @(
@@ -782,7 +801,7 @@ function Test-Adomanagementdashboard {
     
     try {
         $dashboardConfig = @{
-            name = "Program Management"
+            name = Truncate-DashboardName "Program Management"
             description = "Executive overview with program health, sprint progress, risks, and KPIs"
             dashboardScope = "project"
             widgets = @(

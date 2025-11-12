@@ -1,32 +1,32 @@
-<#
-.SYNOPSIS
-    Core REST API helpers for GitLab and Azure DevOps communication.
-
-.DESCRIPTION
-    This module provides foundational REST API functions used by both GitLab
-    and Azure DevOps modules. Includes authentication, HTTP request wrappers,
-    retry logic, error normalization, and common utilities.
-
-.NOTES
-    Part of Gitlab2DevOps migration toolkit.
-    Author: Migration Team
-    Version: 2.1.0
+#
+#.SYNOPSIS
+#    Writes raw HTTP output to a log file when JSON parsing fails.
+#
+#.DESCRIPTION
+#    Creates a detailed log file with raw HTTP output, extracted JSON string,
+#    and error details for debugging JSON parsing failures.
+#
+#.PARAMETER Side
+#    API side ('ado' or 'gitlab').
+#
+#.PARAMETER Uri
+#    The URI that was called.
+#
+#.PARAMETER Method
+#    HTTP method used.
+#
+#.PARAMETER OutputArray
+#    Raw HTTP output array.
+#
+#.PARAMETER JsonString
+#    Extracted JSON string that failed to parse.
+#
+#.PARAMETER ErrorMessage
+#    The error message from JSON parsing failure.
+#
+#.EXAMPLE
+#    Write-RawHttpOutputToLog -Side 'ado' -Uri $uri -Method 'GET' -OutputArray $outputArray -JsonString $jsonString -ErrorMessage $_
 #>
-
-#Requires -Version 5.1
-Set-StrictMode -Version Latest
-
-# Script version (written to all reports and manifests)
-$script:ModuleVersion = "2.0.0"
-
-# Module-level variables (set by Initialize-CoreRest)
-$script:CollectionUrl = $null
-$script:AdoPat = $null
-$script:GitLabBaseUrl = $null
-$script:GitLabToken = $null
-$script:AdoApiVersion = $null
-$script:SkipCertificateCheck = $false
-$script:AdoHeaders = $null
 $script:RetryAttempts = 3
 $script:RetryDelaySeconds = 5
 $script:MaskSecrets = $true
@@ -153,6 +153,25 @@ function Initialize-CoreRest {
         MaskSecrets          = $script:MaskSecrets
         LogRestCalls         = $script:LogRestCalls
     }
+
+    # Create a reusable HttpClient instance for all module HTTP operations.
+    # This centralizes TLS/handler behavior and avoids creating many short-lived
+    # HttpClient instances which can exhaust sockets.
+    try {
+        $handler = New-Object System.Net.Http.HttpClientHandler
+        if ($script:SkipCertificateCheck -eq $true) {
+            # Accept all certificates when SkipCertificateCheck is requested (on-premise servers)
+            $handler.ServerCertificateCustomValidationCallback = { param($sender,$cert,$chain,$errors) return $true }
+        }
+
+        $script:HttpClient = New-Object System.Net.Http.HttpClient($handler)
+        # Set a reasonable default timeout
+        $script:HttpClient.Timeout = [System.TimeSpan]::FromSeconds(120)
+        Write-Verbose "[Core.Rest] Reusable HttpClient initialized"
+    }
+    catch {
+        Write-Warning "[Core.Rest] Failed to initialize reusable HttpClient: $_. Ensure Initialize-CoreRest was called with correct parameters and that .NET HttpClient is available."
+    }
 }
 
 <#
@@ -204,6 +223,28 @@ function Ensure-CoreRestInitialized {
     # Cache and return
     $script:coreRestConfig = $built
     return $script:coreRestConfig
+}
+
+# If LogRestCalls is enabled, start verbose transcript to file for later inspection
+try {
+    if ($script:LogRestCalls -eq $true) {
+        # Lazy-load Logging module if available
+        $logModule = Join-Path (Split-Path $PSScriptRoot -Parent) 'core\Logging.psm1'
+        if (Test-Path $logModule) {
+            Import-Module $logModule -Force -Global -ErrorAction SilentlyContinue
+            try { Enable-VerboseLogCapture -Prefix 'core-rest' } catch { }
+        }
+        else {
+            # Fallback: start a transcript in the repo logs folder
+            $rootLogs = Join-Path (Get-Location) 'logs'
+            if (-not (Test-Path $rootLogs)) { New-Item -ItemType Directory -Path $rootLogs -Force | Out-Null }
+            $ts = Join-Path $rootLogs ("core-rest-" + (Get-Date -Format 'yyyyMMdd-HHmmss') + ".log")
+            try { Start-Transcript -Path $ts -Force | Out-Null } catch { }
+        }
+    }
+}
+catch {
+    Write-Verbose "[Core.Rest] Could not start verbose transcript: $_"
 }
 
 
@@ -347,6 +388,103 @@ function Get-CoreRestConfig {
         RetryDelaySeconds    = $script:RetryDelaySeconds
         MaskSecrets          = $script:MaskSecrets
         LogRestCalls         = $script:LogRestCalls
+    }
+}
+
+<#
+.SYNOPSIS
+    Simple run-level initialization metrics helper.
+
+.DESCRIPTION
+    Tracks lightweight counters for initialization runs (created/skipped/failed)
+    across modules. Stored in script scope as $script:InitMetrics. These
+    helpers are intentionally small and dependency-free so they can be called
+    from any module after Core.Rest has been imported.
+#>
+function Initialize-InitMetrics {
+    [CmdletBinding()]
+    param()
+    # Robust, minimal initialization that avoids Test-Path on variable: provider which
+    # can be fragile across module import contexts. Use Get-Variable as a safer probe
+    # and fall back to directly assigning the script-scoped variable.
+    try {
+        $var = Get-Variable -Name 'script:InitMetrics' -Scope Script -ErrorAction SilentlyContinue
+        if (-not $var) {
+            try { Set-Variable -Name 'script:InitMetrics' -Scope Script -Value @{} -Force -ErrorAction Stop }
+            catch { $script:InitMetrics = @{} }
+        }
+    }
+    catch {
+        # Last-resort fallback
+        if (-not $script:InitMetrics) { $script:InitMetrics = @{} }
+    }
+
+    if (-not $script:InitMetrics) { $script:InitMetrics = @{} }
+
+    # Ensure common categories exist
+    if (-not $script:InitMetrics.ContainsKey('iterations')) { $script:InitMetrics['iterations'] = @{ created = 0; skipped = 0; failed = 0 } }
+    if (-not $script:InitMetrics.ContainsKey('queries'))    { $script:InitMetrics['queries']    = @{ created = 0; skipped = 0; failed = 0 } }
+
+    return $script:InitMetrics
+}
+
+function Add-InitMetric {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$Category,
+        [Parameter(Mandatory=$true)][string]$Action,
+        [int]$Increment = 1
+    )
+
+    Initialize-InitMetrics | Out-Null
+
+    if (-not $script:InitMetrics.ContainsKey($Category)) {
+        $script:InitMetrics[$Category] = @{ created = 0; skipped = 0; failed = 0 }
+    }
+
+    if (-not $script:InitMetrics[$Category].ContainsKey($Action)) {
+        $script:InitMetrics[$Category][$Action] = 0
+    }
+
+    $script:InitMetrics[$Category][$Action] += $Increment
+    Write-Verbose "[InitMetrics] $Category.$Action += $Increment (now $($script:InitMetrics[$Category][$Action]))"
+    return $script:InitMetrics[$Category]
+}
+
+function Get-InitMetrics {
+    [CmdletBinding()]
+    param()
+
+    Initialize-InitMetrics | Out-Null
+    return $script:InitMetrics
+}
+
+function Write-InitSummaryReport {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$ReportsDir,
+        [string]$FileName = 'init-summary.json'
+    )
+
+    Initialize-InitMetrics | Out-Null
+
+    if (-not (Test-Path $ReportsDir)) { New-Item -ItemType Directory -Path $ReportsDir -Force | Out-Null }
+
+    $summary = @{
+        timestamp = (Get-Date).ToString('o')
+        metrics = $script:InitMetrics
+        environment = @{ computer = $env:COMPUTERNAME; user = $env:USERNAME; cwd = (Get-Location).Path }
+    }
+
+    $outPath = Join-Path $ReportsDir $FileName
+    try {
+        $summary | ConvertTo-Json -Depth 10 | Out-File -FilePath $outPath -Encoding utf8 -Force
+        Write-Host "[INFO] Summary: $outPath" -ForegroundColor Cyan
+        return $outPath
+    }
+    catch {
+        Write-Warning ("Failed to write init summary to {0}: {1}" -f $outPath, $_)
+        return $null
     }
 }
 
@@ -851,21 +989,26 @@ function New-NormalizedError {
         Write-Verbose "[Core.Rest] Could not extract response details: $_"
     }
     
+    # Normalize rawBody defensively to avoid inline conditional expressions that
+    # can trigger unexpected parser behavior in some hosting environments.
+    $outRaw = $null
+    if ($rawBody) { $outRaw = $rawBody }
+
     return @{
         side     = $Side
         endpoint = Hide-Secret -Text $Endpoint
         status   = $status
         message  = $message
-        rawBody  = (if ($rawBody) { $rawBody } else { $null })
+        rawBody  = $outRaw
     }
 }
 
 <#
-.SYNOPSIS
-    Writes raw curl output to a log file when JSON parsing fails.
+#.SYNOPSIS
+    Writes raw HTTP output to a log file when JSON parsing fails.
 
 .DESCRIPTION
-    Creates a detailed log file with raw curl output, extracted JSON string,
+    Creates a detailed log file with raw HTTP output, extracted JSON string,
     and error details for debugging JSON parsing failures.
 
 .PARAMETER Side
@@ -878,7 +1021,7 @@ function New-NormalizedError {
     HTTP method used.
 
 .PARAMETER OutputArray
-    Raw curl output array.
+    Raw HTTP output array.
 
 .PARAMETER JsonString
     Extracted JSON string that failed to parse.
@@ -887,9 +1030,9 @@ function New-NormalizedError {
     The error message from JSON parsing failure.
 
 .EXAMPLE
-    Write-RawCurlOutputToLog -Side 'ado' -Uri $uri -Method 'GET' -OutputArray $outputArray -JsonString $jsonString -ErrorMessage $_
+            Write-RawHttpOutputToLog -Side 'ado' -Uri $uri -Method 'GET' -OutputArray $outputArray -JsonString $jsonString -ErrorMessage $_
 #>
-function Write-RawCurlOutputToLog {
+function Write-RawHttpOutputToLog {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -919,20 +1062,20 @@ function Write-RawCurlOutputToLog {
             New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
         }
 
-        # Generate timestamped log file name
-        $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-        $logFileName = "curl-debug-$Side-$timestamp.log"
+    # Generate timestamped log file name
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $logFileName = "http-debug-$Side-$timestamp.log"
         $logFilePath = Join-Path $logsDir $logFileName
 
         # Build log content
         $logContent = @"
-=== CURL DEBUG LOG ===
+=== HTTP DEBUG LOG ===
 Timestamp: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 Side: $Side
 Method: $Method
 URI: $(Hide-Secret -Text $Uri)
 
-=== RAW CURL OUTPUT ===
+=== RAW HTTP OUTPUT ===
 $($OutputArray -join "`n")
 
 === EXTRACTED JSON STRING ===
@@ -947,10 +1090,10 @@ $ErrorMessage
         # Write to log file
         $logContent | Out-File -FilePath $logFilePath -Encoding UTF8 -Force
 
-        Write-Warning "[$Side] Raw curl output logged to: $logFilePath"
+        Write-Warning "[$Side] Raw HTTP output logged to: $logFilePath"
     }
     catch {
-        Write-Warning "[$Side] Failed to write curl debug log: $_"
+        Write-Warning "[$Side] Failed to write HTTP debug log: $_"
     }
 }
 
@@ -1057,7 +1200,9 @@ function Invoke-RestWithRetry {
             
             # Measure request duration
             $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
             $response = Invoke-RestMethod @invokeParams
+
             $stopwatch.Stop()
             
             # Log response summary
@@ -1085,7 +1230,22 @@ function Invoke-RestWithRetry {
             return $response
         }
         catch {
-            $normalizedError = New-NormalizedError -Exception $_ -Side $Side -Endpoint $Uri
+            # New-NormalizedError expects exceptions similar to Invoke-RestMethod's output.
+            # HttpClient throws System.Net.Http.HttpRequestException which doesn't have the
+            # same Response property. Normalize to a safe input for New-NormalizedError to
+            # avoid edge cases where the normalization code attempts to access properties
+            # that don't exist and causes unexpected parser/command errors.
+            if ($_.Exception -is [System.Net.Http.HttpRequestException]) {
+                # Build a compact message that includes available raw body (if present)
+                $bodyText = $null
+                try { if ($_.Exception.Data.Contains('Body')) { $bodyText = $_.Exception.Data['Body'] } } catch {}
+                $safeMsg = $_.Exception.Message
+                if ($bodyText) { $safeMsg = "$safeMsg`nRawBody:`n$bodyText" }
+                $normalizedError = New-NormalizedError -Exception $safeMsg -Side $Side -Endpoint $Uri
+            }
+            else {
+                $normalizedError = New-NormalizedError -Exception $_ -Side $Side -Endpoint $Uri
+            }
             $status = $normalizedError.status
             $errorMsg = $_.Exception.Message
             
@@ -1110,337 +1270,337 @@ function Invoke-RestWithRetry {
                 Write-Verbose "[REST] Full error: $($normalizedError.message)"
             }
             
-            # Detect connection errors for curl fallback decision
+            # Detect common connection-related errors
             $isConnectionError = $errorMsg -match "connection was forcibly closed|Unable to read data from the transport|SSL|certificate|An error occurred while sending the request"
-            Write-Verbose "[Core.Rest] Curl fallback check: SkipCert=$script:SkipCertificateCheck, Status=$status, IsConnErr=$isConnectionError"
+            Write-Verbose "[Core.Rest] Connection check: SkipCert=$script:SkipCertificateCheck, Status=$status, IsConnErr=$isConnectionError"
             Write-Verbose "[Core.Rest] Error message: $errorMsg"
             
-            # Fallback to curl for connection issues when SkipCertificateCheck is enabled
-            # PowerShell's Invoke-RestMethod sometimes fails with SSL even with -SkipCertificateCheck
-            if ($script:SkipCertificateCheck -eq $true -and $isConnectionError) {
-                
-                if ($attempt -eq 1) {
-                    Write-Host "[$Side] ⚠ SSL/TLS fallback to curl" -ForegroundColor Yellow
-                    Write-Verbose "[$Side] Original error: $($_.Exception.Message)"
-                }
-                
-                try {
-                    # Log curl request
-                    Write-Host "[$Side] → $Method $maskedUri (curl -k)" -ForegroundColor DarkCyan
-                    # Build curl command
-                    # -k: skip SSL verification
-                    # -s: silent (no progress bar)
-                    # -S: show errors even in silent mode
-                    # -i: include HTTP headers in output (to see response code)
-                    # -w: write out HTTP code at the end
-                    # Use an easily-parsable trailer line for HTTP code
-                    # Ensure curl writes the HTTP_CODE on its own line (prepend newline) to avoid it being
-                    # appended to the JSON body which breaks ConvertFrom-Json ("Additional text encountered...").
-                    $curlArgs = @('-k', '-s', '-S', '-i', '-w', '\nHTTP_CODE:%{http_code}', '-X', $Method, '--max-time', '30')
-                    
-                    # For Azure DevOps, use Basic auth with PAT
-                    # For GitLab, use headers
-                    if ($Side -eq 'ado') {
-                        # Azure DevOps uses Basic auth with empty username and PAT as password
-                        # IMPORTANT: Must pass as separate arguments to ensure proper variable expansion
-                        $curlArgs += '-u'
-                        $curlArgs += ":$($script:AdoPat)"
-                        $curlArgs += '-H'
-                        $curlArgs += 'Content-Type: application/json'
-                        Write-Verbose "[Core.Rest] Using curl with Basic auth, PAT length: $($script:AdoPat.Length) chars"
-                    }
-                    else {
-                        # GitLab uses PRIVATE-TOKEN header
-                        foreach ($key in $Headers.Keys) {
-                            $curlArgs += '-H'
-                            $curlArgs += "$key`: $($Headers[$key])"
-                        }
-                    }
-                    
-                    # Add body for POST/PUT/PATCH
-                    if ($Body -and $Method -in @('POST', 'PUT', 'PATCH')) {
-                        if ($Side -ne 'ado') {
-                            $curlArgs += '-H'
-                            $curlArgs += 'Content-Type: application/json'
-                        }
-                        $curlArgs += '-d'
-                        $curlArgs += $Body
-                        Write-Verbose "[Core.Rest] POST body length: $($Body.Length) chars"
-                    }
-                    
-                    $curlArgs += $Uri
-                    
-                    Write-Verbose "[Core.Rest] curl command: curl -k -s -X $Method '$maskedUri'"
-                    
-                    # Execute curl - capture ALL output including errors
-                    $curlStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-                    $curlOutput = & curl @curlArgs 2>&1
-                    $curlStopwatch.Stop()
-                    
-                    # Debug: Check if curl is available
-                    if ($LASTEXITCODE -eq 127 -or $LASTEXITCODE -eq 9009) {
-                        throw "curl command not found. Please install curl and ensure it's in PATH."
-                    }
-                    
-                    # Safely handle output (may be single object or array)
-                    # CRITICAL: Avoid .Count property access - it can fail on non-array objects
-                    try {
-                        $outputArray = @($curlOutput)
-                        # Use type checking instead of .Count property which can fail
-                        $isValidArray = ($null -ne $outputArray) -and (($outputArray -is [array] -and $outputArray.Length -gt 0) -or ($outputArray -isnot [array] -and $outputArray))
-                        $outputCount = if ($isValidArray) { 
-                            if ($outputArray -is [array]) { $outputArray.Length } else { 1 } 
-                        } else { 0 }
-                        Write-Verbose "[Core.Rest] curl raw output: $outputCount lines (type: $($outputArray.GetType().Name))"
-                        Write-Verbose "[Core.Rest] curl exit code: $LASTEXITCODE"
-                    }
-                    catch {
-                        Write-Verbose "[Core.Rest] Error processing curl output: $_"
-                        $outputArray = @()
-                        $outputCount = 0
-                        $isValidArray = $false
-                    }
-                    
-                    # Convert to string array - ENSURE it's always an array
-                    # CRITICAL: Use if/else to handle null/empty cases properly
-                    if ($isValidArray) {
-                        $tempLines = $outputArray | Where-Object { $_ -is [string] } | ForEach-Object { $_.ToString() }
-                        $outputLines = if ($tempLines) { @($tempLines) } else { @() }
-                    } else {
-                        $outputLines = @()
-                    }
-                    
-                    # Safe line count - use .Length which works reliably on arrays
-                    $lineCount = if ($outputLines -and $outputLines -is [array]) { 
-                        $outputLines.Length 
-                    } elseif ($outputLines) { 
-                        1 
-                    } else { 
-                        0 
-                    }
-                    Write-Verbose "[Core.Rest] curl output string lines: $lineCount"
-                    
-                    # Extract HTTP status code from the write-out line
-                    # HTTP code marker might be on the last line or appended to body; search anywhere
-                    $httpCode = 0
-                    if ($outputLines -and $lineCount -gt 0) {
-                        foreach ($line in $outputLines) {
-                            if ($line -match 'HTTP_CODE:(\d{3})') { $httpCode = [int]$Matches[1] }
-                        }
-                    }
-                    
-                    Write-Verbose "[Core.Rest] curl HTTP code: $httpCode"
-                    
-                    # Find where the JSON body starts (after headers, after blank line)
-                    # HTTP response format: HTTP/1.1 200 OK\nHeaders...\n\nBody
-                    $bodyStartIndex = -1
-                    $foundBlankLine = $false
-                    
-                    if ($lineCount -gt 0) {
-                        for ($i = 0; $i -lt $lineCount; $i++) {
-                            $currentLine = $outputLines[$i]
-                            
-                            # Skip HTTP status line (e.g., "HTTP/1.1 404 Not Found")
-                            if ($currentLine -match '^HTTP/\d\.\d \d{3}') {
-                                Write-Verbose "[Core.Rest] Found HTTP status line at index $i"
-                                continue
-                            }
-                            
-                            # Blank line marks end of headers
-                            if ([string]::IsNullOrWhiteSpace($currentLine)) {
-                                if ($i -gt 0) {
-                                    $foundBlankLine = $true
-                                    $bodyStartIndex = $i + 1
-                                    Write-Verbose "[Core.Rest] Found blank line (end of headers) at index $i, body starts at $bodyStartIndex"
-                                    break
-                                }
-                            }
-                        }
-                    }
-                    
-                    # Extract JSON body - skip HTTP_CODE marker, HTTP headers, and empty lines
-                    # CRITICAL: Must filter aggressively to avoid "Additional text" JSON parse errors
-                    Write-Verbose "[Core.Rest] Extracting JSON from curl output (bodyStart: $bodyStartIndex, lineCount: $lineCount)"
-                    
-                    # Strategy: Find first line starting with { or [ regardless of blank line detection
-                    # This handles cases where blank line detection fails or headers slip through
-                    $jsonStarted = $false
-                    $jsonLines = @($outputLines | Where-Object { 
-                        $currentLine = $_
-                        
-                        # Skip HTTP_CODE marker always
-                        if ($currentLine -match '^HTTP_CODE:') {
-                            return $false
-                        }
-                        
-                        # Skip HTTP status lines
-                        if ($currentLine -match '^HTTP/\d\.\d') {
-                            return $false
-                        }
-                        
-                        # Skip typical HTTP headers (Header-Name: value)
-                        if ($currentLine -match '^[A-Za-z][A-Za-z0-9-]+\s*:') {
-                            return $false
-                        }
-                        
-                        # Once JSON starts, include everything
-                        if ($jsonStarted) {
-                            return $true
-                        }
-                        
-                        # Look for JSON start (opening brace or bracket)
-                        if ($currentLine -match '^\s*[{\[]') {
-                            $jsonStarted = $true
-                            Write-Verbose "[Core.Rest] JSON body starts at line: $currentLine"
-                            return $true
-                        }
-                        
-                        # Skip empty lines before JSON starts
-                        return $false
-                    })
-                    
-                    # Safe count for verbose logging
-                    $filteredCount = if ($jsonLines -and $jsonLines -is [array]) { $jsonLines.Length } elseif ($jsonLines) { 1 } else { 0 }
-                    Write-Verbose "[Core.Rest] Filtered JSON lines: $filteredCount"
-                    
-                    $jsonString = $jsonLines -join "`n"
+																						 
+																									 
+																				 
+				
+									 
+																							 
+																				   
+				 
+				
+					 
+									  
+																								   
+										
+											   
+												  
+														 
+																			   
+														
+																	   
+																										  
+																												 
+																															  
+					
+															   
+											 
+										  
+																							  
+																										
+										 
+														 
+										 
+																	 
+																														  
+					 
+						  
+														  
+														 
+											 
+																   
+						 
+					 
+					
+												 
+																		   
+											  
+											 
+																		 
+						 
+										 
+										  
+																						   
+					 
+					
+									 
+					
+																								
+					
+																		
+																			   
+													   
+										 
+					
+													   
+																		   
+																									
+					 
+					
+																		  
+																							   
+						 
+													 
+																					 
+																																													 
+															
+																							 
+									
+																															  
+																				 
+					 
+						   
+																					
+										  
+										
+											  
+					 
+					
+																		   
+																			   
+										
+																													   
+																					 
+							
+										  
+					 
+					
+																				  
+																				   
+											
+											  
+						  
+							 
+						  
+					 
+																					
+					
+																	  
+																									 
+								 
+															 
+														 
+																								  
+						 
+					 
+					
+																		 
+					
+																					   
+																			   
+										
+											
+					
+										   
+															   
+														   
+							
+																					
+																		   
+																							  
+										
+							 
+							
+															 
+																			 
+											   
+														   
+															
+																																			 
+										 
+								 
+							 
+						 
+					 
+					
+																							  
+																									 
+																																	
+					
+																									   
+																								 
+										 
+																 
+										 
+						
+													  
+																
+										 
+						 
+						
+												
+																 
+										 
+						 
+						
+																		
+																			   
+										 
+						 
+						
+															  
+										   
+										
+						 
+						
+																		
+															  
+												
+																							  
+										
+						 
+						
+															 
+									 
+					  
+					
+													
+																																		   
+																				   
+					
+													   
 
-                    # Defensive cleanup: sometimes curl write-out or stray characters can be appended
-                    # to the JSON body (for example 'HTTP_CODE:200' without a newline). Strip any
-                    # trailing HTTP_CODE marker and trim any non-JSON trailing characters by
-                    # truncating after the last closing brace/bracket.
-                    try {
-                        # Remove trailing HTTP_CODE marker if present on same line
-                        $jsonString = $jsonString -replace '\s*HTTP_CODE:\d{3}\s*$', ''
+																									 
+																								 
+																							
+																	  
+						 
+																				  
+																					   
 
-                        # Truncate after the last '}' or ']' to remove any trailing garbage
-                        $lastBrace = $jsonString.LastIndexOf('}')
-                        $lastBracket = $jsonString.LastIndexOf(']')
-                        $lastPos = [Math]::Max($lastBrace, $lastBracket)
-                        if ($lastPos -gt -1 -and $lastPos -lt ($jsonString.Length - 1)) {
-                            $jsonString = $jsonString.Substring(0, $lastPos + 1)
-                        }
-                    }
-                    catch {
-                        Write-Verbose "[Core.Rest] Warning: failed defensive JSON cleanup: $_"
-                    }
+																						   
+																 
+																   
+																		
+																						 
+																				
+						 
+					 
+						   
+																							  
+					 
 
-                    Write-Verbose "[Core.Rest] Extracted JSON length: $($jsonString.Length) chars"
-                    # Safe count - use .Length instead of .Count
-                    $jsonLineCount = if ($jsonLines -and $jsonLines -is [array]) { $jsonLines.Length } elseif ($jsonLines) { 1 } else { 0 }
-                    Write-Verbose "[Core.Rest] JSON lines extracted: $jsonLineCount"
-                    
-                    if ($script:LogRestCalls -and $jsonString.Length -gt 0) {
-                        Write-Verbose "[Core.Rest] First 200 chars of JSON: $($jsonString.Substring(0, [Math]::Min(200, $jsonString.Length)))"
-                    }
-                    
-                    # Log curl response
-                    $curlDurationMs = [int]$curlStopwatch.ElapsedMilliseconds
-                    if ($httpCode -ge 200 -and $httpCode -lt 300) {
-                        Write-Host "[$Side] ← $httpCode OK (curl, $curlDurationMs ms)" -ForegroundColor Green
-                    } elseif ($httpCode -ge 400) {
-                        Write-Host "[$Side] ← $httpCode ERROR (curl, $curlDurationMs ms)" -ForegroundColor Red
-                    } else {
-                        Write-Host "[$Side] ← $httpCode (curl, $curlDurationMs ms)" -ForegroundColor Yellow
-                    }
-                    
-                    if ([string]::IsNullOrWhiteSpace($jsonString)) {
-                        Write-Warning "[$Side] curl HTTP $httpCode with empty body"
-                        
-                        # Log raw output for debugging
-                        if ($script:LogRestCalls) {
-                            Write-Verbose "[Core.Rest] Raw curl output (first 500 chars):"
-                            $rawOutput = ($outputArray | ForEach-Object { $_.ToString() }) -join "`n"
-                            Write-Verbose $rawOutput.Substring(0, [Math]::Min(500, $rawOutput.Length))
-                        }
-                        
-                        # Check if this is a network error (connection reset, timeout, etc.)
-                        $isNetworkError = $outputArray | Where-Object { 
-                            $_ -match 'Connection was reset' -or 
-                            $_ -match 'Recv failure' -or
-                            $_ -match 'Connection timed out' -or
-                            $_ -match 'Failed to connect' -or
-                            $_ -match 'SSL' -or
-                            $_ -match 'certificate'
-                        }
-                        
-                        if ($isNetworkError -or $httpCode -eq 0) {
-                            # Treat as 503 Service Unavailable for retry logic
-                            $status = 503
-                            $errorDetail = if ($isNetworkError) { $isNetworkError[0] } else { "Connection reset (HTTP $httpCode)" }
-                            throw "Network error - $errorDetail"
-                        }
-                        elseif ($httpCode -ge 400) {
-                            $status = $httpCode
-                            throw "HTTP $httpCode - Empty error response from server"
-                        } 
-                        else {
-                            throw "Empty response from curl (HTTP $httpCode)"
-                        }
-                    }
-                    
-                    try {
-                        # First try standard JSON parsing
-                        $response = $jsonString | ConvertFrom-Json -ErrorAction Stop
-                        
-                        if ($script:LogRestCalls) {
-                            # Log response highlights for curl - use .Length instead of .Count
-                            if ($response.PSObject.Properties['value'] -and $response.value -is [array]) {
-                                $itemCount = if ($response.value) { $response.value.Length } else { 0 }
-                                Write-Verbose "[REST] Response: $itemCount items in array"
-                            } elseif ($response -is [array]) {
-                                $itemCount = if ($response) { $response.Length } else { 0 }
-                                Write-Verbose "[REST] Response: $itemCount items"
-                            } else {
-                                Write-Verbose "[REST] Response: $($response.GetType().Name)"
-                            }
-                        }
-                        
-                        return $response
-                    }
-                    catch [System.ArgumentException] {
-                        # Handle JSON with empty property names by using -AsHashTable (PowerShell 7+)
-                        if ($_.Exception.Message -like "*empty string*" -or $_.Exception.Message -like "*property name*") {
-                            try {
-                                Write-Verbose "[$Side] Retrying JSON parsing with -AsHashTable due to empty property names"
-                                $response = $jsonString | ConvertFrom-Json -AsHashTable -ErrorAction Stop
-                                return $response
-                            }
-                            catch {
-                                Write-Warning "[$Side] Failed to parse JSON with -AsHashTable: $_"
-                                if ($script:LogRestCalls) {
-                                    Write-Verbose "[Core.Rest] JSON string (first 500 chars): $($jsonString.Substring(0, [Math]::Min(500, $jsonString.Length)))"
-                                }
-                                # Log raw curl output to file for debugging
-                                Write-RawCurlOutputToLog -Side $Side -Uri $Uri -Method $Method -OutputArray $outputArray -JsonString $jsonString -ErrorMessage $_
-                                # Treat as 503 for retry
-                                $status = 503
-                                throw "Invalid JSON response from server (contains empty property names)"
-                            }
-                        }
-                        else {
-                            throw
-                        }
-                    }
-                    catch {
-                        Write-Warning "[$Side] Failed to parse JSON response: $_"
-                        if ($script:LogRestCalls) {
-                            Write-Verbose "[Core.Rest] JSON string (first 500 chars): $($jsonString.Substring(0, [Math]::Min(500, $jsonString.Length)))"
-                        }
-                        # Log raw curl output to file for debugging
-                        Write-RawCurlOutputToLog -Side $Side -Uri $Uri -Method $Method -OutputArray $outputArray -JsonString $jsonString -ErrorMessage $_
-                        # Treat as 503 for retry
-                        $status = 503
-                        throw "Invalid JSON response from server"
-                    }
-                }
-                catch {
-                    Write-Warning "[$Side] curl fallback also failed: $_"
-                    # $status might have been set to 503 for retryable network errors
-                    # Fall through to retry logic
-                }
-            }
-            
+																								  
+																
+																																		   
+																					
+					
+																			 
+																																			  
+					 
+					
+									   
+																			 
+																   
+																											   
+												  
+																												
+							
+																											 
+					 
+					
+																	
+																				   
+						
+													  
+												   
+																						  
+																									 
+																									  
+						 
+						
+																							
+																		
+																 
+														
+																
+															 
+											   
+												   
+						 
+						
+																  
+																			  
+										 
+																																   
+																
+						 
+													
+											   
+																					 
+						  
+							  
+																			 
+						 
+					 
+					
+						 
+														 
+																					
+						
+												   
+																							  
+																										  
+																									   
+																						  
+															  
+																						   
+																				 
+									
+																							
+							 
+						 
+						
+										
+					 
+													  
+																									 
+																														   
+								 
+																														   
+																										 
+												
+							 
+								   
+																								  
+														   
+																																								
+								 
+																		   
+																																								 
+														
+											 
+																										 
+							 
+						 
+							  
+								 
+						 
+					 
+						   
+																				 
+												   
+																																						
+						 
+																   
+																																						 
+												
+									 
+																 
+					 
+				 
+					   
+																		 
+																					 
+												 
+				 
+			 
+			
             # Retry on transient failures
             $shouldRetry = $status -in @(429, 500, 502, 503, 504) -and $attempt -lt $effectiveMaxAttempts
             
@@ -1784,7 +1944,21 @@ function Clear-GitCredentials {
     }
 }
 
+function Test-HttpClientInitialized {
+    [CmdletBinding()]
+    param()
+
+    try {
+        if ($null -ne $script:HttpClient) { return $true }
+        return $false
+    }
+    catch {
+        return $false
+    }
+}
+
 # Export public functions
+
 Export-ModuleMember -Function @(
     'Initialize-CoreRest',
     'Ensure-CoreRestInitialized',
@@ -1799,8 +1973,15 @@ Export-ModuleMember -Function @(
     'New-AuthHeader',
     'Invoke-RestWithRetry',
     'Invoke-AdoRest',
+    'Test-HttpClientInitialized',
     'Set-AdoContext',
     'Invoke-GitLabRest',
     'Clear-GitCredentials',
-    'Write-RawCurlOutputToLog'
+    'Initialize-InitMetrics',
+    'Add-InitMetric',
+    'Get-InitMetrics',
+    'Write-InitSummaryReport'
+    # Note: Raw HTTP debug helper intentionally not exported to prevent any
+    # external fallback mechanisms. All HTTP communication must use the
+    # reusable script:HttpClient created by Initialize-CoreRest.
 )

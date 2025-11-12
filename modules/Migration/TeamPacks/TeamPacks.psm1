@@ -155,7 +155,14 @@ function Initialize-BusinessInit {
     Write-MigrationReport -ReportFile $reportFile -Data $summary
     Write-Host "[SUCCESS] Business Initialization Pack complete" -ForegroundColor Green
     Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
-    
+    try {
+        $initSummary = Write-InitSummaryReport -ReportsDir $paths.reportsDir -FileName 'business-init-metrics.json'
+        if ($initSummary) { Write-Host "[INFO] Init summary written: $initSummary" -ForegroundColor Cyan }
+    }
+    catch {
+        Write-Verbose "Could not write init summary for BusinessInit: $_"
+    }
+
     # Update project summary page
     Write-Host "[INFO] Updating Project Summary wiki page..." -ForegroundColor Cyan
     New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wikiId
@@ -268,7 +275,14 @@ function Initialize-DevInit {
     Write-MigrationReport -ReportFile $reportFile -Data $summary
     Write-Host "[SUCCESS] Development Initialization Pack complete" -ForegroundColor Green
     Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
-    
+    try {
+        $initSummary = Write-InitSummaryReport -ReportsDir $paths.reportsDir -FileName 'dev-init-metrics.json'
+        if ($initSummary) { Write-Host "[INFO] Init summary written: $initSummary" -ForegroundColor Cyan }
+    }
+    catch {
+        Write-Verbose "Could not write init summary for DevInit: $_"
+    }
+
     # Update project summary page
     Write-Host "[INFO] Updating Project Summary wiki page..." -ForegroundColor Cyan
     New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wikiId
@@ -365,6 +379,13 @@ function Initialize-SecurityInit {
     Write-MigrationReport -ReportFile $reportFile -Data $summary
     Write-Host "[SUCCESS] Security Initialization Pack complete" -ForegroundColor Green
     Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
+    try {
+        $initSummary = Write-InitSummaryReport -ReportsDir $paths.reportsDir -FileName 'security-init-metrics.json'
+        if ($initSummary) { Write-Host "[INFO] Init summary written: $initSummary" -ForegroundColor Cyan }
+    }
+    catch {
+        Write-Verbose "Could not write init summary for SecurityInit: $_"
+    }
     
     # Update project summary page
     Write-Host "[INFO] Updating Project Summary wiki page..." -ForegroundColor Cyan
@@ -447,6 +468,13 @@ function Initialize-ManagementInit {
     Write-MigrationReport -ReportFile $reportFile -Data $summary
     Write-Host "[SUCCESS] Management Initialization Pack complete" -ForegroundColor Green
     Write-Host "[INFO] Summary: $reportFile" -ForegroundColor Gray
+    try {
+        $initSummary = Write-InitSummaryReport -ReportsDir $paths.reportsDir -FileName 'management-init-metrics.json'
+        if ($initSummary) { Write-Host "[INFO] Init summary written: $initSummary" -ForegroundColor Cyan }
+    }
+    catch {
+        Write-Verbose "Could not write init summary for ManagementInit: $_"
+    }
     
     # Update project summary page
     Write-Host "[INFO] Updating Project Summary wiki page..." -ForegroundColor Cyan

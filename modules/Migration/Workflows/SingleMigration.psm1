@@ -398,6 +398,15 @@ function Invoke-SingleMigration {
         # Write summary
         $summaryFile = Join-Path $reportsDir "migration-summary.json"
         Write-MigrationReport $summaryFile $summary
+
+        # Write init summary (created/skipped/failed counts) for this run
+        try {
+            $initSummary = Write-InitSummaryReport -ReportsDir $reportsDir -FileName 'migration-init-summary.json'
+            if ($initSummary) { Write-Host "[INFO] Init summary written: $initSummary" -ForegroundColor Cyan }
+        }
+        catch {
+            Write-Verbose "Could not write init summary: $_"
+        }
         
         # Generate HTML report
         try {

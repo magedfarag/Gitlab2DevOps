@@ -155,8 +155,16 @@ function Measure-Adoproject {
             }
             catch {
                 Write-Warning "[Measure-Adoproject] Failed to query process templates: $_"
-                Write-Warning "[Measure-Adoproject] Using provided value as-is: $ProcessTemplate"
-                $processTemplateId = $ProcessTemplate
+                # If we couldn't query process templates, don't blindly pass a process name as a GUID
+                if ($ProcessTemplate -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
+                    Write-Error "[Measure-Adoproject] Could not resolve process template name '$ProcessTemplate' to a GUID. Server query failed and no GUID was provided. Aborting project creation to avoid sending an invalid template ID."
+                    throw "Failed to resolve process template '$ProcessTemplate' to GUID. Query '/_apis/process/processes' failed. Please retry or provide a process template GUID."
+                }
+                else {
+                    # If the caller already provided a GUID string, accept it
+                    $processTemplateId = $ProcessTemplate
+                    Write-Verbose "[Measure-Adoproject] Using provided GUID for process template: $processTemplateId"
+                }
             }
         }
         
@@ -524,23 +532,21 @@ function Measure-Adoiterations {
             }
             
             Write-Verbose "[Measure-Adoiterations] Creating iteration: $sprintName ($($sprintStart.ToString('yyyy-MM-dd')) to $($sprintEnd.ToString('yyyy-MM-dd')))"
-            $iteration = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/iterations" -Body $iterationBody
-            
-            # Assign iteration to team
-            try {
-                $teamIterationBody = @{
-                    id = $iteration.identifier
+            $res = Ensure-AdoIteration -Project $Project -Name $sprintName -StartDate $sprintStart -FinishDate $sprintEnd -Team $Team
+            if ($res -and $res.Node) {
+                $iterations += $res.Node
+                if ($res.Created) {
+                    Write-Host "[SUCCESS] Created '$sprintName' ($($sprintStart.ToString('MMM dd')) - $($sprintEnd.ToString('MMM dd, yyyy')))" -ForegroundColor Green
+                    $createdCount++
                 }
-                Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/work/teamsettings/iterations" -Body $teamIterationBody | Out-Null
-                Write-Host "[SUCCESS] Created '$sprintName' ($($sprintStart.ToString('MMM dd')) - $($sprintEnd.ToString('MMM dd, yyyy')))" -ForegroundColor Green
+                else {
+                    Write-Host "[INFO] Found existing iteration '$sprintName'" -ForegroundColor Gray
+                    $skippedCount++
+                }
             }
-            catch {
-                Write-Warning "Created iteration but failed to assign to team: $_"
-                Write-Host "[SUCCESS] Created '$sprintName' (not assigned to team)" -ForegroundColor Yellow
+            else {
+                Write-Warning "Failed to ensure iteration '$sprintName'"
             }
-            
-            $iterations += $iteration
-            $createdCount++
         }
         catch {
             # Handle duplicate name race conditions gracefully: if server reports ClassificationNodeDuplicateNameException
@@ -579,6 +585,77 @@ function Measure-Adoiterations {
     return $iterations
 }
 
+# Idempotent iteration ensure helper
+function Ensure-AdoIteration {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)] [string]$Project,
+        [Parameter(Mandatory=$true)] [string]$Name,
+        [DateTime]$StartDate,
+        [DateTime]$FinishDate,
+        [string]$Team
+    )
+
+    $projEnc = [uri]::EscapeDataString($Project)
+    $nameEnc = [uri]::EscapeDataString($Name)
+
+    # Try to get existing node first
+    try {
+        $existing = Invoke-AdoRest GET "/$projEnc/_apis/wit/classificationnodes/iterations/$nameEnc" -ReturnNullOnNotFound
+        if ($existing) {
+            Write-Verbose "[Ensure-AdoIteration] Iteration '$Name' already exists in project '$Project'"
+            try { Add-InitMetric -Category 'iterations' -Action 'skipped' } catch { }
+            return @{ Name = $Name; Created = $false; Node = $existing }
+        }
+    }
+    catch {
+        Write-Verbose "[Ensure-AdoIteration] Could not GET existing iteration '$Name' (will attempt create): $_"
+    }
+
+    # Build body and attempt to create
+    $body = @{ name = $Name }
+    if ($PSBoundParameters.ContainsKey('StartDate') -and $PSBoundParameters.ContainsKey('FinishDate')) {
+        $body.attributes = @{ startDate = $StartDate.ToString('yyyy-MM-ddTHH:mm:ssZ'); finishDate = $FinishDate.ToString('yyyy-MM-ddTHH:mm:ssZ') }
+    }
+
+    try {
+        Write-Verbose "[Ensure-AdoIteration] Creating iteration '$Name' in project '$Project'"
+        $iteration = Invoke-AdoRest POST "/$projEnc/_apis/wit/classificationnodes/iterations" -Body $body
+
+        if ($Team -and $iteration -and $iteration.identifier) {
+            try {
+                $teamIterationBody = @{ id = $iteration.identifier }
+                Invoke-AdoRest POST "/$projEnc/$([uri]::EscapeDataString($Team))/_apis/work/teamsettings/iterations" -Body $teamIterationBody | Out-Null
+            }
+            catch {
+                Write-Warning "Created iteration but failed to assign to team '$Team': $_"
+            }
+        }
+
+        try { Add-InitMetric -Category 'iterations' -Action 'created' } catch { }
+        return @{ Name = $Name; Created = $true; Node = $iteration }
+    }
+    catch {
+        $errMsg = $_.Exception.Message
+        if ($errMsg -and ($errMsg -match 'ClassificationNodeDuplicateNameException' -or $errMsg -match 'TF237018' -or $errMsg -match 'ClassificationNodeDuplicateName')) {
+            Write-Verbose "[Ensure-AdoIteration] Duplicate-name detected when creating '$Name' - fetching existing node"
+            try {
+                $existing2 = Invoke-AdoRest GET "/$projEnc/_apis/wit/classificationnodes/iterations/$nameEnc"
+                if ($existing2) { try { Add-InitMetric -Category 'iterations' -Action 'skipped' } catch { }; return @{ Name = $Name; Created = $false; Node = $existing2 } }
+            }
+            catch {
+                Write-Warning "Iteration reported duplicate but failed to fetch existing node for '$Name': $_"
+                try { Add-InitMetric -Category 'iterations' -Action 'failed' } catch { }
+                return @{ Name = $Name; Created = $false; Node = $null; Error = $_ }
+            }
+        }
+
+        Write-Warning "Failed to create iteration '$Name': $_"
+        try { Add-InitMetric -Category 'iterations' -Action 'failed' } catch { }
+        return @{ Name = $Name; Created = $false; Node = $null; Error = $_ }
+    }
+}
+
 # Export functions
 Export-ModuleMember -Function @(
     'Get-AdoProjectList',
@@ -589,5 +666,6 @@ Export-ModuleMember -Function @(
     'Get-AdoWorkItemTypes',
     'Measure-Adoarea',
     'Measure-Adoiterations'
+    ,'Ensure-AdoIteration'
 )
 

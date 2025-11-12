@@ -952,21 +952,21 @@ This project was migrated from GitLab using automated tooling.
                 }
             }
             
-            # QA Guidelines Wiki
+            # Project Wiki pages (create all sections once)
             if ($script:wiki) {
                 try {
-                    New-AdoQAGuidelinesWiki $DestProject $script:wiki.id
+                    Initialize-AdoProjectWikis -Project $DestProject -WikiId $script:wiki.id | Out-Null
                     $qaResults.guidelines.success = $true
-                    Write-Verbose "[Initialize-AdoProject] ✓ QA guidelines wiki created successfully"
+                    Write-Verbose "[Initialize-AdoProject] ✓ Project wiki pages initialized successfully"
                 }
                 catch {
                     $qaResults.guidelines.error = $_.Exception.Message
-                    Write-Warning "  ✗ QA guidelines wiki creation failed: $($_.Exception.Message)"
+                    Write-Warning "  ✗ Project wiki initialization failed: $($_.Exception.Message)"
                 }
             }
             else {
                 $qaResults.guidelines.error = "Wiki unavailable"
-                Write-Warning "  ⚠ QA guidelines wiki skipped (project wiki not available)"
+                Write-Warning "  ⚠ Project wiki initialization skipped (project wiki not available)"
             }
             
             # Summary report
@@ -1362,6 +1362,30 @@ This project was migrated from GitLab using automated tooling.
     }
     catch {
         # Transcript might not be running
+    }
+
+    # Write init metrics summary for project initialization (if metrics helper available)
+    try {
+        if (Get-Command -Name Write-InitSummaryReport -ErrorAction SilentlyContinue) {
+            # Determine reports directory: prefer $paths.reportsDir if available, else use migrations/<project>/reports
+            if ($paths -and $paths.reportsDir) {
+                $reportsDir = $paths.reportsDir
+            }
+            else {
+                $migrationsDir = Join-Path $PSScriptRoot "..\..\..\migrations"
+                $projectDir = Join-Path $migrationsDir $DestProject
+                $reportsDir = Join-Path $projectDir "reports"
+            }
+
+            Write-Verbose "[Init] Writing init summary report to $reportsDir"
+            Write-InitSummaryReport -ReportsDir $reportsDir -FileName 'project-initialize-init-summary.json' | Out-Null
+        }
+        else {
+            Write-Verbose "[Init] Write-InitSummaryReport not available in this session"
+        }
+    }
+    catch {
+        Write-Warning "[WARN] Failed to write initialization init summary: $_"
     }
 }
 
