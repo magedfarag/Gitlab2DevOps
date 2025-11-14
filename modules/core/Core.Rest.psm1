@@ -6,49 +6,13 @@
 #    Creates a detailed log file with raw HTTP output, extracted JSON string,
 #    and error details for debugging JSON parsing failures.
 #
-#.PARAMETER Side
-#    API side ('ado' or 'gitlab').
-#
-#.PARAMETER Uri
-#    The URI that was called.
-#
-#.PARAMETER Method
-#    HTTP method used.
-#
-#.PARAMETER OutputArray
-#    Raw HTTP output array.
-#
-#.PARAMETER JsonString
-#    Extracted JSON string that failed to parse.
-#
-#.PARAMETER ErrorMessage
-#    The error message from JSON parsing failure.
-#
-#.EXAMPLE
-#    Write-RawHttpOutputToLog -Side 'ado' -Uri $uri -Method 'GET' -OutputArray $outputArray -JsonString $jsonString -ErrorMessage $_
-#>
-$script:RetryAttempts = 3
-$script:RetryDelaySeconds = 5
-$script:MaskSecrets = $true
-$script:LogRestCalls = $false
-$script:ProjectCache = @{}
-$script:AdoApiVersionDetected = $null
-$script:ProjectsCache = $null
-$script:ProjectsCacheTimestamp = $null
-$script:ProjectsCacheExpiryMinutes = 60
 
-<#
-.SYNOPSIS
-    Loads environment variables from .env file.
-
-.DESCRIPTION
-    Reads the .env file from the repository root and sets environment variables.
-    If .env file doesn't exist, uses default values.
-#>
+# Load environment variables
 function Load-EnvFile {
     [CmdletBinding()]
     param()
 
+    # Default .env location: two levels up from this module (repo root)
     $envFilePath = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) '.env'
 
     if (Test-Path $envFilePath) {
@@ -61,14 +25,12 @@ function Load-EnvFile {
                 $parts = $line -split '=', 2
                 $key = $parts[0].Trim()
                 $value = $parts[1].Trim()
-                [Environment]::SetEnvironmentVariable($key, $value, "Process")
+                [Environment]::SetEnvironmentVariable($key, $value, 'Process')
             }
         }
     }
-
 }
 
-# Load environment variables
 Load-EnvFile
 $script:AdoApiVersionDetected = $null
 # Public convenience config object to avoid callers referencing an unset script: variable
@@ -77,7 +39,7 @@ $script:coreRestConfig = @{
     CollectionUrl = [Environment]::GetEnvironmentVariable('ADO_COLLECTION_URL')
     AdoPat = [Environment]::GetEnvironmentVariable('ADO_PAT')
     GitLabBaseUrl = [Environment]::GetEnvironmentVariable('GITLAB_BASE_URL')
-    GitLabToken = [Environment]::GetEnvironmentVariable('GITLAB_TOKEN')
+    GitLabToken = [Environment]::GetEnvironmentVariable('GITLAB_PAT')
     AdoApiVersion = [Environment]::GetEnvironmentVariable('ADO_API_VERSION')
     SkipCertificateCheck = $script:SkipCertificateCheck
     RetryAttempts = $script:RetryAttempts
@@ -104,7 +66,7 @@ function Initialize-CoreRest {
     $script:CollectionUrl = [Environment]::GetEnvironmentVariable('ADO_COLLECTION_URL')
     $script:AdoPat = [Environment]::GetEnvironmentVariable('ADO_PAT')
     $script:GitLabBaseUrl = [Environment]::GetEnvironmentVariable('GITLAB_BASE_URL')
-    $script:GitLabToken = [Environment]::GetEnvironmentVariable('GITLAB_TOKEN')
+    $script:GitLabToken = [Environment]::GetEnvironmentVariable('GITLAB_PAT')
     $script:AdoApiVersion = [Environment]::GetEnvironmentVariable('ADO_API_VERSION')
     $script:SkipCertificateCheck = [Environment]::GetEnvironmentVariable('SKIP_CERTIFICATE_CHECK') -eq 'true'
     $script:RetryAttempts = [int][Environment]::GetEnvironmentVariable('RETRY_ATTEMPTS')
@@ -116,7 +78,7 @@ function Initialize-CoreRest {
     # Initialize ADO headers
     $script:AdoHeaders = New-AuthHeader -Pat $AdoPat
     
-    Write-Verbose "[Core.Rest] Module initialized (v$(script:ModuleVersion)) from environment variables"
+    Write-Verbose "[Core.Rest] Module initialized (v$script:ModuleVersion) from environment variables"
     Write-Verbose "[Core.Rest] ADO API Version: $($script:AdoApiVersion)"
     # Note: Preserve detected API version cache across re-initializations to reduce API calls
     # Cache is cleared only on new PowerShell session (when $script:AdoApiVersionDetected is naturally $null)
@@ -1157,21 +1119,36 @@ function Invoke-RestWithRetry {
             $request.Method = [System.Net.Http.HttpMethod]::new($Method)
             $request.RequestUri = [System.Uri]::new($Uri)
             
+            # Add body for methods that support it (create content BEFORE applying headers so content headers can be set)
+            if ($Body -and $Method -in @('POST', 'PUT', 'PATCH')) {
+                $content = New-Object System.Net.Http.StringContent($Body, [System.Text.Encoding]::UTF8, 'application/json')
+                $request.Content = $content
+            }
+
             # Add headers
             foreach ($header in $Headers.GetEnumerator()) {
                 if ($header.Key -eq 'Authorization') {
                     $request.Headers.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::Parse($header.Value)
-                } elseif ($header.Key -eq 'Content-Type') {
-                    $request.Content.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse($header.Value)
-                } else {
-                    $request.Headers.Add($header.Key, $header.Value)
                 }
-            }
-            
-            # Add body for methods that support it
-            if ($Body -and $Method -in @('POST', 'PUT', 'PATCH')) {
-                $content = New-Object System.Net.Http.StringContent($Body, [System.Text.Encoding]::UTF8, 'application/json')
-                $request.Content = $content
+                elseif ($header.Key -eq 'Content-Type') {
+                    # Only set Content-Type on the HttpContent object when content exists
+                    if ($request.Content) {
+                        try {
+                            $request.Content.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse($header.Value)
+                        }
+                        catch {
+                            # Fallback: add as a normal header if parsing fails
+                            try { $request.Headers.Add('Content-Type', $header.Value) } catch { }
+                        }
+                    }
+                    else {
+                        # No content for this request (likely GET); adding Content-Type is unnecessary — skip it
+                    }
+                }
+                else {
+                    # Use TryAddWithoutValidation to allow non-standard header values
+                    try { $request.Headers.TryAddWithoutValidation($header.Key, $header.Value) | Out-Null } catch { }
+                }
             }
             
             # Log request
@@ -1296,6 +1273,7 @@ function New-AuthHeader {
     param(
         [Parameter(Mandatory, ParameterSetName='Ado')]
         [Parameter(Mandatory, ParameterSetName='GitLab')]
+        [Alias('AdoPat')]
         [string]$Pat,
         
         [Parameter(ParameterSetName='Ado')]
