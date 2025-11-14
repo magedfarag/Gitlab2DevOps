@@ -93,16 +93,7 @@
 
 [CmdletBinding(DefaultParameterSetName='PlainToken')]
 param(
-    [Parameter()]
-    [ValidateNotNullOrEmpty()]
-    [string]$GitLabBaseUrl,
 
-    [Parameter(ParameterSetName='PlainToken')]
-    [ValidateNotNullOrEmpty()]
-    [string]$GitLabToken,
-
-    [Parameter(ParameterSetName='SecureToken')]
-    [System.Security.SecureString]$GitLabTokenSecure,
 
     [Parameter(Mandatory=$false)]
     [string]$OutDirectory,
@@ -130,6 +121,8 @@ param(
 
     [switch]$ShowStatistics
 )
+
+Import-Module "C:\Projects\devops\Gitlab2DevOps\modules\core\Core.Rest.psm1" -Force -ErrorAction Stop
 
 # ---------------------------
 # Helper Functions (available even when script is dot-sourced)
@@ -169,7 +162,7 @@ function Invoke-GitLabRest {
     if ($Query -and $Query -is [hashtable] -and $Query.Count -gt 0) {
         $nv = New-Object System.Collections.Specialized.NameValueCollection
         foreach ($k in $Query.Keys) {
-            $v = if ($Query[$k] -ne $null) { [string]$Query[$k] } else { '' }
+            $v = if ($null -ne $Query[$k]) { [string]$Query[$k] } else { '' }
             $nv.Add([string]$k, $v)
         }
         $qs = [System.Web.HttpUtility]::ParseQueryString('')
@@ -188,7 +181,7 @@ function Invoke-GitLabRest {
     while ($true) {
         try {
             $resp = Invoke-WebRequest -Method $Method -Uri $uri -Headers $headers -UseBasicParsing
-            $contentType = ($resp.Headers['Content-Type'])
+            # $contentType = ($resp.Headers['Content-Type'])
             $raw = $resp.Content
             $data = if ($raw) { $raw | ConvertFrom-Json } else { $null }
             return [pscustomobject]@{
@@ -286,7 +279,7 @@ function Invoke-GitLabPagedRequest {
         }
 
         $data = $resp.Data
-        if ($data -eq $null) { break }
+        if ($null -eq $data) { break }
         if ($data -is [array]) { $items.AddRange($data) } else { $items.Add($data) }
 
         $h = $resp.Headers
@@ -360,20 +353,21 @@ function Get-AccessLevelName {
     }
 }
 
+
 $script:logFile = $null
 $script:IsLibraryImport = ($MyInvocation.InvocationName -eq '.')
 if ($script:IsLibraryImport) {
     return
 }
 
-if (-not $GitLabBaseUrl) {
-    throw "Parameter -GitLabBaseUrl is required when executing export-gitlab-identity.ps1."
+
+$config = $script:coreRestConfig
+if (-not $config) {
+    $config = Ensure-CoreRestInitialized
 }
 
-if (-not $GitLabToken -and -not $GitLabTokenSecure) {
-    throw "Specify either -GitLabToken or -GitLabTokenSecure when executing export-gitlab-identity.ps1."
-}
-
+$GitLabBaseUrl = $config.GitLabBaseUrl
+$GitLabToken = $config.GitLabToken
 $script:PageSize = $PageSize
 $script:ApiVersion = $ApiVersion
 
@@ -387,26 +381,15 @@ $ErrorActionPreference = 'Stop'
 $PSDefaultParameterValues['Invoke-WebRequest:ErrorAction'] = 'Stop'
 $PSDefaultParameterValues['Invoke-RestMethod:ErrorAction'] = 'Stop'
 
+
 # Normalize base URL (no trailing slash)
 if ($GitLabBaseUrl.EndsWith('/')) {
     $GitLabBaseUrl = $GitLabBaseUrl.TrimEnd('/')
 }
 $script:GitLabBaseUrl = $GitLabBaseUrl
 
-# Materialize token value from secure/plain
-$PlainToken = $null
-if ($PSCmdlet.ParameterSetName -eq 'SecureToken') {
-    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($GitLabTokenSecure)
-    try {
-        $PlainToken = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-    }
-    finally {
-        if ($bstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
-    }
-}
-else {
-    $PlainToken = $GitLabToken
-}
+# Materialize token value
+$PlainToken = $GitLabToken
 $script:PlainToken = $PlainToken
 
 # Wrap entire script execution in try-finally for token cleanup
@@ -569,7 +552,7 @@ if ($Resume.IsPresent -and $resumeFlags.users) {
     Write-Log "[RESUME] Skipping users export - $usersFile already exists"
     $users = Get-Content -LiteralPath $usersFile -Raw | ConvertFrom-Json
     # Ensure array shape (ConvertFrom-Json returns single object when JSON has one item)
-    if ($users -eq $null) { $users = @() } else { $users = @($users) }
+    if ($null -eq $users) { $users = @() } else { $users = @($users) }
     $metadata.counts.users = $users.Count
 }
 else {
@@ -582,7 +565,7 @@ else {
     }
     else {
         $usersRaw = $usersResp.Items
-        if ($usersRaw -eq $null) { $usersRaw = @() }
+        if ($null -eq $usersRaw) { $usersRaw = @() }
         $userIndex = 0
         $users = foreach ($u in $usersRaw) {
             $userIndex++
@@ -631,7 +614,7 @@ else {
 if ($Resume.IsPresent -and $resumeFlags.groups) {
     Write-Log "[RESUME] Skipping groups export - $groupsFile already exists"
     $groups = Get-Content -LiteralPath $groupsFile -Raw | ConvertFrom-Json
-    if ($groups -eq $null) { $groups = @() } else { $groups = @($groups) }
+    if ($null -eq $groups) { $groups = @() } else { $groups = @($groups) }
     $metadata.counts.groups = $groups.Count
 }
 else {
@@ -644,7 +627,7 @@ else {
     }
     else {
         $groupsRaw = $groupsResp.Items
-        if ($groupsRaw -eq $null) { $groupsRaw = @() }
+        if ($null -eq $groupsRaw) { $groupsRaw = @() }
         # Build parent lookup for hierarchy computation
         $groupLookup = @{}
         foreach ($g in $groupsRaw) { $groupLookup[[string]$g.id] = $g }
@@ -722,7 +705,7 @@ if ($Profile -eq 'Minimal') {
 elseif ($Resume.IsPresent -and $resumeFlags.projects) {
     Write-Log "[RESUME] Skipping projects export - $projectsFile already exists"
     $projects = Get-Content -LiteralPath $projectsFile -Raw | ConvertFrom-Json
-    if ($projects -eq $null) { $projects = @() } else { $projects = @($projects) }
+    if ($null -eq $projects) { $projects = @() } else { $projects = @($projects) }
     $metadata.counts.projects = $projects.Count
 }
 else {
@@ -737,7 +720,7 @@ else {
     }
     else {
         $projectsRaw = $projectsResp.Items
-        if ($projectsRaw -eq $null) { $projectsRaw = @() }
+        if ($null -eq $projectsRaw) { $projectsRaw = @() }
         $projectIndex = 0
         $projects = foreach ($p in $projectsRaw) {
             $projectIndex++
@@ -796,7 +779,7 @@ if ($Profile -ne 'Complete') {
 elseif ($Resume.IsPresent -and $resumeFlags.group_memberships) {
     Write-Log "[RESUME] Skipping group memberships export - $groupMembershipsFile already exists"
     $groupMemberships = Get-Content -LiteralPath $groupMembershipsFile -Raw | ConvertFrom-Json
-    if ($groupMemberships -eq $null) { $groupMemberships = @() } else { $groupMemberships = @($groupMemberships) }
+    if ($null -eq $groupMemberships) { $groupMemberships = @() } else { $groupMemberships = @($groupMemberships) }
     $metadata.counts.group_memberships = $groupMemberships.Count
     $totalGroupMemberEntries = 0
     foreach ($gm in $groupMemberships) { $totalGroupMemberEntries += ($gm.members | Measure-Object).Count }
@@ -901,7 +884,7 @@ if ($Profile -ne 'Complete') {
 elseif ($Resume.IsPresent -and $resumeFlags.project_memberships) {
     Write-Log "[RESUME] Skipping project memberships export - $projectMembershipsFile already exists"
     $projectMemberships = Get-Content -LiteralPath $projectMembershipsFile -Raw | ConvertFrom-Json
-    if ($projectMemberships -eq $null) { $projectMemberships = @() } else { $projectMemberships = @($projectMemberships) }
+    if ($null -eq $projectMemberships) { $projectMemberships = @() } else { $projectMemberships = @($projectMemberships) }
     $metadata.counts.project_memberships = $projectMemberships.Count
     $totalProjectMemberEntries = 0
     foreach ($pm in $projectMemberships) { $totalProjectMemberEntries += ($pm.members | Measure-Object).Count }
@@ -918,7 +901,7 @@ else {
             $pct = [Math]::Min(90, 75 + (($projIdx / $projects.Count) * 15))
             Write-Progress -Activity "Exporting GitLab Identity" -Status "Processing project memberships ($projIdx/$($projects.Count))..." -PercentComplete $pct
         }
-        $pid = $p.id
+        $projectId = $p.id
         $ppath = $p.path_with_namespace
 
         # Users: all vs direct
@@ -999,7 +982,7 @@ if ($IncludeMemberRoles.IsPresent) {
     if ($Resume.IsPresent -and $resumeFlags.member_roles) {
         Write-Log "[RESUME] Skipping member roles export - $memberRolesFile already exists"
         $roles = Get-Content -LiteralPath $memberRolesFile -Raw | ConvertFrom-Json
-        if ($roles -eq $null) { $roles = @() } else { $roles = @($roles) }
+        if ($null -eq $roles) { $roles = @() } else { $roles = @($roles) }
         $metadata.counts.member_roles = $roles.Count
     }
     else {

@@ -192,7 +192,26 @@ Write-Host ""
 
 # Import modules
 Write-Host "[INFO] Loading migration modules..."
-Import-Module "$scriptRoot\modules\core\Core.Rest.psm1" -Force -DisableNameChecking
+# Import Core.Rest once with warning suppression to avoid noisy unapproved-verb warnings
+$oldWarning = $WarningPreference
+$WarningPreference = 'SilentlyContinue'
+try {
+    Import-Module "$scriptRoot\modules\core\Core.Rest.psm1" -Force -DisableNameChecking -ErrorAction Stop
+}
+catch {
+    Write-Warning "[WARN] Failed to import Core.Rest: $_"
+}
+$WarningPreference = $oldWarning
+
+# Ensure Core.Rest is initialized (idempotent)
+try {
+    if (Get-Command -Name 'Initialize-CoreRest' -ErrorAction SilentlyContinue) { Initialize-CoreRest }
+    else { Import-Module "$scriptRoot\modules\core\Core.Rest.psm1" -Force -ErrorAction SilentlyContinue; if (Get-Command -Name 'Initialize-CoreRest' -ErrorAction SilentlyContinue) { Initialize-CoreRest } }
+}
+catch {
+    Write-Warning "[WARN] Core.Rest initialization encountered an error: $_"
+}
+
 Import-Module "$scriptRoot\modules\core\Logging.psm1" -Force -DisableNameChecking
 Import-Module "$scriptRoot\modules\GitLab\GitLab.psm1" -Force -DisableNameChecking
 Import-Module "$scriptRoot\modules\AzureDevOps\AzureDevOps.psm1" -Force -DisableNameChecking

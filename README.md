@@ -62,17 +62,15 @@ Migrate Git repositories with full history, branch policies, and comprehensive a
 ## ⚡ Quick Start
 
 ```powershell
-# 1. Configure credentials (create migration.config.json)
-@{
-    gitlab = @{
-        base_url = "https://gitlab.example.com"
-        token = "glpat-XXXXXXXXXXXXXXXXXXXX"
-    }
-    ado = @{
-        organization = "https://dev.azure.com/yourorg"
-        token = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-    }
-} | ConvertTo-Json | Out-File migration.config.json
+
+# 1. Configure credentials in .env (recommended)
+# .env file in repo root:
+GITLAB_BASE_URL=https://gitlab.example.com
+GITLAB_PAT=glpat-XXXXXXXXXXXXXXXXXXXX
+ADO_COLLECTION_URL=https://dev.azure.com/yourorg
+ADO_PAT=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+# The migration tool automatically loads .env for secrets/config via Core.Rest.
 
 # 2. Run preflight check
 .\Gitlab2DevOps.ps1 -Mode Preflight -Source "my-group/my-project"

@@ -7,6 +7,9 @@
 #    and error details for debugging JSON parsing failures.
 #
 
+# Module-level guard to ensure idempotent initialization
+$script:CoreRest_Initialized = $false
+
 # Internal: load environment variables from .env into process env.
 # This is an internal implementation detail and MUST NOT be exported or
 # referenced by other modules. Keep the function name private to the module.
@@ -37,7 +40,9 @@ function Private_LoadEnvFromFileInternal {
 }
 
 # Invoke private loader during module initialization (no exported API provided)
-try { Private_LoadEnvFromFileInternal } catch { }
+if (-not $script:CoreRest_Initialized) {
+    try { Private_LoadEnvFromFileInternal } catch { }
+}
 $script:AdoApiVersionDetected = $null
 
 function Set-CoreRestConfigFromEnvironment {
@@ -137,6 +142,11 @@ function New-AuthHeader {
 function Initialize-CoreRest {
     [CmdletBinding()]
     param()
+    # If module already initialized, do nothing (idempotent)
+    if ($script:CoreRest_Initialized) {
+        Write-Verbose "[Core.Rest] Initialize-CoreRest called but module already initialized"
+        return
+    }
 
     Set-CoreRestConfigFromEnvironment
     # Projects cache (used by Invoke-AdoRest) - ensure consistent naming
@@ -180,8 +190,12 @@ function Initialize-CoreRest {
     catch {
         Write-Warning "[Core.Rest] Failed to initialize reusable HttpClient: $_. Ensure Initialize-CoreRest was called with correct parameters and that .NET HttpClient is available."
     }
+    # Mark module initialized to prevent re-running import-time initialization
+    try { $script:CoreRest_Initialized = $true } catch { }
 }
-Initialize-CoreRest
+if (-not $script:CoreRest_Initialized) {
+    try { Initialize-CoreRest; $script:CoreRest_Initialized = $true } catch { Write-Verbose "[Core.Rest] Initialize-CoreRest at import failed: $_" }
+}
 <#
 .SYNOPSIS
     Ensures the Core.Rest module is initialized and returns the config.
