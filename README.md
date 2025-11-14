@@ -144,6 +144,10 @@ Optional: Provision team-specific initialization packs in an existing ADO projec
 
 ### Production-Grade Features
 
+### New Interactive Menu Option (v2.1.0)
+
+**Prepare Bulk from Config File**: The interactive menu now includes an option to prepare all migrations in bulk from a configuration file (`projects.json`). This enables rapid, config-driven preparation of multiple GitLab projects for migration. Select option 9 in the menu to use this feature.
+
 | Feature | Description |
 |---------|-------------|
 | **REST Resilience** | Exponential backoff, retry logic, error normalization |

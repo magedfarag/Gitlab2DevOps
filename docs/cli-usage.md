@@ -35,6 +35,10 @@ CLI mode enables headless automation for CI/CD pipelines, scripts, and batch pro
 # Preflight check only
 .\Gitlab2DevOps.ps1 -Mode Preflight -Source "group/project"
 
+
+# Bulk prepare all migrations from config file (interactive menu)
+# Select option 9 in the menu to run Prepare-MigrationsFromConfig.ps1 using projects.json
+
 # Bulk migrate all projects from file
 .\Gitlab2DevOps.ps1 -Mode BulkMigrate -ProjectsFile projects.txt
 

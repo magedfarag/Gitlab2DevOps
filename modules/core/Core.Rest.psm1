@@ -33,14 +33,52 @@ $script:MaskSecrets = $true
 $script:LogRestCalls = $false
 $script:ProjectCache = @{}
 $script:AdoApiVersionDetected = $null
+$script:ProjectsCache = $null
+$script:ProjectsCacheTimestamp = $null
+$script:ProjectsCacheExpiryMinutes = 60
+
+<#
+.SYNOPSIS
+    Loads environment variables from .env file.
+
+.DESCRIPTION
+    Reads the .env file from the repository root and sets environment variables.
+    If .env file doesn't exist, uses default values.
+#>
+function Load-EnvFile {
+    [CmdletBinding()]
+    param()
+
+    $envFilePath = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) '.env'
+
+    if (Test-Path $envFilePath) {
+        $envContent = Get-Content $envFilePath -Raw
+        $envLines = $envContent -split "`n"
+
+        foreach ($line in $envLines) {
+            $line = $line.Trim()
+            if ($line -and -not $line.StartsWith('#') -and $line.Contains('=')) {
+                $parts = $line -split '=', 2
+                $key = $parts[0].Trim()
+                $value = $parts[1].Trim()
+                [Environment]::SetEnvironmentVariable($key, $value, "Process")
+            }
+        }
+    }
+
+}
+
+# Load environment variables
+Load-EnvFile
+$script:AdoApiVersionDetected = $null
 # Public convenience config object to avoid callers referencing an unset script: variable
 # Some modules (older code paths) access $script:coreRestConfig directly; define a safe default.
 $script:coreRestConfig = @{
-    CollectionUrl = $null
-    AdoPat = $null
-    GitLabBaseUrl = $null
-    GitLabToken = $null
-    AdoApiVersion = $null
+    CollectionUrl = [Environment]::GetEnvironmentVariable('ADO_COLLECTION_URL')
+    AdoPat = [Environment]::GetEnvironmentVariable('ADO_PAT')
+    GitLabBaseUrl = [Environment]::GetEnvironmentVariable('GITLAB_BASE_URL')
+    GitLabToken = [Environment]::GetEnvironmentVariable('GITLAB_TOKEN')
+    AdoApiVersion = [Environment]::GetEnvironmentVariable('ADO_API_VERSION')
     SkipCertificateCheck = $script:SkipCertificateCheck
     RetryAttempts = $script:RetryAttempts
     RetryDelaySeconds = $script:RetryDelaySeconds
@@ -50,94 +88,40 @@ $script:coreRestConfig = @{
 
 <#
 .SYNOPSIS
-    Initializes the Core.Rest module with configuration parameters.
+    Initializes the Core.Rest module with configuration from environment variables.
 
 .DESCRIPTION
-    Must be called before using any other functions in this module.
-    Sets up authentication headers and API endpoints.
+    Must be called before using any other  in this module.
+    Loads configuration from environment variables set by Load-EnvFile.
 
-.PARAMETER CollectionUrl
-    Azure DevOps collection URL.
-
-.PARAMETER AdoPat
-    Azure DevOps Personal Access Token.
-
-.PARAMETER GitLabBaseUrl
-    GitLab instance base URL.
-
-.PARAMETER GitLabToken
-    GitLab Personal Access Token.
-
-.PARAMETER AdoApiVersion
-    Azure DevOps REST API version (default: 7.1).
-
-.PARAMETER SkipCertificateCheck
-    Skip TLS certificate validation (not recommended for production).
-
-.PARAMETER RetryAttempts
-    Number of retry attempts for failed REST calls (default: 3).
-
-.PARAMETER RetryDelaySeconds
-    Initial delay between retries in seconds (exponential backoff, default: 5).
-
-.PARAMETER MaskSecrets
-    Mask tokens and secrets in logs (default: $true).
-
-.PARAMETER LogRestCalls
-    Log all REST API calls with URLs and responses (default: $false).
-
-.EXAMPLE
-    Initialize-CoreRest -CollectionUrl "https://dev.azure.com/org" -AdoPat $pat -LogRestCalls
+.EXAMPLEfunctions
+    Initialize-CoreRest
 #>
 function Initialize-CoreRest {
     [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$CollectionUrl,
-        
-        [Parameter(Mandatory)]
-        [string]$AdoPat,
-        
-        [Parameter(Mandatory)]
-        [string]$GitLabBaseUrl,
-        
-        [Parameter(Mandatory)]
-        [string]$GitLabToken,
-        
-        [string]$AdoApiVersion = "7.1",
-        
-        [switch]$SkipCertificateCheck,
-        
-        [int]$RetryAttempts = 3,
-        
-        [int]$RetryDelaySeconds = 5,
-        
-        [bool]$MaskSecrets = $true,
-        
-        [switch]$LogRestCalls
-    )
-    
-    $script:CollectionUrl = $CollectionUrl
-    $script:AdoPat = $AdoPat
-    $script:GitLabBaseUrl = $GitLabBaseUrl
-    $script:GitLabToken = $GitLabToken
-    $script:AdoApiVersion = $AdoApiVersion
-    $script:SkipCertificateCheck = $SkipCertificateCheck.IsPresent
-    $script:RetryAttempts = $RetryAttempts
-    $script:RetryDelaySeconds = $RetryDelaySeconds
-    $script:MaskSecrets = $MaskSecrets
-    $script:LogRestCalls = $LogRestCalls
+    param()
+
+    $script:CollectionUrl = [Environment]::GetEnvironmentVariable('ADO_COLLECTION_URL')
+    $script:AdoPat = [Environment]::GetEnvironmentVariable('ADO_PAT')
+    $script:GitLabBaseUrl = [Environment]::GetEnvironmentVariable('GITLAB_BASE_URL')
+    $script:GitLabToken = [Environment]::GetEnvironmentVariable('GITLAB_TOKEN')
+    $script:AdoApiVersion = [Environment]::GetEnvironmentVariable('ADO_API_VERSION')
+    $script:SkipCertificateCheck = [Environment]::GetEnvironmentVariable('SKIP_CERTIFICATE_CHECK') -eq 'true'
+    $script:RetryAttempts = [int][Environment]::GetEnvironmentVariable('RETRY_ATTEMPTS')
+    $script:RetryDelaySeconds = [int][Environment]::GetEnvironmentVariable('RETRY_DELAY_SECONDS')
+    $script:MaskSecrets = [Environment]::GetEnvironmentVariable('MASK_SECRETS') -eq 'true'
+    $script:LogRestCalls = [Environment]::GetEnvironmentVariable('LOG_REST_CALLS') -eq 'true'
     $script:ProjectCache = @{}
     
     # Initialize ADO headers
     $script:AdoHeaders = New-AuthHeader -Pat $AdoPat
     
-    Write-Verbose "[Core.Rest] Module initialized (v$script:ModuleVersion)"
-    Write-Verbose "[Core.Rest] ADO API Version: $AdoApiVersion"
+    Write-Verbose "[Core.Rest] Module initialized (v$(script:ModuleVersion)) from environment variables"
+    Write-Verbose "[Core.Rest] ADO API Version: $($script:AdoApiVersion)"
     # Note: Preserve detected API version cache across re-initializations to reduce API calls
     # Cache is cleared only on new PowerShell session (when $script:AdoApiVersionDetected is naturally $null)
     Write-Verbose "[Core.Rest] SkipCertificateCheck: $($script:SkipCertificateCheck)"
-    Write-Verbose "[Core.Rest] Retry: $RetryAttempts attempts, ${RetryDelaySeconds}s delay"
+    Write-Verbose "[Core.Rest] Retry: $($script:RetryAttempts) attempts, $($script:RetryDelaySeconds)s delay"
     Write-Host "[INFO] Core.Rest initialized - SkipCertificateCheck = $($script:SkipCertificateCheck)" -ForegroundColor Cyan
 
     # Populate the public convenience config object for backward compatibility
@@ -1108,10 +1092,10 @@ $ErrorMessage
 
 <#
 .SYNOPSIS
-    Invokes a REST call with retry logic and exponential backoff.
+    Invokes a REST call with retry logic and exponential backoff using HttpClient.
 
 .DESCRIPTION
-    Wraps Invoke-RestMethod with automatic retry on transient failures (500, 503, 429).
+    Uses the reusable HttpClient for all HTTP operations with automatic retry on transient failures.
 
 .PARAMETER Method
     HTTP method.
@@ -1156,6 +1140,10 @@ function Invoke-RestWithRetry {
         [int]$DelaySeconds
     )
     
+    if (-not $script:HttpClient) {
+        throw "HttpClient not initialized. Call Initialize-CoreRest first."
+    }
+    
     $attempt = 0
     $effectiveMaxAttempts = if ($PSBoundParameters.ContainsKey('MaxAttempts')) { [Math]::Max(1, $MaxAttempts) } else { $script:RetryAttempts + 1 }
     $baseDelay = if ($PSBoundParameters.ContainsKey('DelaySeconds')) { [Math]::Max(0, $DelaySeconds) } else { $script:RetryDelaySeconds }
@@ -1164,30 +1152,30 @@ function Invoke-RestWithRetry {
         $attempt++
         
         try {
-            $invokeParams = @{
-                Method  = $Method
-                Uri     = $Uri
-                Headers = $Headers
+            # Create HttpRequestMessage
+            $request = New-Object System.Net.Http.HttpRequestMessage
+            $request.Method = [System.Net.Http.HttpMethod]::new($Method)
+            $request.RequestUri = [System.Uri]::new($Uri)
+            
+            # Add headers
+            foreach ($header in $Headers.GetEnumerator()) {
+                if ($header.Key -eq 'Authorization') {
+                    $request.Headers.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::Parse($header.Value)
+                } elseif ($header.Key -eq 'Content-Type') {
+                    $request.Content.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse($header.Value)
+                } else {
+                    $request.Headers.Add($header.Key, $header.Value)
+                }
             }
             
-            # Add body only for methods that support it
+            # Add body for methods that support it
             if ($Body -and $Method -in @('POST', 'PUT', 'PATCH')) {
-                $invokeParams.Body = $Body
+                $content = New-Object System.Net.Http.StringContent($Body, [System.Text.Encoding]::UTF8, 'application/json')
+                $request.Content = $content
             }
             
-            # CRITICAL: Always add SkipCertificateCheck for ADO calls when configured
-            # This MUST be present for every request to on-premise servers with self-signed certs
-            if ($script:SkipCertificateCheck -eq $true) {
-                $invokeParams.SkipCertificateCheck = $true
-                Write-Verbose "[Core.Rest] ✓ SkipCertificateCheck=TRUE added to request"
-            }
-            else {
-                Write-Verbose "[Core.Rest] ✗ SkipCertificateCheck=FALSE (script var = $script:SkipCertificateCheck)"
-            }
-            
-            # Log request before sending
+            # Log request
             $maskedUri = Hide-Secret -Text $Uri
-            $skipCertStatus = if ($invokeParams.ContainsKey('SkipCertificateCheck')) { "SSL:Skip" } else { "SSL:Verify" }
             $methodColor = switch ($Method) {
                 'GET' { 'Cyan' }
                 'POST' { 'Green' }
@@ -1199,7 +1187,7 @@ function Invoke-RestWithRetry {
             
             Write-Host "[$Side] → $Method $maskedUri" -ForegroundColor $methodColor -NoNewline
             if ($script:LogRestCalls) {
-                Write-Host " ($skipCertStatus, attempt $attempt/$effectiveMaxAttempts)" -ForegroundColor Gray
+                Write-Host " (attempt $attempt/$effectiveMaxAttempts)" -ForegroundColor Gray
                 if ($Body -and $Method -in @('POST', 'PUT', 'PATCH')) {
                     Write-Verbose "[REST] Request body: $($Body.Substring(0, [Math]::Min(500, $Body.Length)))..."
                 }
@@ -1207,464 +1195,85 @@ function Invoke-RestWithRetry {
                 Write-Host ""
             }
             
-            # Measure request duration
+            # Send request
             $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-
-            $response = Invoke-RestMethod @invokeParams
-
+            $responseTask = $script:HttpClient.SendAsync($request)
+            $response = $responseTask.Result
             $stopwatch.Stop()
             
-            # Log response summary
+            # Log response
             $durationMs = [int]$stopwatch.ElapsedMilliseconds
             $durationColor = if ($durationMs -lt 500) { 'Green' } elseif ($durationMs -lt 2000) { 'Yellow' } else { 'Red' }
-            Write-Host "[$Side] ← 200 OK " -ForegroundColor Green -NoNewline
-            Write-Host "($durationMs ms)" -ForegroundColor $durationColor
             
-            if ($script:LogRestCalls) {
-                # Log response highlights - use .Length instead of .Count for safety
-                $responseType = $response.GetType().Name
-                if ($response.PSObject.Properties['value'] -and $response.value -is [array]) {
-                    $itemCount = if ($response.value) { $response.value.Length } else { 0 }
-                    Write-Verbose "[REST] Response: $itemCount items in array"
-                } elseif ($response -is [array]) {
-                    $itemCount = if ($response) { $response.Length } else { 0 }
-                    Write-Verbose "[REST] Response: $itemCount items"
-                } elseif ($response.PSObject.Properties['count']) {
-                    Write-Verbose "[REST] Response: count=$($response.count)"
-                } else {
-                    Write-Verbose "[REST] Response: $responseType"
-                }
-            }
-            
-            return $response
-        }
-        catch {
-            # New-NormalizedError expects exceptions similar to Invoke-RestMethod's output.
-            # HttpClient throws System.Net.Http.HttpRequestException which doesn't have the
-            # same Response property. Normalize to a safe input for New-NormalizedError to
-            # avoid edge cases where the normalization code attempts to access properties
-            # that don't exist and causes unexpected parser/command errors.
-            if ($_.Exception -is [System.Net.Http.HttpRequestException]) {
-                # Build a compact message that includes available raw body (if present)
-                $bodyText = $null
-                try { if ($_.Exception.Data.Contains('Body')) { $bodyText = $_.Exception.Data['Body'] } } catch {}
-                $safeMsg = $_.Exception.Message
-                if ($bodyText) { $safeMsg = "$safeMsg`nRawBody:`n$bodyText" }
-                $normalizedError = New-NormalizedError -Exception $safeMsg -Side $Side -Endpoint $Uri
-            }
-            else {
-                $normalizedError = New-NormalizedError -Exception $_ -Side $Side -Endpoint $Uri
-            }
-            $status = $normalizedError.status
-            $errorMsg = $_.Exception.Message
-            
-            # Log failed REST call with status code
-            # Use less alarming colors for expected errors (404 on GET, retryable errors)
-            $statusColor = if ($status -in @(429, 500, 502, 503, 504)) { 
-                'Yellow'  # Retryable errors
-            } elseif ($status -eq 404 -and $Method -eq 'GET') { 
-                'DarkYellow'  # Expected 404s on GET (idempotent checks)
-            } else { 
-                'Red'  # Real errors
-            }
-            
-            if ($status -gt 0) {
-                Write-Host "[$Side] ← $status ERROR" -ForegroundColor $statusColor -NoNewline
-                Write-Host " ($($normalizedError.message.Substring(0, [Math]::Min(80, $normalizedError.message.Length))))" -ForegroundColor Gray
-            } else {
-                Write-Host "[$Side] ✗ Connection error: $($errorMsg.Substring(0, [Math]::Min(80, $errorMsg.Length)))" -ForegroundColor Red
-            }
-            
-            if ($script:LogRestCalls) {
-                Write-Verbose "[REST] Full error: $($normalizedError.message)"
-            }
-            
-            # Detect common connection-related errors
-            $isConnectionError = $errorMsg -match "connection was forcibly closed|Unable to read data from the transport|SSL|certificate|An error occurred while sending the request"
-            Write-Verbose "[Core.Rest] Connection check: SkipCert=$script:SkipCertificateCheck, Status=$status, IsConnErr=$isConnectionError"
-            Write-Verbose "[Core.Rest] Error message: $errorMsg"
-            
-																						 
-																									 
-																				 
-				
-									 
-																							 
-																				   
-				 
-				
-					 
-									  
-																								   
-										
-											   
-												  
-														 
-																			   
-														
-																	   
-																										  
-																												 
-																															  
-					
-															   
-											 
-										  
-																							  
-																										
-										 
-														 
-										 
-																	 
-																														  
-					 
-						  
-														  
-														 
-											 
-																   
-						 
-					 
-					
-												 
-																		   
-											  
-											 
-																		 
-						 
-										 
-										  
-																						   
-					 
-					
-									 
-					
-																								
-					
-																		
-																			   
-													   
-										 
-					
-													   
-																		   
-																									
-					 
-					
-																		  
-																							   
-						 
-													 
-																					 
-																																													 
-															
-																							 
-									
-																															  
-																				 
-					 
-						   
-																					
-										  
-										
-											  
-					 
-					
-																		   
-																			   
-										
-																													   
-																					 
-							
-										  
-					 
-					
-																				  
-																				   
-											
-											  
-						  
-							 
-						  
-					 
-																					
-					
-																	  
-																									 
-								 
-															 
-														 
-																								  
-						 
-					 
-					
-																		 
-					
-																					   
-																			   
-										
-											
-					
-										   
-															   
-														   
-							
-																					
-																		   
-																							  
-										
-							 
-							
-															 
-																			 
-											   
-														   
-															
-																																			 
-										 
-								 
-							 
-						 
-					 
-					
-																							  
-																									 
-																																	
-					
-																									   
-																								 
-										 
-																 
-										 
-						
-													  
-																
-										 
-						 
-						
-												
-																 
-										 
-						 
-						
-																		
-																			   
-										 
-						 
-						
-															  
-										   
-										
-						 
-						
-																		
-															  
-												
-																							  
-										
-						 
-						
-															 
-									 
-					  
-					
-													
-																																		   
-																				   
-					
-													   
-
-																									 
-																								 
-																							
-																	  
-						 
-																				  
-																					   
-
-																						   
-																 
-																   
-																		
-																						 
-																				
-						 
-					 
-						   
-																							  
-					 
-
-																								  
-																
-																																		   
-																					
-					
-																			 
-																																			  
-					 
-					
-									   
-																			 
-																   
-																											   
-												  
-																												
-							
-																											 
-					 
-					
-																	
-																				   
-						
-													  
-												   
-																						  
-																									 
-																									  
-						 
-						
-																							
-																		
-																 
-														
-																
-															 
-											   
-												   
-						 
-						
-																  
-																			  
-										 
-																																   
-																
-						 
-													
-											   
-																					 
-						  
-							  
-																			 
-						 
-					 
-					
-						 
-														 
-																					
-						
-												   
-																							  
-																										  
-																									   
-																						  
-															  
-																						   
-																				 
-									
-																							
-							 
-						 
-						
-										
-					 
-													  
-																									 
-																														   
-								 
-																														   
-																										 
-												
-							 
-								   
-																								  
-														   
-																																								
-								 
-																		   
-																																								 
-														
-											 
-																										 
-							 
-						 
-							  
-								 
-						 
-					 
-						   
-																				 
-												   
-																																						
-						 
-																   
-																																						 
-												
-									 
-																 
-					 
-				 
-					   
-																		 
-																					 
-												 
-				 
-			 
-			
-            # Retry on transient failures
-            $shouldRetry = $status -in @(429, 500, 502, 503, 504) -and $attempt -lt $effectiveMaxAttempts
-            
-            if ($shouldRetry) {
-                # Exponential backoff with jitter to avoid thundering herd
-                $delayBase = $baseDelay * [Math]::Pow(2, $attempt - 1)
-                $jitter = Get-Random -Minimum 0 -Maximum ([Math]::Max(1, [int]($delayBase * 0.2)))
-                $delay = [int]$delayBase + $jitter
-                Write-Host "[$Side] ⟳ Retry in ${delay}s (attempt $attempt/$effectiveMaxAttempts)" -ForegroundColor Yellow
-                if ($delay -gt 0) { Start-Sleep -Seconds $delay }
-            }
-            else {
-                # Final failure or non-retryable error
-                # 404 on GET is often expected (idempotent checks), so show less alarming message
-                if ($Method -eq 'GET' -and $status -eq 404) {
-                    Write-Verbose "[$Side] Resource not found (404) - this may be expected for idempotent operations"
-                } else {
-                    Write-Host "[$Side] ✗ Request failed" -ForegroundColor Red
-                }
+            if ($response.IsSuccessStatusCode) {
+                Write-Host "[$Side] ← $($response.StatusCode) OK " -ForegroundColor Green -NoNewline
+                Write-Host "($durationMs ms)" -ForegroundColor $durationColor
+                
+                # Read response content
+                $contentTask = $response.Content.ReadAsStringAsync()
+                $content = $contentTask.Result
                 
                 if ($script:LogRestCalls) {
-                    $maskedEndpoint = $normalizedError.endpoint
-                    Write-Error "[$Side] REST $Method $maskedEndpoint → HTTP $status : $($normalizedError.message)"
+                    Write-Verbose "[REST] Response content length: $($content.Length) chars"
                 }
-                # Write a small diagnostic file for final failures when LogRestCalls is enabled
-                try {
-                    if ($script:LogRestCalls) {
-                        $logsDir = Join-Path $PSScriptRoot "..\logs"
-                        if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
-                        $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-                        $safeUri = Hide-Secret -Text $Uri
-                        $diagFile = Join-Path $logsDir ("rest-failure-" + $Side + "-" + $Method + "-" + $timestamp + ".json")
-                        $diag = [ordered]@{
-                            timestamp = (Get-Date).ToString('o')
-                            side = $Side
-                            method = $Method
-                            endpoint = $safeUri
-                            status = $status
-                            message = $normalizedError.message
-                            rawBody = (if ($normalizedError.rawBody) { $normalizedError.rawBody } else { $null })
-                        }
-                        $diag | ConvertTo-Json -Depth 5 | Out-File -FilePath $diagFile -Encoding UTF8 -Force
-                        Write-Verbose "[Core.Rest] Wrote diagnostic failure log: $diagFile"
+                
+                # Parse JSON
+                if ($content) {
+                    try {
+                        return $content | ConvertFrom-Json
+                    } catch {
+                        Write-Warning "Failed to parse JSON response: $_"
+                        return $content
                     }
+                } else {
+                    return $null
                 }
-                catch {
-                    Write-Verbose "[Core.Rest] Failed to write diagnostic failure log: $_"
+            } else {
+                # Handle error response
+                $status = [int]$response.StatusCode
+                $contentTask = $response.Content.ReadAsStringAsync()
+                $errorContent = $contentTask.Result
+                
+                $statusColor = if ($status -in @(429, 500, 502, 503, 504)) { 
+                    'Yellow'  # Retryable errors
+                } elseif ($status -eq 404 -and $Method -eq 'GET') { 
+                    'DarkYellow'  # Expected 404s on GET
+                } else { 
+                    'Red'  # Real errors
                 }
-                throw
+                
+                Write-Host "[$Side] ← $status ERROR" -ForegroundColor $statusColor -NoNewline
+                Write-Host " ($($errorContent.Substring(0, [Math]::Min(80, $errorContent.Length))))" -ForegroundColor Gray
+                
+                # Create normalized error
+                $normalizedError = @{
+                    side = $Side
+                    endpoint = Hide-Secret -Text $Uri
+                    status = $status
+                    message = $errorContent
+                    rawBody = $errorContent
+                }
+                
+                # Retry on transient failures
+                $shouldRetry = $status -in @(429, 500, 502, 503, 504) -and $attempt -lt $effectiveMaxAttempts
+                
+                if ($shouldRetry) {
+                    $delayBase = $baseDelay * [Math]::Pow(2, $attempt - 1)
+                    $jitter = Get-Random -Minimum 0 -Maximum ([Math]::Max(1, [int]($delayBase * 0.2)))
+                    $delay = [int]$delayBase + $jitter
+                    Write-Host "[$Side] ⟳ Retry in ${delay}s (attempt $attempt/$effectiveMaxAttempts)" -ForegroundColor Yellow
+                    if ($delay -gt 0) { Start-Sleep -Seconds $delay }
+                } else {
+                    throw "HTTP $status : $errorContent"
+                }
             }
+        }
+        catch {
+            Write-Host "[$Side] ✗ Request failed: $($_.Exception.Message)" -ForegroundColor Red
+            throw
         }
     }
 }
-
-
 <#
 .SYNOPSIS
     Creates a basic authentication header for Azure DevOps.
@@ -1764,6 +1373,15 @@ function Invoke-AdoRest {
         [switch]$ReturnNullOnNotFound
     )
     
+    # Check cache for projects list
+    if ($Method -eq 'GET' -and $Path -eq '/_apis/projects') {
+        $now = Get-Date
+        if ($script:ProjectsCache -and $script:ProjectsCacheTimestamp -and ($now - $script:ProjectsCacheTimestamp).TotalMinutes -lt $script:ProjectsCacheExpiryMinutes) {
+            Write-Verbose "[Core.Rest] Returning cached projects list"
+            return $script:ProjectsCache
+        }
+    }
+    
     # Ensure core rest initialized and get a stable config object (avoids relying on module script: vars across modules)
     try {
         $coreRestConfig = Ensure-CoreRestInitialized
@@ -1845,7 +1463,16 @@ function Invoke-AdoRest {
         if ($PSBoundParameters.ContainsKey('MaxAttempts')) { $irtParams['MaxAttempts'] = $MaxAttempts }
         if ($PSBoundParameters.ContainsKey('DelaySeconds')) { $irtParams['DelaySeconds'] = $DelaySeconds }
 
-        return Invoke-RestWithRetry @irtParams
+        $result = Invoke-RestWithRetry @irtParams
+        
+        # Cache projects list
+        if ($Method -eq 'GET' -and $Path -eq '/_apis/projects') {
+            $script:ProjectsCache = $result
+            $script:ProjectsCacheTimestamp = Get-Date
+            Write-Verbose "[Core.Rest] Cached projects list"
+        }
+        
+        return $result
     }
     catch {
         # If the caller requested that GET 404s return $null (avoid noisy TerminatingError in transcripts),

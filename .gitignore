@@ -4,8 +4,10 @@
 
 # Migration Data (contains cloned repositories and sensitive data)
 migrations/
+migrations1/
 !migrations/.gitkeep
-
+projects.json
+projects1.json
 *.xlsx
 
 # Logs and Reports

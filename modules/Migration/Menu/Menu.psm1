@@ -125,8 +125,31 @@ function Show-MigrationMenu {
     Write-Host "│ Enhance existing project with team resources" -ForegroundColor Gray
     Write-Host "  8) Exit" -ForegroundColor Yellow
     Write-Host ""
+    Write-Host "  9) Prepare Bulk from Config File" -ForegroundColor White -NoNewline
+    Write-Host "│ Prepare all migrations from projects.json" -ForegroundColor Gray
+    Write-Host ""
     
-    $choice = Read-Host "Select option (1-8)"
+    $choice = Read-Host "Select option (1-9)"
+    if ($choice -eq '9') {
+        Write-Host ""
+        Write-Host "=== BULK PREPARATION FROM CONFIG FILE ===" -ForegroundColor Cyan
+        Write-Host "This will read projects.json and prepare all migrations in bulk."
+        Write-Host ""
+        # From modules/Migration/Menu/ go up 3 levels to get to project root
+        $projectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
+        $prepScript = Join-Path $projectRoot "Prepare-MigrationsFromConfig.ps1"
+        if (-not (Test-Path $prepScript)) {
+            Write-Host "[ERROR] Prepare-MigrationsFromConfig.ps1 not found at: $prepScript" -ForegroundColor Red
+            return
+        }
+        try {
+            & $prepScript -CollectionUrl $script:CollectionUrl -AdoPat $script:AdoPat -GitLabBaseUrl $script:GitLabBaseUrl -GitLabToken $script:GitLabToken
+            Write-Host "[SUCCESS] Bulk preparation from config completed!" -ForegroundColor Green
+        } catch {
+            Write-Host "[ERROR] Bulk preparation failed: $($_.Exception.Message)" -ForegroundColor Red
+        }
+        return
+    }
     
     switch ($choice) {
         '1' {
