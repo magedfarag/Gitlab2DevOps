@@ -105,7 +105,7 @@ function Get-StaticAgileWorkItemTypes {
     return @('User Story','Task','Bug','Epic','Feature','Test Case')
 }
 
-#>
+
 function New-AdoQueryFolder {
     [CmdletBinding()]
     param(
@@ -454,7 +454,7 @@ function Upsert-AdoQuery {
     }
 }
 
-#>
+
 function Initialize-AdoTeamTemplates {
     [CmdletBinding()]
     param(
@@ -645,7 +645,7 @@ function Initialize-AdoTeamTemplates {
     Write-Host "[TIP] Set defaults for most-used types first: User Story, Task, Bug" -ForegroundColor Gray
 }
 
-#>
+
 function New-AdoSharedQueries {
     [CmdletBinding()]
     param(
@@ -770,7 +770,7 @@ function New-AdoSharedQueries {
     return $createdQueries
 }
 
-#>
+
 function New-AdoTestPlan {
     [CmdletBinding()]
     param(
@@ -942,7 +942,7 @@ function New-AdoTestPlan {
     }
 }
 
-#>
+
 function New-AdoQAQueries {
     [CmdletBinding()]
     param(
@@ -1099,7 +1099,7 @@ function New-AdoQAQueries {
     return $createdQueries
 }
 
-#>
+
 function New-AdoTestConfigurations {
     [CmdletBinding()]
     param(
@@ -1313,7 +1313,7 @@ function New-AdoTestConfigurations {
     }
 }
 
-#>
+
 function Measure-Adocommontags {
     [CmdletBinding()]
     param(
@@ -1321,11 +1321,9 @@ function Measure-Adocommontags {
         [string]$Project,
         
         [Parameter(Mandatory)]
-        [string]$WikiId,
+        [string]$WikiId
         
-        [string]$CollectionUrl,
-        [string]$AdoPat,
-        [string]$AdoApiVersion
+        # Removed CollectionUrl, AdoPat, AdoApiVersion (now .env-driven)
     )
     
     Write-Host "[INFO] Creating tag guidelines wiki page..." -ForegroundColor Cyan
@@ -1412,7 +1410,7 @@ Use these tags to categorize work items effectively:
     }
 }
 
-#>
+
 function Measure-Adobusinessqueries {
     [CmdletBinding()]
     param(
@@ -1458,7 +1456,7 @@ function Measure-Adobusinessqueries {
     Write-Host "[INFO] Business queries summary: Created=$created, Skipped=$skipped" -ForegroundColor Cyan
 }
 
-#>
+
 function Search-Adodevqueries {
     [CmdletBinding()]
     param(
@@ -1604,7 +1602,7 @@ ORDER BY [System.ChangedDate] DESC
     Write-Host "[SUCCESS] Development queries created" -ForegroundColor Green
 }
 
-#>
+
 function New-AdoSecurityQueries {
     param(
         [Parameter(Mandatory=$true)]
@@ -1721,7 +1719,7 @@ ORDER BY [Microsoft.VSTS.Common.Priority], [System.CreatedDate]
     }
 }
 
-#>
+
 function Measure-Adomanagementqueries {
     param(
         [Parameter(Mandatory=$true)]
@@ -1960,8 +1958,7 @@ function Import-AdoWorkItemsFromExcel {
         [string]$ExcelPath,
         [string]$WorksheetName = "Requirements",
         [string]$ApiVersion = $null,
-        # Optional explicit collection URL - caller should prefer Initialize-CoreRest, but this keeps backwards compatibility
-        [string]$CollectionUrl,
+        # Removed CollectionUrl (now .env-driven)
         [string]$TeamName = $null
     )
 
@@ -1970,37 +1967,7 @@ function Import-AdoWorkItemsFromExcel {
         throw "Excel file not found: $ExcelPath"
     }
 
-    # Ensure we have a CollectionUrl for parent/child relationships
-    $effectiveCollectionUrl = $null
-    if ($PSBoundParameters.ContainsKey('CollectionUrl') -and $CollectionUrl) {
-        # Caller provided explicit collection URL for this import
-        $effectiveCollectionUrl = $CollectionUrl
-        $script:CollectionUrl = $CollectionUrl  # Also set script variable for compatibility
-    }
-    elseif ($script:CollectionUrl) {
-        # Use existing script variable
-        $effectiveCollectionUrl = $script:CollectionUrl
-    }
-    else {
-        try {
-            # Try to recover from core rest config if module initialized
-            $cfg = Ensure-CoreRestInitialized
-            if ($cfg -and $cfg.CollectionUrl) {
-                $effectiveCollectionUrl = $cfg.CollectionUrl
-                $script:CollectionUrl = $cfg.CollectionUrl  # Set script variable too
-            }
-            else {
-                throw "CollectionUrl is not configured. Call Initialize-CoreRest or pass -CollectionUrl to Import-AdoWorkItemsFromExcel."
-            }
-        }
-        catch {
-            throw "CollectionUrl is not configured. Call Initialize-CoreRest or pass -CollectionUrl to Import-AdoWorkItemsFromExcel. Error: $_"
-        }
-    }
-
-    # Diagnostic: report effective collection URL for easier troubleshooting
-    Write-Verbose "[Import-AdoWorkItemsFromExcel] Effective CollectionUrl: $effectiveCollectionUrl"
-    Write-Host "[INFO] Using CollectionUrl: $effectiveCollectionUrl" -ForegroundColor Gray
+    # CollectionUrl logic removed; now .env-driven via Core.Rest
 
     Write-Host "[INFO] Importing work items from Excel: $ExcelPath" -ForegroundColor Cyan
 
@@ -2515,7 +2482,7 @@ function Import-AdoWorkItemsFromExcel {
                     $projEnc = [uri]::EscapeDataString($Project)
                     $relValue = [pscustomobject]@{
                         rel = "System.LinkTypes.Hierarchy-Reverse"
-                        url = "$effectiveCollectionUrl/$projEnc/_apis/wit/workItems/$parentAdoId"
+                        url = "/$projEnc/_apis/wit/workItems/$parentAdoId" # Now uses relative path, base URL from Core.Rest
                         attributes = [pscustomobject]@{ comment = "Imported from Excel" }
                     }
                     $operations += [pscustomobject]@{

@@ -127,62 +127,46 @@
 #Requires -Version 5.1
 [CmdletBinding(DefaultParameterSetName='Interactive', SupportsShouldProcess)]
 param(
-    # CLI Mode Parameters
     [Parameter(ParameterSetName='CLI', Mandatory)]
     [ValidateSet('Preflight', 'Initialize', 'Migrate', 'BulkPrepare', 'BulkMigrate', 'BusinessInit', 'DevInit', 'SecurityInit')]
     [string]$Mode,
-    
     [Parameter(ParameterSetName='CLI')]
     [string]$Source,
-    
     [Parameter(ParameterSetName='CLI')]
     [string]$Project,
-    
     [Parameter(ParameterSetName='CLI')]
     [switch]$AllowSync,
-    
     [Parameter(ParameterSetName='CLI')]
     [switch]$Force,
-    
     [Parameter(ParameterSetName='CLI')]
     [switch]$Replace,
-    
-    # Common Parameters (both parameter sets)
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
     [string]$CollectionUrl = "",
-    
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
     [string]$AdoPat = "",
-    
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
     [string]$GitLabBaseUrl = "",
-    
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
     [string]$GitLabToken = "",
-    
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
     [string]$AdoApiVersion = "7.1",
-    
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
     [int]$BuildDefinitionId = 0,
-    
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
     [string]$SonarStatusContext = "",
-    
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
-    [bool]$SkipCertificateCheck = $true,  # CRITICAL: Default to TRUE for on-premise servers
-    
+    [bool]$SkipCertificateCheck = $true,
     [Parameter(ParameterSetName='Interactive')]
     [Parameter(ParameterSetName='CLI')]
-    [string]$EnvFile = ""  # Optional: Path to .env file
+    [string]$EnvFile = ""
 )
 
 Set-StrictMode -Version Latest
@@ -191,74 +175,9 @@ $ErrorActionPreference = 'Stop'
 # Get script directory
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# Load .env file if available (before loading other modules)
-# Auto-load .env files (in priority order: .env.local, .env)
-$envFiles = @()
-if ([string]::IsNullOrWhiteSpace($EnvFile)) {
-    # Auto-detect .env files
-    $localEnv = Join-Path $scriptRoot ".env.local"
-    $defaultEnv = Join-Path $scriptRoot ".env"
-    
-    if (Test-Path $defaultEnv) { $envFiles += $defaultEnv }
-    if (Test-Path $localEnv) { $envFiles += $localEnv }
-} else {
-    # Use specified .env file
-    $envFiles = @($EnvFile)
-}
-
-if ($envFiles.Count -gt 0) {
-    # Load EnvLoader module (supports legacy and new folder layout)
-    $envLoaderCandidates = @(
-        (Join-Path $scriptRoot "modules\EnvLoader.psm1"),
-        (Join-Path $scriptRoot "modules\core\EnvLoader.psm1")
-    )
-    $envLoaderModule = $envLoaderCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if ($envLoaderModule) {
-        Import-Module $envLoaderModule -Force -ErrorAction SilentlyContinue
-        
-        if (Get-Command Import-DotEnvFile -ErrorAction SilentlyContinue) {
-            Write-Host "[INFO] Loading configuration from .env file(s)..." -ForegroundColor Cyan
-            $envConfig = Import-DotEnvFile -Path $envFiles -SetEnvironmentVariables
-            
-            # Override parameters with .env values if not explicitly provided
-            if ([string]::IsNullOrWhiteSpace($AdoPat) -and $envConfig.ContainsKey('ADO_PAT')) {
-                $AdoPat = $envConfig.ADO_PAT
-            }
-            if ([string]::IsNullOrWhiteSpace($GitLabToken) -and $envConfig.ContainsKey('GITLAB_PAT')) {
-                $GitLabToken = $envConfig.GITLAB_PAT
-            }
-            if ([string]::IsNullOrWhiteSpace($CollectionUrl) -and $envConfig.ContainsKey('ADO_COLLECTION_URL')) {
-                $CollectionUrl = $envConfig.ADO_COLLECTION_URL
-            }
-            if ([string]::IsNullOrWhiteSpace($GitLabBaseUrl) -and $envConfig.ContainsKey('GITLAB_BASE_URL')) {
-                $GitLabBaseUrl = $envConfig.GITLAB_BASE_URL
-            }
-            if ($envConfig.ContainsKey('ADO_API_VERSION')) {
-                $AdoApiVersion = $envConfig.ADO_API_VERSION
-            }
-            if ($envConfig.ContainsKey('SKIP_CERTIFICATE_CHECK') -and $envConfig.SKIP_CERTIFICATE_CHECK -eq 'true') {
-                $SkipCertificateCheck = $true
-            }
-        }
-    }
-    else {
-        Write-Warning "[EnvLoader] Could not locate EnvLoader module under modules\ or modules\core\. Skipping .env processing."
-    }
-}
-
-# Apply defaults if still empty (after .env loading)
-if ([string]::IsNullOrWhiteSpace($CollectionUrl)) {
-    $CollectionUrl = if ($env:ADO_COLLECTION_URL) { $env:ADO_COLLECTION_URL } else { "https://devops.example.com/DefaultCollection" }
-}
-if ([string]::IsNullOrWhiteSpace($GitLabBaseUrl)) {
-    $GitLabBaseUrl = if ($env:GITLAB_BASE_URL) { $env:GITLAB_BASE_URL } else { "https://gitlab.example.com" }
-}
-if ([string]::IsNullOrWhiteSpace($AdoPat)) {
-    $AdoPat = if ($env:ADO_PAT) { $env:ADO_PAT } else { "" }
-}
-if ([string]::IsNullOrWhiteSpace($GitLabToken)) {
-    $GitLabToken = if ($env:GITLAB_PAT) { $env:GITLAB_PAT } else { "" }
-}
+## NOTE: Centralized environment loading is handled by the Core.Rest module.
+## Do NOT read .env files or set secret-bearing variables in this script.
+## Import Core.Rest later and query configuration via Get-CoreRestConfig.
 
 # Start transcript logging to file
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -283,39 +202,38 @@ Write-Host ""
 
 # Initialize Core.Rest module with configuration
 # CRITICAL: SkipCertificateCheck defaults to $true for on-premise servers with self-signed certs
-$skipCertSwitch = if ($SkipCertificateCheck) { @{SkipCertificateCheck = $true} } else { @{} }
-Initialize-CoreRest `
-    -CollectionUrl $CollectionUrl `
-    -AdoPat $AdoPat `
-    -GitLabBaseUrl $GitLabBaseUrl `
-    -GitLabToken $GitLabToken `
-    -AdoApiVersion $AdoApiVersion `
-    @skipCertSwitch
+#Initialize-CoreRest
 
 # Verify Core.Rest initialized correctly and HttpClient is available
+# try {
+#     # This will throw if basic initialization (CollectionUrl etc.) is missing
+#     Ensure-CoreRestInitialized | Out-Null
+#     if (-not (Test-HttpClientInitialized)) {
+#         Write-Error "[Core.Rest] HttpClient initialization failed: script:HttpClient is missing. Ensure Initialize-CoreRest ran successfully and .NET HttpClient is available."
+#         Stop-Transcript
+#         exit 1
+#     }
+# }
+# catch {
+#     Write-Error "[Core.Rest] Initialization verification failed: $($_.Exception.Message)"
+#     Stop-Transcript
+#     exit 1
+# }
+
+# Display configuration (query Core.Rest for centralized configuration)
 try {
-    # This will throw if basic initialization (CollectionUrl etc.) is missing
-    Ensure-CoreRestInitialized | Out-Null
-    if (-not (Test-HttpClientInitialized)) {
-        Write-Error "[Core.Rest] HttpClient initialization failed: script:HttpClient is missing. Ensure Initialize-CoreRest ran successfully and .NET HttpClient is available."
-        Stop-Transcript
-        exit 1
+    $cfg = Ensure-CoreRestInitialized
+    Write-Host "[INFO] Configuration loaded successfully"
+    Write-Host "       Azure DevOps: $($cfg.CollectionUrl) (API v$($cfg.AdoApiVersion))"
+    Write-Host "       GitLab: $($cfg.GitLabBaseUrl)"
+    if ($cfg.SkipCertificateCheck) {
+        Write-Host "       SSL Certificate Check: DISABLED (not recommended for production)" -ForegroundColor Yellow
     }
+    Write-Host ""
 }
 catch {
-    Write-Error "[Core.Rest] Initialization verification failed: $($_.Exception.Message)"
-    Stop-Transcript
-    exit 1
+    Write-Warning "[WARN] Core.Rest not fully initialized: $($_). Some operations may fail until Core.Rest is configured."
 }
-
-# Display configuration
-Write-Host "[INFO] Configuration loaded successfully"
-Write-Host "       Azure DevOps: $CollectionUrl (API v$AdoApiVersion)"
-Write-Host "       GitLab: $GitLabBaseUrl"
-if ($SkipCertificateCheck) {
-    Write-Host "       SSL Certificate Check: DISABLED (not recommended for production)" -ForegroundColor Yellow
-}
-Write-Host ""
 
 # Determine mode: CLI or Interactive
 if ($PSCmdlet.ParameterSetName -eq 'CLI') {
@@ -477,13 +395,7 @@ else {
     # Interactive mode - launch menu
     Write-Host "[INFO] Launching interactive menu..." -ForegroundColor Cyan
     Write-Host ""
-    Show-MigrationMenu `
-        -CollectionUrl $CollectionUrl `
-        -AdoPat $AdoPat `
-        -GitLabBaseUrl $GitLabBaseUrl `
-        -GitLabToken $GitLabToken `
-        -BuildDefinitionId $BuildDefinitionId `
-        -SonarStatusContext $SonarStatusContext
+    Show-MigrationMenu
 }
 
 # Stop transcript logging

@@ -645,11 +645,8 @@ function Initialize-AdoProject {
         Invoke-CheckpointedStep -StepName 'wiki' -SuccessMessage "Project wiki created" `
             -ProgressStatus "Creating project wiki (2/$($script:totalSteps))" -Action {
             # Get core rest config
-            $coreRestConfig = Get-CoreRestConfig
-            $script:wiki = Measure-Adoprojectwiki $script:projId $DestProject `
-                -CollectionUrl $coreRestConfig.CollectionUrl `
-                -AdoPat $coreRestConfig.AdoPat `
-                -AdoApiVersion $coreRestConfig.AdoApiVersion
+            # No need to assign coreRestConfig; config is loaded internally
+            $script:wiki = Measure-Adoprojectwiki $script:projId $DestProject
             
             # Load welcome wiki template
             $welcomeContent = $null
@@ -700,10 +697,7 @@ This project was migrated from GitLab using automated tooling.
                 $welcomeContent = $embeddedWelcome
             }
             
-            Set-AdoWikiPage $DestProject $script:wiki.id "/Home" $welcomeContent `
-                -CollectionUrl $coreRestConfig.CollectionUrl `
-                -AdoPat $coreRestConfig.AdoPat `
-                -AdoApiVersion $coreRestConfig.AdoApiVersion
+            Set-AdoWikiPage $DestProject $script:wiki.id "/Home" $welcomeContent
         }
     }
     else {
@@ -768,13 +762,11 @@ This project was migrated from GitLab using automated tooling.
         try {
             Write-Verbose "[Initialize-AdoProject] Calling Import-AdoWorkItemsFromExcel..."
             # Get CollectionUrl from core rest config to pass explicitly to avoid script variable issues
-            $coreRestConfig = Get-CoreRestConfig
-            $collectionUrl = $coreRestConfig.CollectionUrl
+            # No need to assign coreRestConfig or collectionUrl
             
             $importResult = Import-AdoWorkItemsFromExcel -Project $DestProject `
                                                           -ExcelPath $excelFileToImport `
                                                           -WorksheetName $ExcelWorksheetName `
-                                                          -CollectionUrl $collectionUrl `
                                                           -TeamName $effectiveTeamName
             
             Write-Verbose "[Initialize-AdoProject] Import completed. Result: $($importResult | ConvertTo-Json -Compress)"
@@ -865,11 +857,11 @@ This project was migrated from GitLab using automated tooling.
                 Write-Host "[INFO] Creating wiki pages sequentially..." -ForegroundColor Cyan
                 
                 # Get core rest config
-                $coreRestConfig = Get-CoreRestConfig
+                # No need to assign coreRestConfig
                 
                 # Create Common Tags wiki page
                 try {
-                    Measure-Adocommontags $DestProject $script:wiki.id -CollectionUrl $coreRestConfig.CollectionUrl -AdoPat $coreRestConfig.AdoPat -AdoApiVersion $coreRestConfig.AdoApiVersion
+                    Measure-Adocommontags $DestProject $script:wiki.id
                     Write-Verbose "[Initialize-AdoProject] ✓ Common Tags wiki page created successfully"
                 }
                 catch {
@@ -878,7 +870,7 @@ This project was migrated from GitLab using automated tooling.
                 
                 # Create Best Practices wiki page
                 try {
-                    Measure-Adobestpracticeswiki $DestProject $script:wiki.id -CollectionUrl $coreRestConfig.CollectionUrl -AdoPat $coreRestConfig.AdoPat -AdoApiVersion $coreRestConfig.AdoApiVersion
+                    Measure-Adobestpracticeswiki $DestProject $script:wiki.id
                     Write-Verbose "[Initialize-AdoProject] ✓ Best Practices wiki page created successfully"
                 }
                 catch {
@@ -912,7 +904,7 @@ This project was migrated from GitLab using automated tooling.
                 Write-Warning "  ✗ Test plan creation failed: $($_.Exception.Message)"
                 if ($_.Exception.Message -match '401|403') {
                     Write-Warning "    → Ensure PAT has 'Test Plans: Read, write, & manage' scope"
-                    Write-Warning "    → Generate token at: $(Get-CoreRestConfig).CollectionUrl/_usersSettings/tokens"
+                    Write-Warning "    → Generate token at: [ADO_COLLECTION_URL]/_usersSettings/tokens"
                 }
             }
             

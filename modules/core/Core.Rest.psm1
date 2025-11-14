@@ -7,46 +7,121 @@
 #    and error details for debugging JSON parsing failures.
 #
 
-# Load environment variables
-function Load-EnvFile {
-    [CmdletBinding()]
-    param()
-
+# Internal: load environment variables from .env into process env.
+# This is an internal implementation detail and MUST NOT be exported or
+# referenced by other modules. Keep the function name private to the module.
+function Private_LoadEnvFromFileInternal {
+    # No CmdletBinding: internal helper
     # Default .env location: two levels up from this module (repo root)
-    $envFilePath = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) '.env'
-
-    if (Test-Path $envFilePath) {
-        $envContent = Get-Content $envFilePath -Raw
-        $envLines = $envContent -split "`n"
-
-        foreach ($line in $envLines) {
-            $line = $line.Trim()
-            if ($line -and -not $line.StartsWith('#') -and $line.Contains('=')) {
-                $parts = $line -split '=', 2
-                $key = $parts[0].Trim()
-                $value = $parts[1].Trim()
-                [Environment]::SetEnvironmentVariable($key, $value, 'Process')
+    try {
+        $envFilePath = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) '.env'
+        if (Test-Path $envFilePath) {
+            $envContent = Get-Content $envFilePath -Raw -ErrorAction SilentlyContinue
+            if ($envContent) {
+                $envLines = $envContent -split "`n"
+                foreach ($line in $envLines) {
+                    $line = $line.Trim()
+                    if ($line -and -not $line.StartsWith('#') -and $line.Contains('=')) {
+                        $parts = $line -split '=', 2
+                        $key = $parts[0].Trim()
+                        $value = $parts[1].Trim()
+                        try { [Environment]::SetEnvironmentVariable($key, $value, 'Process') } catch { }
+                    }
+                }
             }
         }
     }
+    catch {
+        Write-Verbose "[Core.Rest] Private env loader failed: $_"
+    }
 }
 
-Load-EnvFile
+# Invoke private loader during module initialization (no exported API provided)
+try { Private_LoadEnvFromFileInternal } catch { }
 $script:AdoApiVersionDetected = $null
-# Public convenience config object to avoid callers referencing an unset script: variable
-# Some modules (older code paths) access $script:coreRestConfig directly; define a safe default.
-$script:coreRestConfig = @{
-    CollectionUrl = [Environment]::GetEnvironmentVariable('ADO_COLLECTION_URL')
-    AdoPat = [Environment]::GetEnvironmentVariable('ADO_PAT')
-    GitLabBaseUrl = [Environment]::GetEnvironmentVariable('GITLAB_BASE_URL')
-    GitLabToken = [Environment]::GetEnvironmentVariable('GITLAB_PAT')
-    AdoApiVersion = [Environment]::GetEnvironmentVariable('ADO_API_VERSION')
-    SkipCertificateCheck = $script:SkipCertificateCheck
-    RetryAttempts = $script:RetryAttempts
-    RetryDelaySeconds = $script:RetryDelaySeconds
-    MaskSecrets = $script:MaskSecrets
-    LogRestCalls = $script:LogRestCalls
+
+function Set-CoreRestConfigFromEnvironment {
+    $script:CollectionUrl = [Environment]::GetEnvironmentVariable('ADO_COLLECTION_URL')
+    $script:AdoPat = [Environment]::GetEnvironmentVariable('ADO_PAT')
+    $script:GitLabBaseUrl = [Environment]::GetEnvironmentVariable('GITLAB_BASE_URL')
+    $script:GitLabToken = [Environment]::GetEnvironmentVariable('GITLAB_PAT')
+    $script:AdoApiVersion = [Environment]::GetEnvironmentVariable('ADO_API_VERSION')
+    if ([string]::IsNullOrWhiteSpace($script:AdoApiVersion)) {
+        $script:AdoApiVersion = '7.1'
+    }
+    $script:SkipCertificateCheck = ([Environment]::GetEnvironmentVariable('SKIP_CERTIFICATE_CHECK') -eq 'true')
+    $script:RetryAttempts = [int]([Environment]::GetEnvironmentVariable('RETRY_ATTEMPTS'))
+    if ($script:RetryAttempts -le 0) { $script:RetryAttempts = 3 }
+    $script:RetryDelaySeconds = [int]([Environment]::GetEnvironmentVariable('RETRY_DELAY_SECONDS'))
+    if ($script:RetryDelaySeconds -le 0) { $script:RetryDelaySeconds = 2 }
+    $script:MaskSecrets = ([Environment]::GetEnvironmentVariable('MASK_SECRETS') -eq 'true')
+    $script:LogRestCalls = ([Environment]::GetEnvironmentVariable('LOG_REST_CALLS') -eq 'true')
+
+    $script:coreRestConfig = @{
+        CollectionUrl        = $script:CollectionUrl
+        AdoPat               = $script:AdoPat
+        GitLabBaseUrl        = $script:GitLabBaseUrl
+        GitLabToken          = $script:GitLabToken
+        AdoApiVersion        = $script:AdoApiVersion
+        SkipCertificateCheck = $script:SkipCertificateCheck
+        RetryAttempts        = $script:RetryAttempts
+        RetryDelaySeconds    = $script:RetryDelaySeconds
+        MaskSecrets          = $script:MaskSecrets
+        LogRestCalls         = $script:LogRestCalls
+    }
 }
+
+Set-CoreRestConfigFromEnvironment
+
+
+<#
+.SYNOPSIS
+    Creates a basic authentication header for Azure DevOps.
+
+.DESCRIPTION
+    Generates a Base64-encoded authorization header from a Personal Access Token.
+
+.PARAMETER Pat
+    Personal Access Token.
+
+.OUTPUTS
+    Hashtable with Authorization and Content-Type headers.
+
+.EXAMPLE
+    $headers = New-AuthHeader -Pat "your-pat-here"
+#>
+function New-AuthHeader {
+    [CmdletBinding(DefaultParameterSetName='Ado')]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory, ParameterSetName='Ado')]
+        [Parameter(Mandatory, ParameterSetName='GitLab')]
+        [Alias('AdoPat')]
+        [string]$Pat,
+        
+        [Parameter(ParameterSetName='Ado')]
+        [ValidateSet('ado','gitlab')]
+        [string]$Type = 'ado',
+        
+        # Optional API version header for backward compatibility with some tests
+        [Parameter(ParameterSetName='Ado')]
+        [string]$ApiVersion
+    )
+    
+    if ($Type -eq 'gitlab') {
+        return @{ 'PRIVATE-TOKEN' = $Pat }
+    }
+    
+    $pair = ":$Pat"
+    $bytes = [Text.Encoding]::ASCII.GetBytes($pair)
+    $hdr = @{
+        Authorization = "Basic $([Convert]::ToBase64String($bytes))"
+        'Content-Type' = "application/json"
+    }
+    if ($ApiVersion) { $hdr['api-version'] = $ApiVersion }
+    return $hdr
+}
+
 
 <#
 .SYNOPSIS
@@ -63,21 +138,22 @@ function Initialize-CoreRest {
     [CmdletBinding()]
     param()
 
-    $script:CollectionUrl = [Environment]::GetEnvironmentVariable('ADO_COLLECTION_URL')
-    $script:AdoPat = [Environment]::GetEnvironmentVariable('ADO_PAT')
-    $script:GitLabBaseUrl = [Environment]::GetEnvironmentVariable('GITLAB_BASE_URL')
-    $script:GitLabToken = [Environment]::GetEnvironmentVariable('GITLAB_PAT')
-    $script:AdoApiVersion = [Environment]::GetEnvironmentVariable('ADO_API_VERSION')
-    $script:SkipCertificateCheck = [Environment]::GetEnvironmentVariable('SKIP_CERTIFICATE_CHECK') -eq 'true'
-    $script:RetryAttempts = [int][Environment]::GetEnvironmentVariable('RETRY_ATTEMPTS')
-    $script:RetryDelaySeconds = [int][Environment]::GetEnvironmentVariable('RETRY_DELAY_SECONDS')
-    $script:MaskSecrets = [Environment]::GetEnvironmentVariable('MASK_SECRETS') -eq 'true'
-    $script:LogRestCalls = [Environment]::GetEnvironmentVariable('LOG_REST_CALLS') -eq 'true'
+    Set-CoreRestConfigFromEnvironment
+    # Projects cache (used by Invoke-AdoRest) - ensure consistent naming
     $script:ProjectCache = @{}
+    $script:ProjectsCache = $null
+    $script:ProjectsCacheTimestamp = $null
+    $script:ProjectsCacheExpiryMinutes = 10
     
     # Initialize ADO headers
-    $script:AdoHeaders = New-AuthHeader -Pat $AdoPat
-    
+    if ([string]::IsNullOrWhiteSpace($script:AdoPat)) {
+        $script:AdoHeaders = @{}
+        Write-Warning "[Core.Rest] ADO PAT not configured; Invoke-AdoRest will operate without authentication."
+    }
+    else {
+        $script:AdoHeaders = New-AuthHeader -Pat $script:AdoPat
+    }
+
     Write-Verbose "[Core.Rest] Module initialized (v$script:ModuleVersion) from environment variables"
     Write-Verbose "[Core.Rest] ADO API Version: $($script:AdoApiVersion)"
     # Note: Preserve detected API version cache across re-initializations to reduce API calls
@@ -85,20 +161,6 @@ function Initialize-CoreRest {
     Write-Verbose "[Core.Rest] SkipCertificateCheck: $($script:SkipCertificateCheck)"
     Write-Verbose "[Core.Rest] Retry: $($script:RetryAttempts) attempts, $($script:RetryDelaySeconds)s delay"
     Write-Host "[INFO] Core.Rest initialized - SkipCertificateCheck = $($script:SkipCertificateCheck)" -ForegroundColor Cyan
-
-    # Populate the public convenience config object for backward compatibility
-    $script:coreRestConfig = @{
-        CollectionUrl        = $script:CollectionUrl
-        AdoPat               = $script:AdoPat
-        GitLabBaseUrl        = $script:GitLabBaseUrl
-        GitLabToken          = $script:GitLabToken
-        AdoApiVersion        = $script:AdoApiVersion
-        SkipCertificateCheck = $script:SkipCertificateCheck
-        RetryAttempts        = $script:RetryAttempts
-        RetryDelaySeconds    = $script:RetryDelaySeconds
-        MaskSecrets          = $script:MaskSecrets
-        LogRestCalls         = $script:LogRestCalls
-    }
 
     # Create a reusable HttpClient instance for all module HTTP operations.
     # This centralizes TLS/handler behavior and avoids creating many short-lived
@@ -119,7 +181,7 @@ function Initialize-CoreRest {
         Write-Warning "[Core.Rest] Failed to initialize reusable HttpClient: $_. Ensure Initialize-CoreRest was called with correct parameters and that .NET HttpClient is available."
     }
 }
-
+Initialize-CoreRest
 <#
 .SYNOPSIS
     Ensures the Core.Rest module is initialized and returns the config.
@@ -141,19 +203,9 @@ function Ensure-CoreRestInitialized {
         return $script:coreRestConfig
     }
 
-    # Attempt to build a best-effort config from individual script variables
-    $built = @{
-        CollectionUrl        = $script:CollectionUrl
-        AdoPat               = $script:AdoPat
-        GitLabBaseUrl        = $script:GitLabBaseUrl
-        GitLabToken          = $script:GitLabToken
-        AdoApiVersion        = $script:AdoApiVersion
-        SkipCertificateCheck = $script:SkipCertificateCheck
-        RetryAttempts        = $script:RetryAttempts
-        RetryDelaySeconds    = $script:RetryDelaySeconds
-        MaskSecrets          = $script:MaskSecrets
-        LogRestCalls         = $script:LogRestCalls
-    }
+    # Refresh from environment to avoid relying on caller-provided state
+    Set-CoreRestConfigFromEnvironment
+    $built = $script:coreRestConfig.Clone()
 
     # If CollectionUrl is missing, that's fatal for building URIs
     if ([string]::IsNullOrWhiteSpace($built.CollectionUrl)) {
@@ -255,7 +307,14 @@ function Detect-AdoMaxApiVersion {
         try {
             # Use a cheap endpoint: list projects with $top=1
             $testUri = $script:CollectionUrl.TrimEnd('/') + "/_apis/projects?`$top=1&api-version=$cand"
-            $headers = $script:AdoHeaders.Clone()
+            # Clone headers defensively - AdoHeaders may be $null in some test contexts
+            $headers = @{}
+            if ($script:AdoHeaders) {
+                try {
+                    foreach ($k in $script:AdoHeaders.Keys) { $headers[$k] = $script:AdoHeaders[$k] }
+                }
+                catch { $headers = @{} }
+            }
             # Use Invoke-RestWithRetry directly to avoid recursion into Invoke-AdoRest
             $resp = Invoke-RestWithRetry -Method 'GET' -Uri $testUri -Headers $headers -Side 'ado' -MaxAttempts 1 -DelaySeconds 1
             if ($resp) {
@@ -897,51 +956,48 @@ function New-NormalizedError {
         $actualException = $Exception
     }
     
-    # Try to extract HTTP status and response body
+    # Try to extract HTTP status and response body. Wrap the whole extraction in a defensive
+    # try/catch so that any unexpected structure in the exception object does not cause
+    # a secondary failure when normalizing an error.
     try {
-        if ($actualException -and (Get-Member -InputObject $actualException -Name 'Response' -MemberType Properties)) {
+        if ($actualException -and (Get-Member -InputObject $actualException -Name 'Response' -MemberType Properties -ErrorAction SilentlyContinue)) {
             if ($actualException.Response) {
-                try {
-                    $status = [int]$actualException.Response.StatusCode.value__
-                }
-                catch {
-                    # Status code not available
-                }
-                
-                # Try to extract error message from response body
-                try {
-                    $reader = New-Object System.IO.StreamReader($actualException.Response.GetResponseStream())
-                    $reader.BaseStream.Position = 0
-                    $rawBody = $reader.ReadToEnd()
-                    # Expose raw body string for callers that want to log diagnostic info
-                    if ($rawBody) {
-                        try {
-                            $body = $rawBody | ConvertFrom-Json -ErrorAction SilentlyContinue
-                        }
-                        catch {
-                            $body = $null
-                        }
+                try { $status = [int]$actualException.Response.StatusCode.value__ } catch { }
 
-                        if ($body -and $body.message) {
-                            $message = $body.message
-                        }
-                        elseif ($body -and $body.error) {
-                            $message = $body.error
-                        }
-                        elseif ($body -and $body.error_description) {
-                            $message = $body.error_description
-                        }
+                try {
+                    $respStream = $actualException.Response.GetResponseStream()
+                    if ($respStream) {
+                        $reader = New-Object System.IO.StreamReader($respStream)
+                        $rawBody = $reader.ReadToEnd()
+                    }
+                    else {
+                        $rawBody = $null
+                    }
+
+                    if ($rawBody) {
+                        try { $body = $rawBody | ConvertFrom-Json -ErrorAction SilentlyContinue } catch { $body = $null }
+                        if ($body -and $body.message) { $message = $body.message }
+                        elseif ($body -and $body.error) { $message = $body.error }
+                        elseif ($body -and $body.error_description) { $message = $body.error_description }
                     }
                 }
                 catch {
-                    # Keep original message
+                    # Keep original message if reading response body fails
+                    Write-Verbose "[Core.Rest] Could not read response body: $_"
                 }
             }
         }
     }
     catch {
-        # If we can't access Response property, keep original error message
-        Write-Verbose "[Core.Rest] Could not extract response details: $_"
+        # If normalization fails for any reason, return a minimal normalized structure
+        Write-Verbose "[Core.Rest] Exception while normalizing error: $_"
+        return @{
+            side     = $Side
+            endpoint = (if ($Endpoint) { Hide-Secret -Text $Endpoint } else { '' })
+            status   = 0
+            message  = if ($_.Exception) { $_.Exception.Message } else { $_.ToString() }
+            rawBody  = $null
+        }
     }
     
     # Normalize rawBody defensively to avoid inline conditional expressions that
@@ -1089,8 +1145,8 @@ function Invoke-RestWithRetry {
         [Parameter(Mandatory)]
         [string]$Uri,
         
-        [Parameter(Mandatory)]
-        [hashtable]$Headers,
+        [Parameter(Mandatory=$false)]
+        [hashtable]$Headers = @{},
         
         [object]$Body = $null,
         
@@ -1172,133 +1228,87 @@ function Invoke-RestWithRetry {
                 Write-Host ""
             }
             
-            # Send request
+            # Send request using HttpClient. If HttpClient fails in this hosting
+            # environment (some PowerShell runtimes/platforms may not support it
+            # fully), fall back to Invoke-RestMethod for compatibility.
             $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-            $responseTask = $script:HttpClient.SendAsync($request)
-            $response = $responseTask.Result
-            $stopwatch.Stop()
+            try {
+                $responseTask = $script:HttpClient.SendAsync($request)
+                $response = $responseTask.Result
+                if ($null -eq $response) { throw "HttpClient returned null response" }
+                $stopwatch.Stop()
+            }
+            catch {
+                Write-Verbose "[Core.Rest] HttpClient.SendAsync failed: $_ - falling back to Invoke-RestMethod"
+                # Build parameters for Invoke-RestMethod
+                $irmParams = @{ Uri = $Uri; Method = $Method; ErrorAction = 'Stop' }
+                if ($Headers -and $Headers.Count -gt 0) { $irmParams['Headers'] = $Headers }
+                if ($Body) { $irmParams['Body'] = $Body }
+                if ($script:SkipCertificateCheck) { $irmParams['SkipCertificateCheck'] = $true }
+                try {
+                    $rawResult = Invoke-RestMethod @irmParams
+                    # Return raw result (Invoke-RestMethod already parses JSON into objects)
+                    return $rawResult
+                }
+                catch {
+                    # Rethrow the original exception if fallback also fails
+                    throw
+                }
+            }
             
             # Log response
             $durationMs = [int]$stopwatch.ElapsedMilliseconds
             $durationColor = if ($durationMs -lt 500) { 'Green' } elseif ($durationMs -lt 2000) { 'Yellow' } else { 'Red' }
-            
+
+            # Success path
             if ($response.IsSuccessStatusCode) {
-                Write-Host "[$Side] ← $($response.StatusCode) OK " -ForegroundColor Green -NoNewline
-                Write-Host "($durationMs ms)" -ForegroundColor $durationColor
-                
-                # Read response content
-                $contentTask = $response.Content.ReadAsStringAsync()
-                $content = $contentTask.Result
-                
-                if ($script:LogRestCalls) {
-                    Write-Verbose "[REST] Response content length: $($content.Length) chars"
-                }
-                
-                # Parse JSON
-                if ($content) {
+                Write-Host "[$Side] ← $($response.StatusCode) ($durationMs ms)" -ForegroundColor Green
+
+                # Read response content and try to parse JSON, otherwise return raw string
+                $content = $response.Content.ReadAsStringAsync().Result
+                if ($null -ne $content -and $content.ToString().Trim().Length -gt 0) {
                     try {
-                        return $content | ConvertFrom-Json
-                    } catch {
-                        Write-Warning "Failed to parse JSON response: $_"
+                        return ($content | ConvertFrom-Json -ErrorAction Stop)
+                    }
+                    catch {
                         return $content
                     }
-                } else {
+                }
+                else {
                     return $null
                 }
-            } else {
-                # Handle error response
-                $status = [int]$response.StatusCode
-                $contentTask = $response.Content.ReadAsStringAsync()
-                $errorContent = $contentTask.Result
-                
-                $statusColor = if ($status -in @(429, 500, 502, 503, 504)) { 
-                    'Yellow'  # Retryable errors
-                } elseif ($status -eq 404 -and $Method -eq 'GET') { 
-                    'DarkYellow'  # Expected 404s on GET
-                } else { 
-                    'Red'  # Real errors
-                }
-                
-                Write-Host "[$Side] ← $status ERROR" -ForegroundColor $statusColor -NoNewline
-                Write-Host " ($($errorContent.Substring(0, [Math]::Min(80, $errorContent.Length))))" -ForegroundColor Gray
-                
-                # Create normalized error
-                $normalizedError = @{
-                    side = $Side
-                    endpoint = Hide-Secret -Text $Uri
-                    status = $status
-                    message = $errorContent
-                    rawBody = $errorContent
-                }
-                
-                # Retry on transient failures
-                $shouldRetry = $status -in @(429, 500, 502, 503, 504) -and $attempt -lt $effectiveMaxAttempts
-                
-                if ($shouldRetry) {
-                    $delayBase = $baseDelay * [Math]::Pow(2, $attempt - 1)
-                    $jitter = Get-Random -Minimum 0 -Maximum ([Math]::Max(1, [int]($delayBase * 0.2)))
-                    $delay = [int]$delayBase + $jitter
-                    Write-Host "[$Side] ⟳ Retry in ${delay}s (attempt $attempt/$effectiveMaxAttempts)" -ForegroundColor Yellow
-                    if ($delay -gt 0) { Start-Sleep -Seconds $delay }
-                } else {
-                    throw "HTTP $status : $errorContent"
-                }
             }
-        }
+
+            # Non-success path: extract status and body
+            $status = 0
+            try { $status = [int]$response.StatusCode } catch { $status = 0 }
+            $errorContent = $response.Content.ReadAsStringAsync().Result
+            $errorPreview = if ($errorContent) { $errorContent.Substring(0, [Math]::Min(80, $errorContent.Length)) } else { '<no response body>' }
+
+            $statusColor = if ($status -in @(429, 500, 502, 503, 504)) { 'Yellow' } elseif ($status -eq 404 -and $Method -eq 'GET') { 'DarkYellow' } else { 'Red' }
+            Write-Host "[$Side] ← $status ($errorPreview)" -ForegroundColor $statusColor
+
+            # Determine if we should retry on transient failures
+            $shouldRetry = $status -in @(429, 500, 502, 503, 504) -and $attempt -lt $effectiveMaxAttempts
+            if ($shouldRetry) {
+                $delayBase = $baseDelay * [Math]::Pow(2, $attempt - 1)
+                $jitter = Get-Random -Minimum 0 -Maximum ([Math]::Max(1, [int]($delayBase * 0.2)))
+                $delay = [int]$delayBase + $jitter
+                Write-Host "[$Side] ⟳ Retry in ${delay}s (attempt $attempt/$effectiveMaxAttempts)" -ForegroundColor Yellow
+                if ($delay -gt 0) { Start-Sleep -Seconds $delay }
+                # Loop will continue for retry
+            }
+            else {
+                throw "HTTP $status : $errorContent"
+            }
+            }
         catch {
-            Write-Host "[$Side] ✗ Request failed: $($_.Exception.Message)" -ForegroundColor Red
+            $errMessage = if ($_.Exception) { $_.Exception.Message } else { $_.ToString() }
+            Write-Host "[$Side] ✗ Request failed: $errMessage" -ForegroundColor Red
             throw
         }
     }
 }
-<#
-.SYNOPSIS
-    Creates a basic authentication header for Azure DevOps.
-
-.DESCRIPTION
-    Generates a Base64-encoded authorization header from a Personal Access Token.
-
-.PARAMETER Pat
-    Personal Access Token.
-
-.OUTPUTS
-    Hashtable with Authorization and Content-Type headers.
-
-.EXAMPLE
-    $headers = New-AuthHeader -Pat "your-pat-here"
-#>
-function New-AuthHeader {
-    [CmdletBinding(DefaultParameterSetName='Ado')]
-    [OutputType([hashtable])]
-    param(
-        [Parameter(Mandatory, ParameterSetName='Ado')]
-        [Parameter(Mandatory, ParameterSetName='GitLab')]
-        [Alias('AdoPat')]
-        [string]$Pat,
-        
-        [Parameter(ParameterSetName='Ado')]
-        [ValidateSet('ado','gitlab')]
-        [string]$Type = 'ado',
-        
-        # Optional API version header for backward compatibility with some tests
-        [Parameter(ParameterSetName='Ado')]
-        [string]$ApiVersion
-    )
-    
-    if ($Type -eq 'gitlab') {
-        return @{ 'PRIVATE-TOKEN' = $Pat }
-    }
-    
-    $pair = ":$Pat"
-    $bytes = [Text.Encoding]::ASCII.GetBytes($pair)
-    $hdr = @{
-        Authorization = "Basic $([Convert]::ToBase64String($bytes))"
-        'Content-Type' = "application/json"
-    }
-    if ($ApiVersion) { $hdr['api-version'] = $ApiVersion }
-    return $hdr
-}
-
 <#
 .SYNOPSIS
     Invokes an Azure DevOps REST API call.

@@ -1,6 +1,6 @@
 # Script to show allowed work item states in Azure DevOps
 # This helps understand why certain states are rejected during Excel import
-Import-Module .\modules\core\EnvLoader.psm1
+# NOTE: Do not import EnvLoader here; Core.Rest centralizes .env handling.
 Import-Module .\modules\core\Core.Rest.psm1 -Force
 
 param(

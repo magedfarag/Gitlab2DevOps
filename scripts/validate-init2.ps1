@@ -8,14 +8,14 @@ catch {
     exit 2
 }
 
-try {
-    Initialize-CoreRest -CollectionUrl 'https://dev.azure.com/fake' -AdoPat 'fake' -GitLabBaseUrl 'https://gitlab.fake' -GitLabToken 'fake' -LogRestCalls:$false -RetryAttempts 1 -RetryDelaySeconds 1
-    Write-Host "[TEST] Called Initialize-CoreRest"
-}
-catch {
-    Write-Error "Initialize-CoreRest failed: $_"
-    exit 3
-}
+# try {
+#     Initialize-CoreRest -CollectionUrl 'https://dev.azure.com/fake' -AdoPat 'fake' -GitLabBaseUrl 'https://gitlab.fake' -GitLabToken 'fake' -LogRestCalls:$false -RetryAttempts 1 -RetryDelaySeconds 1
+#     Write-Host "[TEST] Called Initialize-CoreRest"
+# }
+# catch {
+#     Write-Error "Initialize-CoreRest failed: $_"
+#     exit 3
+# }
 
 # List exported commands from Core.Rest
 Write-Host "Exported commands in Core.Rest:" -ForegroundColor Cyan

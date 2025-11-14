@@ -1,6 +1,6 @@
 # Debug script to call Initialize-InitMetrics and inspect returned value
 Import-Module "$PSScriptRoot\..\modules\core\Core.Rest.psm1" -Force -ErrorAction Stop
-Initialize-CoreRest -CollectionUrl 'https://dev.azure.com/fake' -AdoPat 'fake' -GitLabBaseUrl 'https://gitlab.fake' -GitLabToken 'fake' -LogRestCalls:$false
+#Initialize-CoreRest -CollectionUrl 'https://dev.azure.com/fake' -AdoPat 'fake' -GitLabBaseUrl 'https://gitlab.fake' -GitLabToken 'fake' -LogRestCalls:$false
 
 Write-Host "Calling Initialize-InitMetrics..."
 try {

@@ -130,15 +130,15 @@ function Test-CoreRestInitialization {
             $initParams.SkipCertificateCheck = $true
         }
 
-        $result = Initialize-CoreRest @initParams
+        # $result = Initialize-CoreRest @initParams
 
-        if ($result) {
-            Write-TestResult "Initialize-CoreRest" $true "Core.Rest initialized successfully"
-            return $true
-        } else {
-            Write-TestResult "Initialize-CoreRest" $false "Initialize-CoreRest returned false"
-            return $false
-        }
+        # if ($result) {
+        #     Write-TestResult "Initialize-CoreRest" $true "Core.Rest initialized successfully"
+        #     return $true
+        # } else {
+        #     Write-TestResult "Initialize-CoreRest" $false "Initialize-CoreRest returned false"
+        #     return $false
+        # }
     }
     catch {
         Write-TestResult "Initialize-CoreRest" $false "Initialization failed: $($_.Exception.Message)" @{

@@ -11,9 +11,8 @@
     Usage: run in PowerShell from repository root:
       pwsh -NoProfile -ExecutionPolicy Bypass .\scripts\debug-get-ado-projects-verbose.ps1
 
-    The script will read configuration from environment variables (preferred) or from
-    a local .env file if present in the repository root. The following variables are used:
-      ADO_COLLECTION_URL, ADO_PAT, ADO_API_VERSION (optional, default 7.1), SKIP_CERTIFICATE_CHECK
+        The script reads configuration from Core.Rest (which centralizes .env loading).
+        Ensure Core.Rest is available and configured (ADO_COLLECTION_URL, ADO_PAT).
 
     Security note: the script masks the PAT when printing values. Do NOT paste the full
     PAT in public places.
@@ -21,27 +20,8 @@
 
 Set-StrictMode -Version Latest
 
-function Read-DotEnv {
-    param(
-        [string]$Path = (Join-Path (Get-Location) '.env')
-    )
-
-    if (-not (Test-Path $Path)) { return @{} }
-    $pairs = @{}
-    Get-Content $Path | ForEach-Object {
-        $_ = $_.Trim()
-        if ($_.StartsWith('#') -or $_ -eq '') { return }
-        $parts = $_ -split '=', 2
-        if ($parts.Count -eq 2) {
-            $k = $parts[0].Trim()
-            $v = $parts[1].Trim()
-            # unquote
-            if ($v.StartsWith('"') -and $v.EndsWith('"')) { $v = $v.Substring(1, $v.Length - 2) }
-            $pairs[$k] = $v
-        }
-    }
-    return $pairs
-}
+## Note: Do NOT read .env files here. Core.Rest is the single source of truth for
+## environment configuration and secret loading.
 
 function Mask-Token {
     param([string]$token)
@@ -180,25 +160,18 @@ function Try-CurlVerbose {
 function Get-AdoProjectsVerbose {
     Write-Host "=== Azure DevOps verbose projects diagnostic ===" -ForegroundColor Cyan
 
-    # Load config from env or .env
-    $envCfg = @{}
-    $envCfg.ADO_COLLECTION_URL = $Env:ADO_COLLECTION_URL
-    $envCfg.ADO_PAT = $Env:ADO_PAT
-    $envCfg.ADO_API_VERSION = $Env:ADO_API_VERSION
-    $envCfg.SKIP_CERTIFICATE_CHECK = $Env:SKIP_CERTIFICATE_CHECK
-
-    $dot = Read-DotEnv
-    foreach ($k in $dot.Keys) {
-        if (-not $envCfg[$k]) { $envCfg[$k] = $dot[$k] }
+    # Query Core.Rest for centralized configuration
+    try {
+        Import-Module (Join-Path $PSScriptRoot "modules\core\Core.Rest.psm1") -ErrorAction SilentlyContinue
+        $cfg = Ensure-CoreRestInitialized
+        $collectionUrl = $cfg.CollectionUrl
+        $pat = $cfg.AdoPat
+        $apiVer = if ($cfg.AdoApiVersion) { $cfg.AdoApiVersion } else { '7.1' }
+        $skipCert = $cfg.SkipCertificateCheck
     }
-
-    # Normalize values
-    $collectionUrl = $envCfg.ADO_COLLECTION_URL
-    $pat = $envCfg.ADO_PAT
-    $apiVer = if ($envCfg.ADO_API_VERSION) { $envCfg.ADO_API_VERSION } else { '7.1' }
-    $skipCert = $false
-    if ($envCfg.SKIP_CERTIFICATE_CHECK) {
-        $skipCert = $envCfg.SKIP_CERTIFICATE_CHECK -in @('1','true','True','TRUE')
+    catch {
+        Write-Host "ERROR: Could not obtain configuration from Core.Rest: $($_)" -ForegroundColor Red
+        return
     }
 
     Write-Host "CollectionUrl: $collectionUrl"

@@ -10,7 +10,7 @@
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
 
-#>
+
 function Set-AdoTeamSettings {
     [CmdletBinding()]
     param(
@@ -110,7 +110,7 @@ function Truncate-DashboardName {
     return $truncated
 }
 
-#>
+
 # Helper: Resolve dashboard endpoints for project/team - returns ordered endpoints to try
 function Resolve-AdoDashboardEndpoints {
     param(
@@ -131,7 +131,7 @@ function Resolve-AdoDashboardEndpoints {
     return $endpoints
 }
 
-#>
+
 function Search-Adodashboard {
     [CmdletBinding()]
     param(
@@ -376,7 +376,7 @@ function Search-Adodashboard {
     }
 }
 
-#>
+
 function Test-Adoqadashboard {
     [CmdletBinding()]
     param(
@@ -514,7 +514,7 @@ function Test-Adoqadashboard {
         $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId
         foreach ($ep in $endpoints) {
             try {
-                $dashboard = Invoke-AdoRest POST $ep -Body $dashboardBody -Preview
+                    $dashboard = Invoke-AdoRest POST $ep -Body $dashboardBody -Preview
                 break
             }
             catch {
@@ -578,7 +578,7 @@ function Test-Adoqadashboard {
     }
 }
 
-#>
+
 function New-Adodevdashboard {
     [CmdletBinding()]
     param(
@@ -704,7 +704,7 @@ function New-Adodevdashboard {
     }
 }
 
-#>
+
 function New-AdoSecurityDashboard {
     param(
         [Parameter(Mandatory=$true)]
@@ -790,7 +790,7 @@ function New-AdoSecurityDashboard {
     }
 }
 
-#>
+
 function Test-Adomanagementdashboard {
     param(
         [Parameter(Mandatory=$true)]

@@ -1,7 +1,5 @@
-<#
-.SYNOPSIS
-    Migration menu system and main orchestration.
 
+<#
 .DESCRIPTION
     This module handles the interactive menu system and main workflow orchestration
     for the GitLab to Azure DevOps migration toolkit.
@@ -14,7 +12,6 @@
 
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
-
 # Import required modules
 $migrationRoot = Split-Path $PSScriptRoot -Parent
 Import-Module (Join-Path $migrationRoot "Core\MigrationCore.psm1") -Force -Global
@@ -61,46 +58,30 @@ $script:SonarStatusContext = ""
     Optional SonarQube context.
 
 .EXAMPLE
-    Show-MigrationMenu -CollectionUrl "https://dev.azure.com/org" -AdoPat $pat -GitLabBaseUrl "https://gitlab.com" -GitLabToken $token
+    Show-MigrationMenu -AdoPat $pat -GitLabBaseUrl "https://gitlab.com" -GitLabToken $token
 #>
 function Show-MigrationMenu {
     [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$CollectionUrl,
-        
-        [Parameter(Mandatory)]
-        [string]$AdoPat,
-        
-        [Parameter(Mandatory)]
-        [string]$GitLabBaseUrl,
-        
-        [Parameter(Mandatory)]
-        [string]$GitLabToken,
-        
-        [int]$BuildDefinitionId = 0,
-        
-        [string]$SonarStatusContext = ""
-    )
+    param()
     
-    # Store in script scope for nested functions
-    $script:CollectionUrl = $CollectionUrl
-    $script:AdoPat = $AdoPat
-    $script:GitLabToken = $GitLabToken
-    $script:GitLabBaseUrl = $GitLabBaseUrl
-    $script:BuildDefinitionId = $BuildDefinitionId
-    $script:SonarStatusContext = $SonarStatusContext
-    
-    # Initialize Core.Rest module in menu context
-    try {
-        Initialize-CoreRest -CollectionUrl $CollectionUrl -AdoPat $AdoPat -GitLabBaseUrl $GitLabBaseUrl -GitLabToken $GitLabToken -SkipCertificateCheck
-        Write-Verbose "[Menu] Core.Rest module initialized successfully"
-    }
-    catch {
-        Write-Warning "[Menu] Failed to initialize Core.Rest module: $_"
-        Write-Host "[ERROR] Failed to initialize connection modules. Please check your credentials." -ForegroundColor Red
-        return
-    }
+    # Initialize Core.Rest module in menu context (now .env-driven)
+    # try {
+    #     #Initialize-CoreRest
+    #     Write-Verbose "[Menu] Core.Rest module initialized successfully"
+        
+    #     # Get configuration values from Core.Rest and populate script variables
+    #     # $coreConfig = Get-CoreRestConfig
+    #     $script:CollectionUrl = $coreConfig.CollectionUrl
+    #     $script:AdoPat = $coreConfig.AdoPat
+    #     $script:GitLabBaseUrl = $coreConfig.GitLabBaseUrl
+    #     $script:GitLabToken = $coreConfig.GitLabToken
+    #     Write-Verbose "[Menu] Configuration loaded from Core.Rest"
+    # }
+    # catch {
+    #     Write-Warning "[Menu] Failed to initialize Core.Rest module: $_"
+    #     Write-Host "[ERROR] Failed to initialize connection modules. Please check your .env file." -ForegroundColor Red
+    #     return
+    # }
     
     Write-Host ""
     Write-Host "╔═══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
@@ -123,14 +104,14 @@ function Show-MigrationMenu {
     Write-Host ""
     Write-Host "  7) Add Team Packs           " -ForegroundColor White -NoNewline
     Write-Host "│ Enhance existing project with team resources" -ForegroundColor Gray
-    Write-Host "  8) Exit" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "  9) Prepare Bulk from Config File" -ForegroundColor White -NoNewline
+    Write-Host "  8) Prepare Bulk from Config File" -ForegroundColor White -NoNewline
     Write-Host "│ Prepare all migrations from projects.json" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  9) Exit" -ForegroundColor Yellow
     Write-Host ""
     
     $choice = Read-Host "Select option (1-9)"
-    if ($choice -eq '9') {
+    if ($choice -eq '8') {
         Write-Host ""
         Write-Host "=== BULK PREPARATION FROM CONFIG FILE ===" -ForegroundColor Cyan
         Write-Host "This will read projects.json and prepare all migrations in bulk."
@@ -143,7 +124,7 @@ function Show-MigrationMenu {
             return
         }
         try {
-            & $prepScript -CollectionUrl $script:CollectionUrl -AdoPat $script:AdoPat -GitLabBaseUrl $script:GitLabBaseUrl -GitLabToken $script:GitLabToken
+            & $prepScript #-AdoPat $script:AdoPat -GitLabBaseUrl $script:GitLabBaseUrl -GitLabToken $script:GitLabToken
             Write-Host "[SUCCESS] Bulk preparation from config completed!" -ForegroundColor Green
         } catch {
             Write-Host "[ERROR] Bulk preparation failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -157,7 +138,6 @@ function Show-MigrationMenu {
             Write-Host "=== SINGLE PROJECT PREPARATION ===" -ForegroundColor Cyan
             Write-Host "This will create a self-contained preparation folder."
             Write-Host ""
-            
             $DestProjectName = Read-Host "Enter Azure DevOps project name (e.g., MyProject)"
             if ([string]::IsNullOrWhiteSpace($DestProjectName)) {
                 Write-Host "[ERROR] DevOps project name cannot be empty." -ForegroundColor Red
@@ -656,10 +636,10 @@ function Show-MigrationMenu {
                 }
                 
                 if ($dryRun) {
-                    & $importScript -CollectionUrl $script:CollectionUrl -AdoPat $script:AdoPat -ExportFolder $importDir -WhatIf
+                    & $importScript -AdoPat $script:AdoPat -ExportFolder $importDir -WhatIf
                 }
                 else {
-                    & $importScript -CollectionUrl $script:CollectionUrl -AdoPat $script:AdoPat -ExportFolder $importDir
+                    & $importScript -AdoPat $script:AdoPat -ExportFolder $importDir
                 }
                 
                 Write-Host ""
@@ -752,7 +732,7 @@ function Show-MigrationMenu {
                 Write-Host "[TIP] Verify your Azure DevOps connection and try again." -ForegroundColor Yellow
             }
         }
-        '8' {
+        '9' {
             Write-Host ""
             Write-Host "Thank you for using GitLab → Azure DevOps Migration Tool" -ForegroundColor Cyan
             Write-Host "Goodbye! 👋" -ForegroundColor Green
@@ -761,7 +741,7 @@ function Show-MigrationMenu {
         }
         default {
             Write-Host ""
-            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 8." -ForegroundColor Red
+            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 9." -ForegroundColor Red
             Write-Host ""
         }
     }

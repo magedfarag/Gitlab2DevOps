@@ -15,8 +15,17 @@
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
 
-# Load System.Web for HTML encoding
-Add-Type -AssemblyName System.Web
+# Load System.Web for HTML encoding if available (optional on PowerShell Core)
+try {
+    Add-Type -AssemblyName System.Web -ErrorAction Stop
+}
+catch {
+    # System.Web is not available on PowerShell Core / .NET Core by default.
+    # Fall back gracefully and continue without throwing so the module can be used
+    # in cross-platform environments. Some HTML encoding helpers may be unavailable
+    # but functionality will continue. Use Write-Verbose for diagnostics.
+    Write-Verbose "[Logging] System.Web assembly not available: $($_.Exception.Message)"
+}
 
 # Import Templates module for HTML generation
 $templatesPath = Join-Path (Split-Path $PSScriptRoot -Parent) "templates\Templates.psm1"
@@ -218,7 +227,7 @@ function Get-BulkProjectPaths {
         $result.gitlabDir = $gitlabDir
         $result.repositoryDir = $repositoryDir
     }
-    
+ 
     return $result
 }
 

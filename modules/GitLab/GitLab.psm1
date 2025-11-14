@@ -16,6 +16,21 @@
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
 
+# Ensure Core.Rest & Logging functions are available (explicit import avoids session coupling)
+$coreDir = Split-Path $PSScriptRoot -Parent
+$corePath = Join-Path $coreDir 'core\Core.Rest.psm1'
+$loggingPath = Join-Path $coreDir 'core\Logging.psm1'
+foreach ($dep in @($corePath, $loggingPath)) {
+    try {
+        if (Test-Path $dep) {
+            Import-Module $dep -Force -ErrorAction Stop
+        }
+    }
+    catch {
+        Write-Verbose "[GitLab] Could not import dependency '$dep': $_"
+    }
+}
+
 <#
 .SYNOPSIS
     Retrieves GitLab project information with statistics.
@@ -44,28 +59,60 @@ function Get-GitLabProject {
     $fullPath = "/api/v4/projects/$enc" + "?statistics=true"
     
     try {
-        Invoke-GitLabRest $fullPath
+        $resp = Invoke-GitLabRest $fullPath
     }
     catch {
-        # Extract meaningful error message
-        $errorMsg = if ($_.Exception.Message) {
-            $_.Exception.Message
+        # Try to produce a helpful normalized error message
+        try {
+            $norm = New-NormalizedError -Exception $_ -Side 'gitlab' -Endpoint $fullPath
+            $msg = $norm.message
+            $raw = $norm.rawBody
         }
-        elseif ($_ -is [string]) {
-            $_
+        catch {
+            $msg = if ($_.Exception.Message) { $_.Exception.Message } elseif ($_ -is [string]) { $_ } else { $_.ToString() }
+            $raw = $null
         }
-        else {
-            $_.ToString()
-        }
-        
+
         Write-Host "[ERROR] Failed to fetch GitLab project '$PathWithNamespace'." -ForegroundColor Red
-        Write-Host "        Error: $errorMsg" -ForegroundColor Red
+        Write-Host "        Error: $msg" -ForegroundColor Red
+        if ($raw) {
+            Write-Host "        Response (truncated): $($raw.ToString().Substring(0, [Math]::Min(400, $raw.ToString().Length)))" -ForegroundColor DarkYellow
+        }
         Write-Host "        Suggestions:" -ForegroundColor Yellow
         Write-Host "          - Verify the project path is correct (group/subgroup/project)." -ForegroundColor Yellow
         Write-Host "          - Ensure the GitLab token has 'api' scope and can access the project." -ForegroundColor Yellow
         Write-Host "          - If the project is private, confirm the token user is a member or has access." -ForegroundColor Yellow
-        throw $errorMsg
+        throw $msg
     }
+
+    # Validate response shape
+    if ($null -eq $resp) {
+        Write-Host "[ERROR] GitLab returned an empty response for '$PathWithNamespace'." -ForegroundColor Red
+        Write-Host "        Ensure the token has access and the project exists." -ForegroundColor Yellow
+        throw "Empty response from GitLab for $PathWithNamespace"
+    }
+
+    # If a raw string was returned, attempt to parse JSON for more useful diagnostics
+    if ($resp -is [string]) {
+        $maybe = $null
+        try { $maybe = $resp | ConvertFrom-Json -ErrorAction SilentlyContinue } catch { $maybe = $null }
+        if ($maybe) { $resp = $maybe }
+        else {
+            # Non-JSON successful response (unexpected)
+            Write-Host "[ERROR] GitLab returned non-JSON response for '$PathWithNamespace'." -ForegroundColor Red
+            Write-Host "        Response (truncated): $($resp.ToString().Substring(0, [Math]::Min(400, $resp.ToString().Length)))" -ForegroundColor DarkYellow
+            throw "Non-JSON response from GitLab for $PathWithNamespace"
+        }
+    }
+
+    # Ensure we have an object with expected properties
+    if (-not ($resp | Get-Member -Name 'id' -MemberType Properties -ErrorAction SilentlyContinue)) {
+        Write-Host "[ERROR] Unexpected GitLab response shape for '$PathWithNamespace'. Missing 'id' property." -ForegroundColor Red
+        Write-Host "        Response object type: $($resp.GetType().FullName)" -ForegroundColor Yellow
+        throw "Unexpected response shape from GitLab for $PathWithNamespace"
+    }
+
+    return $resp
 }
 
 <#
@@ -131,17 +178,40 @@ function Initialize-GitLab {
     
     $p = Get-GitLabProject $ProjectPath
     
-    # Create project metadata report
+    # Create project metadata report (use defensive accessors in case GitLab returned partial data)
+    $projPath = if ($p -and $p.path_with_namespace) { $p.path_with_namespace } else { $ProjectPath }
+    $httpUrl = if ($p -and $p.http_url_to_repo) { $p.http_url_to_repo } else { '' }
+    $defaultBranch = if ($p -and $p.default_branch) { $p.default_branch } else { '' }
+    $visibility = if ($p -and $p.visibility) { $p.visibility } else { 'private' }
+    $lfsEnabled = if ($p -and ($p.PSObject.Properties.Name -contains 'lfs_enabled')) { $p.lfs_enabled } else { $false }
+
+    $repoSizeBytes = 0
+    $lfsSizeBytes = 0
+    if ($p -and ($p.PSObject.Properties.Name -contains 'statistics') -and $p.statistics) {
+        try {
+            if ($p.statistics.repository_size) { $repoSizeBytes = [int64]$p.statistics.repository_size }
+        } catch { $repoSizeBytes = 0 }
+        try {
+            if ($p.statistics.lfs_objects_size) { $lfsSizeBytes = [int64]$p.statistics.lfs_objects_size }
+        } catch { $lfsSizeBytes = 0 }
+    }
+
+    $repoSizeMB = [math]::Round(($repoSizeBytes / 1MB), 2)
+    $lfsSizeMB = [math]::Round(($lfsSizeBytes / 1MB), 2)
+
+    $openIssues = if ($p -and $p.PSObject.Properties.Name -contains 'open_issues_count') { $p.open_issues_count } else { 0 }
+    $lastActivity = if ($p -and $p.PSObject.Properties.Name -contains 'last_activity_at') { $p.last_activity_at } else { '' }
+
     $report = [pscustomobject]@{
-        project            = $p.path_with_namespace
-        http_url_to_repo   = $p.http_url_to_repo
-        default_branch     = $p.default_branch
-        visibility         = $p.visibility
-        lfs_enabled        = $p.lfs_enabled
-        repo_size_MB       = [math]::Round(($p.statistics.repository_size / 1MB), 2)
-        lfs_size_MB        = [math]::Round(($p.statistics.lfs_objects_size / 1MB), 2)
-        open_issues        = $p.open_issues_count
-        last_activity      = $p.last_activity_at
+        project            = $projPath
+        http_url_to_repo   = $httpUrl
+        default_branch     = $defaultBranch
+        visibility         = $visibility
+        lfs_enabled        = $lfsEnabled
+        repo_size_MB       = $repoSizeMB
+        lfs_size_MB        = $lfsSizeMB
+        open_issues        = $openIssues
+        last_activity      = $lastActivity
         preparation_time   = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     }
     
@@ -177,7 +247,7 @@ function Initialize-GitLab {
     $report | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 $reportFile
     Write-Host "[OK] Preflight report written: $reportFile"
     
-    # Get GitLab token from Core.Rest module
+    # Get GitLab token from Core.Rest module (now parameterless, .env-driven)
     try {
         $gitLabToken = Get-GitLabToken
     }
@@ -185,13 +255,16 @@ function Initialize-GitLab {
         # Token error already has actionable message from Core.Rest
         throw
     }
-    
+
     # Download repository for migration preparation
     $gitUrl = $p.http_url_to_repo -replace '^https://', "https://oauth2:$gitLabToken@"
     
     if (Test-Path $repoDir) {
         Write-Host "[INFO] Repository directory exists, checking status..."
-        
+
+        # Ensure variable is initialized to avoid unbound variable access later
+        $needsClone = $false
+
         # Check if it's a valid git repository
         $isValidRepo = $false
         Push-Location $repoDir

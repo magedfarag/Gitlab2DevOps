@@ -18,29 +18,29 @@ if (Test-Path $coreRestPath) {
 }
 
 # Ensure minimal ADO context for tests so module callers that build URIs don't hit null CollectionUrl
-try {
-    if (Get-Command Initialize-CoreRest -ErrorAction SilentlyContinue) {
-        # Initialize with dummy tokens for test environment (keeps behavior non-interactive)
-        Initialize-CoreRest -CollectionUrl 'https://dev.azure.com/placeholder' -AdoPat 'TEST-PAT' -GitLabBaseUrl 'https://gitlab.com' -GitLabToken 'TEST-TOKEN-PLACEHOLDER' -AdoApiVersion '7.1' -RetryAttempts 1 -RetryDelaySeconds 1 -MaskSecrets $false -LogRestCalls:$false
-    }
-    elseif (-not $script:CollectionUrl) {
-        Set-AdoContext -CollectionUrl 'https://dev.azure.com/placeholder' -ProjectName 'PesterBizProj'
-    }
-} catch {
-    Write-Verbose "Set-AdoContext not available or failed: $_"
-}
+# try {
+#     if (Get-Command Initialize-CoreRest -ErrorAction SilentlyContinue) {
+#         # Initialize with dummy tokens for test environment (keeps behavior non-interactive)
+#         Initialize-CoreRest -CollectionUrl 'https://dev.azure.com/placeholder' -AdoPat 'TEST-PAT' -GitLabBaseUrl 'https://gitlab.com' -GitLabToken 'TEST-TOKEN-PLACEHOLDER' -AdoApiVersion '7.1' -RetryAttempts 1 -RetryDelaySeconds 1 -MaskSecrets $false -LogRestCalls:$false
+#     }
+#     elseif (-not $script:CollectionUrl) {
+#         Set-AdoContext -CollectionUrl 'https://dev.azure.com/placeholder' -ProjectName 'PesterBizProj'
+#     }
+# } catch {
+#     Write-Verbose "Set-AdoContext not available or failed: $_"
+# }
 
 # Dump core rest config for debugging
-try {
-    if (Get-Command Get-CoreRestConfig -ErrorAction SilentlyContinue) {
-        $cfg = Get-CoreRestConfig
-        Write-Host "CoreRestConfig: $($cfg | Out-String)"
-    } else {
-        Write-Host "Get-CoreRestConfig not available"
-    }
-} catch {
-    Write-Host "Get-CoreRestConfig failed: $_"
-}
+# try {
+#     if (Get-Command Get-CoreRestConfig -ErrorAction SilentlyContinue) {
+#         $cfg = Get-CoreRestConfig
+#         Write-Host "CoreRestConfig: $($cfg | Out-String)"
+#     } else {
+#         Write-Host "Get-CoreRestConfig not available"
+#     }
+# } catch {
+#     Write-Host "Get-CoreRestConfig failed: $_"
+# }
 
 $env:GitLabBaseUrl = $env:GitLabBaseUrl -or 'https://gitlab.com'
 $env:GitLabToken = $env:GitLabToken -or 'TEST-TOKEN-PLACEHOLDER'

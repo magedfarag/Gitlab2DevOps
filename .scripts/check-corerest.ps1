@@ -1,8 +1,8 @@
 Set-Location 'c:\Projects\devops\Gitlab2DevOps'
 Import-Module .\modules\core\Core.Rest.psm1 -Force
 Import-Module .\modules\AzureDevOps\WorkItems.psm1 -Force
-Write-Host '--- Get-CoreRestConfig ---'
-try { (Get-CoreRestConfig) | ConvertTo-Json -Compress } catch { Write-Host 'Get-CoreRestConfig failed:' $_.Exception.Message }
+# Write-Host '--- Get-CoreRestConfig ---'
+# try { (Get-CoreRestConfig) | ConvertTo-Json -Compress } catch { Write-Host 'Get-CoreRestConfig failed:' $_.Exception.Message }
 Write-Host '--- script:CollectionUrl ---'
 try { if (Get-Variable -Name script:CollectionUrl -Scope Script -ErrorAction SilentlyContinue) { Write-Host $script:CollectionUrl } else { Write-Host '<not set>' } } catch { Write-Host 'variable check failed:' $_.Exception.Message }
 Write-Host '--- script:workItemTypesCache ---'

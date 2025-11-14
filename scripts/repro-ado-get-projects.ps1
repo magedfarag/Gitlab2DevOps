@@ -22,15 +22,15 @@ if (-not $CollectionUrl -or -not $AdoPat) {
 # Load core rest module (Import-Module to properly load exported functions and state)
 Import-Module -Force -Scope Global "$PSScriptRoot\..\modules\core\Core.Rest.psm1"
 
-Write-Header "Initialize-CoreRest"
-try {
-    Initialize-CoreRest -CollectionUrl $CollectionUrl -AdoPat $AdoPat -SkipCertificateCheck:($SkipCert.IsPresent) -Verbose
-    Write-Host "Initialize-CoreRest completed" -ForegroundColor Green
-} catch {
-    Write-Host "Initialize-CoreRest failed: $($_.Exception.Message)" -ForegroundColor Red
-    if ($_.Exception.InnerException) { Write-Host "Inner: $($_.Exception.InnerException.Message)" -ForegroundColor Red }
-    exit 3
-}
+# Write-Header "Initialize-CoreRest"
+# try {
+#     Initialize-CoreRest -CollectionUrl $CollectionUrl -AdoPat $AdoPat -SkipCertificateCheck:($SkipCert.IsPresent) -Verbose
+#     Write-Host "Initialize-CoreRest completed" -ForegroundColor Green
+# } catch {
+#     Write-Host "Initialize-CoreRest failed: $($_.Exception.Message)" -ForegroundColor Red
+#     if ($_.Exception.InnerException) { Write-Host "Inner: $($_.Exception.InnerException.Message)" -ForegroundColor Red }
+#     exit 3
+# }
 
 # Show handler preference and active handler if available
 try { Write-Host "HttpClientHandlerPreference: $($script:HttpClientHandlerPreference)" } catch {}

@@ -125,22 +125,22 @@ function Get-AdoProjectList {
         [switch]$RefreshCache
     )
     
-    # Get cache from Core.Rest module
+    # Get cache from Core.Rest module (now parameterless, .env-driven)
     $cache = Get-Variable -Name ProjectCache -Scope Script -ValueOnly -ErrorAction SilentlyContinue
     if (-not $cache) {
         Write-Verbose "[Get-AdoProjectList] Cache not initialized, creating new cache"
         $cache = @{}
         Set-Variable -Name ProjectCache -Scope Script -Value $cache
     }
-    
+
     $cacheKey = 'ado_projects'
     $cacheExpiry = 'ado_projects_expiry'
     $cacheDurationMinutes = 15
-    
+
     # Check cache validity
     $now = Get-Date
     $cacheValid = $false
-    
+
     if ($UseCache -and -not $RefreshCache -and $cache.ContainsKey($cacheKey)) {
         if ($cache.ContainsKey($cacheExpiry)) {
             $expiry = $cache[$cacheExpiry]
@@ -153,12 +153,12 @@ function Get-AdoProjectList {
             }
         }
     }
-    
+
     if ($cacheValid) {
         return $cache[$cacheKey]
     }
-    
-    # Fetch fresh data from API
+
+    # Fetch fresh data from API (Invoke-AdoRest is now parameterless, .env-driven)
     Write-Verbose "[Get-AdoProjectList] Fetching project list from Azure DevOps API..."
     try {
         $list = Invoke-AdoRest GET "/_apis/projects?`$top=5000"
@@ -173,13 +173,13 @@ function Get-AdoProjectList {
         }
         return @()
     }
-    
+
     # Update cache
     $cache[$cacheKey] = $projects
     $cache[$cacheExpiry] = $now.AddMinutes($cacheDurationMinutes)
-    
+
     Write-Verbose "[Get-AdoProjectList] Cached $($projects.Count) projects (expires: $($cache[$cacheExpiry]))"
-    
+
     return $projects
 }
 
@@ -218,9 +218,7 @@ function Test-AdoProjectExists {
         $project = $projects | Where-Object { ($_.name -as [string]) -and ($_.name.Trim() -ieq $normalized) } | Select-Object -First 1
         if ($project) { return $true }
 
-        # As a final fallback, try the direct GET-by-name endpoint. Some servers may not return
-        # the project in the aggregated list immediately, but the direct endpoint will succeed
-        # if the project exists.
+        # As a final fallback, try the direct GET-by-name endpoint (Invoke-AdoRest is now parameterless)
         try {
             $proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($normalized))"
             if ($proj -and $proj.id) { return $true }

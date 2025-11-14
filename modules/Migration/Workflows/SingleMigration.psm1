@@ -292,10 +292,10 @@ function Invoke-SingleMigration {
     
     try {
         # Get Core.Rest configuration for git operations
-        $coreRestConfig = Get-CoreRestConfig
-        if (-not $coreRestConfig) {
-            throw "Core REST configuration not found. Please initialize Core.Rest module first."
-        }
+        # $coreRestConfig = Get-CoreRestConfig
+        # if (-not $coreRestConfig) {
+        #     throw "Core REST configuration not found. Please initialize Core.Rest module first."
+        # }
         
         # Determine source repository
         $stepStart = Get-Date
@@ -320,12 +320,13 @@ function Invoke-SingleMigration {
         
         # Configure Azure DevOps remote
         $stepStart = Get-Date
-        $adoRemote = "$($coreRestConfig.CollectionUrl)/$([uri]::EscapeDataString($DestProject))/_git/$([uri]::EscapeDataString($repoName))"
+        # Use .env-driven config from Core.Rest
+        $adoRemote = "$($env:ADO_COLLECTION_URL)/$([uri]::EscapeDataString($DestProject))/_git/$([uri]::EscapeDataString($repoName))"
         Push-Location $sourceRepo
         
         git remote remove ado 2>$null | Out-Null
         git remote add ado $adoRemote
-        git config http.$adoRemote.extraheader "AUTHORIZATION: basic $([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$($coreRestConfig.AdoPat)")))"
+        git config http.$adoRemote.extraheader "AUTHORIZATION: basic $([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$($env:ADO_PAT)")))"
         
         # Push to Azure DevOps (respect invalid certificate for on-prem ADO Server)
         Write-Host "[INFO] Pushing to Azure DevOps..."

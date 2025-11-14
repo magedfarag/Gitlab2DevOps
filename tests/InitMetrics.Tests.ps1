@@ -12,7 +12,7 @@ Describe 'Init metrics and idempotent ensures' {
 
     BeforeEach {
     # Ensure metrics are initialized fresh
-    Initialize-CoreRest -CollectionUrl 'https://dev.azure.com/fake' -AdoPat 'fake' -GitLabBaseUrl 'https://gitlab.fake' -GitLabToken 'fake' -LogRestCalls:$false | Out-Null
+    # Initialize-CoreRest -CollectionUrl 'https://dev.azure.com/fake' -AdoPat 'fake' -GitLabBaseUrl 'https://gitlab.fake' -GitLabToken 'fake' -LogRestCalls:$false | Out-Null
     Initialize-InitMetrics -Reset | Out-Null
     }
 

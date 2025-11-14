@@ -10,7 +10,7 @@
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
 
-#>
+
 function Measure-Adoprojectwiki {
     [CmdletBinding()]
     param(
@@ -18,11 +18,8 @@ function Measure-Adoprojectwiki {
         [string]$ProjId,
         
         [Parameter(Mandatory)]
-        [string]$Project,
-        
-        [string]$CollectionUrl,
-        [string]$AdoPat,
-        [string]$AdoApiVersion
+        [string]$Project
+        # Removed unused parameters: CollectionUrl, AdoPat, AdoApiVersion
     )
     
     try {
@@ -87,7 +84,7 @@ function Measure-Adoprojectwiki {
     }
 }
 
-#>
+
 function Set-AdoWikiPage {
     [CmdletBinding()]
     param(
@@ -101,11 +98,8 @@ function Set-AdoWikiPage {
         [string]$Path,
         
         [Parameter(Mandatory)]
-        [string]$Markdown,
-        
-        [string]$CollectionUrl,
-        [string]$AdoPat,
-        [string]$AdoApiVersion
+        [string]$Markdown
+        # Removed unused parameters: CollectionUrl, AdoPat, AdoApiVersion
     )
     
     $enc = [uri]::EscapeDataString($Path)
@@ -291,7 +285,7 @@ function Set-AdoWikiPage {
     }
 }
 
-#>
+
 function New-AdoQAGuidelinesWiki {
     [CmdletBinding()]
     param(
@@ -357,7 +351,7 @@ Use the subpages navigation to explore each topic.
     Write-Host "  🐛 Bug Lifecycle: Defect management and quality metrics" -ForegroundColor Gray
 }
 
-#>
+
 function Measure-Adobestpracticeswiki {
     [CmdletBinding()]
     param(
@@ -365,11 +359,8 @@ function Measure-Adobestpracticeswiki {
         [string]$Project,
         
         [Parameter(Mandatory)]
-        [string]$WikiId,
-        
-        [string]$CollectionUrl,
-        [string]$AdoPat,
-        [string]$AdoApiVersion
+        [string]$WikiId
+        # Removed unused parameters: CollectionUrl, AdoPat, AdoApiVersion
     )
     
     Write-Host "[INFO] Creating Best Practices wiki pages..." -ForegroundColor Cyan
@@ -430,7 +421,7 @@ Use the subpages navigation to explore each topic.
     Write-Host "  📚 Documentation: Guidelines for effective technical documentation" -ForegroundColor Gray
 }
 
-#>
+
 function Measure-Adobusinesswiki {
     [CmdletBinding()]
     param(
@@ -493,7 +484,7 @@ Use the subpages navigation to explore each topic.
     }
 }
 
-#>
+
 function Measure-Adodevwiki {
     [CmdletBinding()]
     param(
@@ -582,7 +573,7 @@ Use the subpages navigation to explore each topic.
     }
 }
 
-#>
+
 function New-AdoSecurityWiki {
     [CmdletBinding()]
     param(
@@ -670,7 +661,7 @@ Use the subpages navigation to explore each topic.
     }
 }
 
-#>
+
 function Measure-Adomanagementwiki {
     [CmdletBinding()]
     param(
@@ -803,12 +794,8 @@ function Initialize-AdoProjectWikis {
 function New-AdoProjectSummaryWikiPage {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] [string]$Project,
-        [Parameter(Mandatory)] [string]$WikiId,
-        
-        [string]$CollectionUrl,
-        [string]$AdoPat,
-        [string]$AdoApiVersion
+        [Parameter(Mandatory)][string]$Project,
+        [Parameter(Mandatory)][string]$WikiId
     )
 
     Write-Host "[INFO] Creating Project Summary wiki page..." -ForegroundColor Cyan

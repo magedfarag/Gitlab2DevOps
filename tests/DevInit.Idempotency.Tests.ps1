@@ -6,7 +6,7 @@ BeforeAll {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) "modules\core\Logging.psm1") -Force
 
     # Initialize Core.Rest with mock credentials
-    Initialize-CoreRest -CollectionUrl "https://dev.azure.com/test" -AdoPat "mockpat" -GitLabBaseUrl "https://gitlab.com" -GitLabToken "mocktoken"
+    # Initialize-CoreRest -CollectionUrl "https://dev.azure.com/test" -AdoPat "mockpat" -GitLabBaseUrl "https://gitlab.com" -GitLabToken "mocktoken"
 
     # Mock Invoke-AdoRest globally to prevent any real API calls
     Mock Invoke-AdoRest {

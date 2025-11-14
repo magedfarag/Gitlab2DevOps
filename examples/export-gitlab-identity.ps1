@@ -93,15 +93,15 @@
 
 [CmdletBinding(DefaultParameterSetName='PlainToken')]
 param(
-    [Parameter(Mandatory=$true)]
+    [Parameter()]
     [ValidateNotNullOrEmpty()]
     [string]$GitLabBaseUrl,
 
-    [Parameter(Mandatory=$true, ParameterSetName='PlainToken')]
+    [Parameter(ParameterSetName='PlainToken')]
     [ValidateNotNullOrEmpty()]
     [string]$GitLabToken,
 
-    [Parameter(Mandatory=$true, ParameterSetName='SecureToken')]
+    [Parameter(ParameterSetName='SecureToken')]
     [System.Security.SecureString]$GitLabTokenSecure,
 
     [Parameter(Mandatory=$false)]
@@ -132,6 +132,252 @@ param(
 )
 
 # ---------------------------
+# Helper Functions (available even when script is dot-sourced)
+# ---------------------------
+function Write-Log {
+    param(
+        [Parameter(Mandatory=$true)][string]$Message,
+        [ValidateSet('INFO','WARN','ERROR')][string]$Level = 'INFO'
+    )
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'
+    $line = "[$ts] [$Level] $Message"
+    Write-Host $line
+    if ($script:logFile) {
+        Add-Content -LiteralPath $script:logFile -Value $line
+    }
+}
+
+function Save-Json {
+    param(
+        [Parameter(Mandatory=$true)][string]$Path,
+        [Parameter(Mandatory=$true)]$Data
+    )
+    $json = $Data | ConvertTo-Json -Depth 20
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $json, $utf8NoBom)
+}
+
+function Invoke-GitLabRest {
+    param(
+        [Parameter(Mandatory=$true)][ValidateSet('GET','POST','PUT','PATCH','DELETE')][string]$Method,
+        [Parameter(Mandatory=$true)][string]$Endpoint,
+        [hashtable]$Query = @{},
+        [int]$MaxRetries = 3
+    )
+
+    $uriBuilder = New-Object System.UriBuilder("$script:GitLabBaseUrl/api/$script:ApiVersion$Endpoint")
+    if ($Query -and $Query -is [hashtable] -and $Query.Count -gt 0) {
+        $nv = New-Object System.Collections.Specialized.NameValueCollection
+        foreach ($k in $Query.Keys) {
+            $v = if ($Query[$k] -ne $null) { [string]$Query[$k] } else { '' }
+            $nv.Add([string]$k, $v)
+        }
+        $qs = [System.Web.HttpUtility]::ParseQueryString('')
+        $qs.Add($nv)
+        $uriBuilder.Query = $qs.ToString()
+    }
+    $uri = $uriBuilder.Uri.AbsoluteUri
+
+    $headers = @{
+        'Private-Token' = $script:PlainToken
+        'Accept'        = 'application/json'
+    }
+
+    $attempt = 0
+    $delay = 1
+    while ($true) {
+        try {
+            $resp = Invoke-WebRequest -Method $Method -Uri $uri -Headers $headers -UseBasicParsing
+            $contentType = ($resp.Headers['Content-Type'])
+            $raw = $resp.Content
+            $data = if ($raw) { $raw | ConvertFrom-Json } else { $null }
+            return [pscustomobject]@{
+                Data    = $data
+                Headers = $resp.Headers
+                Status  = $resp.StatusCode
+                Uri     = $uri
+            }
+        }
+        catch {
+            $attempt++
+            $webEx = $_.Exception
+            $statusCode = $null
+            $errorBody = $null
+
+            if ($webEx.Response -and $webEx.Response.StatusCode) {
+                $statusCode = [int]$webEx.Response.StatusCode
+                try {
+                    $stream = $webEx.Response.GetResponseStream()
+                    $reader = New-Object System.IO.StreamReader($stream)
+                    $errorBody = $reader.ReadToEnd()
+                    $reader.Close()
+                    $stream.Close()
+                }
+                catch {
+                    $errorBody = $_.ErrorDetails.Message
+                }
+            }
+
+            if (-not $errorBody) {
+                $errorBody = $_.ErrorDetails.Message ?? $_.Exception.Message
+            }
+
+            if ($statusCode -eq 429 -and $attempt -le $MaxRetries) {
+                $retryAfter = 0
+                try { $retryAfter = [int]$webEx.Response.Headers['Retry-After'] } catch {}
+                if ($retryAfter -lt 1) { $retryAfter = $delay }
+                Write-Log "429 Too Many Requests on $uri. Retrying in $retryAfter sec... (attempt $attempt/$MaxRetries)" 'WARN'
+                Start-Sleep -Seconds $retryAfter
+                $delay = [Math]::Min($delay * 2, 30)
+                continue
+            }
+
+            if ($statusCode -in 401,403) {
+                $logMsg = "Access denied ($statusCode) calling $uri"
+                if ($errorBody) { $logMsg += " - $errorBody" }
+                Write-Log $logMsg 'ERROR'
+                return [pscustomobject]@{ Data = $null; Headers = $null; Status = $statusCode; Uri = $uri }
+            }
+
+            if ($errorBody) {
+                throw "HTTP $statusCode on $uri`: $errorBody"
+            }
+            throw
+        }
+    }
+}
+
+function Invoke-GitLabPagedRequest {
+    param(
+        [Parameter(Mandatory=$true)][string]$Endpoint,
+        [hashtable]$Query = @{}
+    )
+
+    $items = [System.Collections.Generic.List[object]]::new()
+    $page = 1
+    $more = $true
+    $startTime = Get-Date
+
+    $meta = [ordered]@{
+        endpoint             = $Endpoint
+        page_size            = $script:PageSize
+        total                = $null
+        total_pages          = $null
+        collected_pages      = 0
+        total_time_ms        = 0
+        avg_time_per_page_ms = 0
+        retry_count          = 0
+        rate_limit_remaining = $null
+        rate_limit_reset     = $null
+        link_header          = $null
+    }
+
+    while ($more) {
+        $pageStartTime = Get-Date
+        $queryWithPage = @{
+            per_page = $script:PageSize
+            page     = $page
+        }
+        foreach ($k in $Query.Keys) { $queryWithPage[$k] = $Query[$k] }
+
+        $resp = Invoke-GitLabRest -Method GET -Endpoint $Endpoint -Query $queryWithPage
+        if ($resp.Status -in 401,403) {
+            return [pscustomobject]@{ Items = $null; Meta = $meta; Denied = $true; Last = $resp }
+        }
+
+        $data = $resp.Data
+        if ($data -eq $null) { break }
+        if ($data -is [array]) { $items.AddRange($data) } else { $items.Add($data) }
+
+        $h = $resp.Headers
+        $nextPage = $h['X-Next-Page']
+        $total = $h['X-Total']
+        $totalPages = $h['X-Total-Pages']
+        $rateLimitRemaining = $h['RateLimit-Remaining']
+        $rateLimitReset = $h['RateLimit-Reset']
+        $linkHeader = $h['Link']
+
+        $nextPage = $nextPage -is [array] ? $nextPage[0] : $nextPage
+        $total = $total -is [array] ? $total[0] : $total
+        $totalPages = $totalPages -is [array] ? $totalPages[0] : $totalPages
+        $rateLimitRemaining = $rateLimitRemaining -is [array] ? $rateLimitRemaining[0] : $rateLimitRemaining
+        $rateLimitReset = $rateLimitReset -is [array] ? $rateLimitReset[0] : $rateLimitReset
+        $linkHeader = $linkHeader -is [array] ? $linkHeader[0] : $linkHeader
+
+        if ($total) { $meta.total = [int]$total }
+        if ($totalPages) { $meta.total_pages = [int]$totalPages }
+        if ($rateLimitRemaining) { $meta.rate_limit_remaining = [int]$rateLimitRemaining }
+        if ($rateLimitReset) { $meta.rate_limit_reset = $rateLimitReset }
+        if ($linkHeader -and -not $meta.link_header) { $meta.link_header = $linkHeader }
+
+        $meta.collected_pages++
+
+        $pageTime = ((Get-Date) - $pageStartTime).TotalMilliseconds
+        Write-Verbose "Page $page fetched in $([Math]::Round($pageTime, 2))ms (rate limit remaining: $rateLimitRemaining)"
+
+        if ([string]::IsNullOrWhiteSpace($nextPage)) {
+            $more = $false
+        }
+        else {
+            $page = [int]$nextPage
+        }
+    }
+
+    $meta.total_time_ms = [int]((Get-Date) - $startTime).TotalMilliseconds
+    if ($meta.collected_pages -gt 0) {
+        $meta.avg_time_per_page_ms = [int]($meta.total_time_ms / $meta.collected_pages)
+    }
+
+    return [pscustomobject]@{ Items = $items.ToArray(); Meta = $meta; Denied = $false; Last = $resp }
+}
+
+function Add-InheritedFlag {
+    param(
+        [Parameter(Mandatory=$true)][array]$AllMembers,
+        [Parameter(Mandatory=$true)][array]$DirectMembers
+    )
+    $directIds = @{}
+    foreach ($m in $DirectMembers) { $directIds[[string]$m.id] = $true }
+    foreach ($m in $AllMembers) {
+        $isDirect = $false
+        if ($m.PSObject.Properties.Name -contains 'id') {
+            $isDirect = $directIds.ContainsKey([string]$m.id)
+        }
+        $m | Add-Member -NotePropertyName inherited -NotePropertyValue ($isDirect -eq $false) -Force
+    }
+    return $AllMembers
+}
+
+function Get-AccessLevelName {
+    param([int]$AccessLevel)
+    switch ($AccessLevel) {
+        10 { return 'Guest' }
+        20 { return 'Reporter' }
+        30 { return 'Developer' }
+        40 { return 'Maintainer' }
+        50 { return 'Owner' }
+        default { return "Unknown ($AccessLevel)" }
+    }
+}
+
+$script:logFile = $null
+$script:IsLibraryImport = ($MyInvocation.InvocationName -eq '.')
+if ($script:IsLibraryImport) {
+    return
+}
+
+if (-not $GitLabBaseUrl) {
+    throw "Parameter -GitLabBaseUrl is required when executing export-gitlab-identity.ps1."
+}
+
+if (-not $GitLabToken -and -not $GitLabTokenSecure) {
+    throw "Specify either -GitLabToken or -GitLabTokenSecure when executing export-gitlab-identity.ps1."
+}
+
+$script:PageSize = $PageSize
+$script:ApiVersion = $ApiVersion
+
+# ---------------------------
 # Constants & Globals
 # ---------------------------
 $Script:ScriptVersion = '1.0.0'
@@ -145,6 +391,7 @@ $PSDefaultParameterValues['Invoke-RestMethod:ErrorAction'] = 'Stop'
 if ($GitLabBaseUrl.EndsWith('/')) {
     $GitLabBaseUrl = $GitLabBaseUrl.TrimEnd('/')
 }
+$script:GitLabBaseUrl = $GitLabBaseUrl
 
 # Materialize token value from secure/plain
 $PlainToken = $null
@@ -160,6 +407,7 @@ if ($PSCmdlet.ParameterSetName -eq 'SecureToken') {
 else {
     $PlainToken = $GitLabToken
 }
+$script:PlainToken = $PlainToken
 
 # Wrap entire script execution in try-finally for token cleanup
 try {
@@ -184,6 +432,7 @@ $projectMembershipsFile = Join-Path $OutDirectory 'project-memberships.json'
 $memberRolesFile        = Join-Path $OutDirectory 'member-roles.json'
 $metadataFile           = Join-Path $OutDirectory 'metadata.json'
 $logFile                = Join-Path $OutDirectory 'export.log'
+$script:logFile         = $logFile
 
 # Resume detection - check for existing completed exports
 $resumeFlags = @{
@@ -209,217 +458,6 @@ elseif (($resumeFlags.Values | Where-Object { $_ }).Count -gt 0) {
     Write-Host "[WARN] Export directory already contains files. Use -Resume to skip completed phases or delete directory for fresh export." -ForegroundColor Yellow
 }
 
-# ---------------------------
-# Logging helpers
-# ---------------------------
-function Write-Log {
-    param(
-        [Parameter(Mandatory=$true)][string]$Message,
-        [ValidateSet('INFO','WARN','ERROR')][string]$Level = 'INFO'
-    )
-    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'
-    $line = "[$ts] [$Level] $Message"
-    Write-Host $line
-    Add-Content -LiteralPath $logFile -Value $line
-}
-
-# ---------------------------
-# JSON save helper (UTF-8 no BOM)
-# ---------------------------
-function Save-Json {
-    param(
-        [Parameter(Mandatory=$true)][string]$Path,
-        [Parameter(Mandatory=$true)]$Data
-    )
-    $json = $Data | ConvertTo-Json -Depth 20
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($Path, $json, $utf8NoBom)
-}
-
-# ---------------------------
-# HTTP Helper: Invoke GitLab REST and return parsed JSON + headers
-# Uses Invoke-WebRequest to access pagination headers (X-Next-Page, X-Total, ...)
-# ---------------------------
-function Invoke-GitLabRest {
-    param(
-        [Parameter(Mandatory=$true)][ValidateSet('GET','POST','PUT','PATCH','DELETE')][string]$Method,
-        [Parameter(Mandatory=$true)][string]$Endpoint,  # e.g. '/users'
-        [hashtable]$Query = @{},
-        [int]$MaxRetries = 3
-    )
-
-    $uriBuilder = New-Object System.UriBuilder("$GitLabBaseUrl/api/$ApiVersion$Endpoint")
-    if ($Query -and $Query.Count -gt 0) {
-        # Build query string safely
-        $nv = New-Object System.Collections.Specialized.NameValueCollection
-        foreach ($k in $Query.Keys) {
-            $v = if ($Query[$k] -ne $null) { [string]$Query[$k] } else { '' }
-            $nv.Add([string]$k, $v)
-        }
-        $qs = [System.Web.HttpUtility]::ParseQueryString('')
-        $qs.Add($nv)
-        $uriBuilder.Query = $qs.ToString()
-    }
-    $uri = $uriBuilder.Uri.AbsoluteUri
-
-    $headers = @{
-        'Private-Token' = $PlainToken  # GitLab recommended PAT header
-        'Accept'        = 'application/json'
-    }
-
-    $attempt = 0
-    $delay = 1
-    while ($true) {
-        try {
-            $resp = Invoke-WebRequest -Method $Method -Uri $uri -Headers $headers -UseBasicParsing
-            $contentType = ($resp.Headers['Content-Type'])
-            $raw = $resp.Content
-            $data = if ($raw) { $raw | ConvertFrom-Json } else { $null }
-            return [pscustomobject]@{
-                Data    = $data
-                Headers = $resp.Headers
-                Status  = $resp.StatusCode
-                Uri     = $uri
-            }
-        }
-        catch {
-            $attempt++
-            # Parse web exception
-            $webEx = $_.Exception
-            $statusCode = $null
-            $errorBody = $null
-            
-            if ($webEx.Response -and $webEx.Response.StatusCode) {
-                $statusCode = [int]$webEx.Response.StatusCode
-                # Try to read response body for detailed error message
-                try {
-                    $stream = $webEx.Response.GetResponseStream()
-                    $reader = New-Object System.IO.StreamReader($stream)
-                    $errorBody = $reader.ReadToEnd()
-                    $reader.Close()
-                    $stream.Close()
-                } catch {
-                    $errorBody = $_.ErrorDetails.Message
-                }
-            }
-            
-            # Fallback to ErrorDetails if no response body
-            if (-not $errorBody) {
-                $errorBody = $_.ErrorDetails.Message ?? $_.Exception.Message
-            }
-
-            if ($statusCode -eq 429 -and $attempt -le $MaxRetries) {
-                $retryAfter = 0
-                try { $retryAfter = [int]$webEx.Response.Headers['Retry-After'] } catch {}
-                if ($retryAfter -lt 1) { $retryAfter = $delay }
-                Write-Log "429 Too Many Requests on $uri. Retrying in $retryAfter sec... (attempt $attempt/$MaxRetries)" 'WARN'
-                Start-Sleep -Seconds $retryAfter
-                $delay = [Math]::Min($delay * 2, 30)
-                continue
-            }
-
-            # For 401/403, write clear error and allow caller to decide (we'll record in metadata)
-            if ($statusCode -in 401,403) {
-                $logMsg = "Access denied ($statusCode) calling $uri"
-                if ($errorBody) { $logMsg += " - $errorBody" }
-                Write-Log $logMsg 'ERROR'
-                return [pscustomobject]@{ Data = $null; Headers = $null; Status = $statusCode; Uri = $uri }
-            }
-
-            # Other errors bubble up with enhanced message
-            if ($errorBody) {
-                throw "HTTP $statusCode on $uri`: $errorBody"
-            }
-            throw
-        }
-    }
-}
-
-# ---------------------------
-# Paged request helper aggregates items using X-Next-Page headers
-# Uses List<T> instead of array concatenation to avoid O(n²) memory allocation
-# Captures rate limit headers and timing for diagnostics
-# ---------------------------
-function Invoke-GitLabPagedRequest {
-    param(
-        [Parameter(Mandatory=$true)][string]$Endpoint,
-        [hashtable]$Query = @{}
-    )
-    # Use List<T> for O(1) amortized append instead of O(n) array copy with +=
-    $items = [System.Collections.Generic.List[object]]::new()
-    $page = 1
-    $more = $true
-    $startTime = Get-Date
-
-    $meta = [ordered]@{
-        endpoint            = $Endpoint
-        page_size           = $PageSize
-        total               = $null
-        total_pages         = $null
-        collected_pages     = 0
-        total_time_ms       = 0
-        avg_time_per_page_ms = 0
-        retry_count         = 0
-        rate_limit_remaining = $null
-        rate_limit_reset     = $null
-        link_header          = $null
-    }
-
-    while ($more) {
-        $pageStartTime = Get-Date
-        $queryWithPage = @{
-            per_page = $PageSize
-            page     = $page
-        }
-        foreach ($k in $Query.Keys) { $queryWithPage[$k] = $Query[$k] }
-
-        $resp = Invoke-GitLabRest -Method GET -Endpoint $Endpoint -Query $queryWithPage
-        if ($resp.Status -in 401,403) {
-            # Caller will interpret this as a denied endpoint
-            return [pscustomobject]@{ Items = $null; Meta = $meta; Denied = $true; Last = $resp }
-        }
-
-        $data = $resp.Data
-        if ($data -eq $null) { break }
-        # AddRange for arrays, Add for single items - O(1) amortized
-        if ($data -is [array]) { $items.AddRange($data) } else { $items.Add($data) }
-
-        # Headers
-        $h = $resp.Headers
-        $nextPage = $h['X-Next-Page']
-        $total = $h['X-Total']
-        $totalPages = $h['X-Total-Pages']
-        $rateLimitRemaining = $h['RateLimit-Remaining']
-        $rateLimitReset = $h['RateLimit-Reset']
-        $linkHeader = $h['Link']
-        
-        if ($total) { $meta.total = [int]$total }
-        if ($totalPages) { $meta.total_pages = [int]$totalPages }
-        if ($rateLimitRemaining) { $meta.rate_limit_remaining = [int]$rateLimitRemaining }
-        if ($rateLimitReset) { $meta.rate_limit_reset = $rateLimitReset }
-        if ($linkHeader -and -not $meta.link_header) { $meta.link_header = $linkHeader }
-        
-        $meta.collected_pages++
-        
-        $pageTime = ((Get-Date) - $pageStartTime).TotalMilliseconds
-        Write-Verbose "Page $page fetched in $([Math]::Round($pageTime, 2))ms (rate limit remaining: $rateLimitRemaining)"
-
-        if ([string]::IsNullOrWhiteSpace($nextPage)) {
-            $more = $false
-        }
-        else {
-            $page = [int]$nextPage
-        }
-    }
-    
-    $meta.total_time_ms = [int]((Get-Date) - $startTime).TotalMilliseconds
-    if ($meta.collected_pages -gt 0) {
-        $meta.avg_time_per_page_ms = [int]($meta.total_time_ms / $meta.collected_pages)
-    }
-    
-    # Convert List<T> to array for compatibility with rest of script
-    return [pscustomobject]@{ Items = $items.ToArray(); Meta = $meta; Denied = $false; Last = $resp }
-}
 
 # ---------------------------
 # Initialize metadata
@@ -471,6 +509,7 @@ if ($DryRun.IsPresent) {
             $query1.per_page = 1
             $resp = Invoke-GitLabRest -Method GET -Endpoint $Endpoint -Query $query1
             $total = $resp.Headers['X-Total']
+            $total = $total -is [array] ? $total[0] : $total
             if ($total) { return [int]$total }
             return 0
         }
@@ -529,6 +568,8 @@ if ($DryRun.IsPresent) {
 if ($Resume.IsPresent -and $resumeFlags.users) {
     Write-Log "[RESUME] Skipping users export - $usersFile already exists"
     $users = Get-Content -LiteralPath $usersFile -Raw | ConvertFrom-Json
+    # Ensure array shape (ConvertFrom-Json returns single object when JSON has one item)
+    if ($users -eq $null) { $users = @() } else { $users = @($users) }
     $metadata.counts.users = $users.Count
 }
 else {
@@ -541,10 +582,11 @@ else {
     }
     else {
         $usersRaw = $usersResp.Items
+        if ($usersRaw -eq $null) { $usersRaw = @() }
         $userIndex = 0
         $users = foreach ($u in $usersRaw) {
             $userIndex++
-            if ($userIndex % 100 -eq 0) {
+            if ($usersRaw.Count -gt 0 -and $userIndex % 100 -eq 0) {
                 $pct = [Math]::Min(15, 10 + (($userIndex / $usersRaw.Count) * 5))
                 Write-Progress -Activity "Exporting GitLab Identity" -Status "Processing users ($userIndex/$($usersRaw.Count))..." -PercentComplete $pct
             }
@@ -589,6 +631,7 @@ else {
 if ($Resume.IsPresent -and $resumeFlags.groups) {
     Write-Log "[RESUME] Skipping groups export - $groupsFile already exists"
     $groups = Get-Content -LiteralPath $groupsFile -Raw | ConvertFrom-Json
+    if ($groups -eq $null) { $groups = @() } else { $groups = @($groups) }
     $metadata.counts.groups = $groups.Count
 }
 else {
@@ -601,6 +644,7 @@ else {
     }
     else {
         $groupsRaw = $groupsResp.Items
+        if ($groupsRaw -eq $null) { $groupsRaw = @() }
         # Build parent lookup for hierarchy computation
         $groupLookup = @{}
         foreach ($g in $groupsRaw) { $groupLookup[[string]$g.id] = $g }
@@ -608,7 +652,7 @@ else {
         $groupIndex = 0
         $groups = foreach ($g in $groupsRaw) {
             $groupIndex++
-            if ($groupIndex % 50 -eq 0) {
+            if ($groupsRaw.Count -gt 0 -and $groupIndex % 50 -eq 0) {
                 $pct = [Math]::Min(30, 20 + (($groupIndex / $groupsRaw.Count) * 10))
                 Write-Progress -Activity "Exporting GitLab Identity" -Status "Processing groups ($groupIndex/$($groupsRaw.Count))..." -PercentComplete $pct
             }
@@ -671,13 +715,14 @@ else {
 # 3) Export Projects (GET /projects - paged)
 # ---------------------------
 if ($Profile -eq 'Minimal') {
-    Write-Log "[PROFILE] Skipping projects export - Profile is set to 'Minimal'"
+    Write-Log "[PROFILE] Skipping projects export - Minimal profile selected (Profile is set to 'Minimal')"
     $projects = @()
     $metadata.counts.projects = 0
 }
 elseif ($Resume.IsPresent -and $resumeFlags.projects) {
     Write-Log "[RESUME] Skipping projects export - $projectsFile already exists"
     $projects = Get-Content -LiteralPath $projectsFile -Raw | ConvertFrom-Json
+    if ($projects -eq $null) { $projects = @() } else { $projects = @($projects) }
     $metadata.counts.projects = $projects.Count
 }
 else {
@@ -692,10 +737,11 @@ else {
     }
     else {
         $projectsRaw = $projectsResp.Items
+        if ($projectsRaw -eq $null) { $projectsRaw = @() }
         $projectIndex = 0
         $projects = foreach ($p in $projectsRaw) {
             $projectIndex++
-            if ($projectIndex % 50 -eq 0) {
+            if ($projectsRaw.Count -gt 0 -and $projectIndex % 50 -eq 0) {
                 $pct = [Math]::Min(50, 35 + (($projectIndex / $projectsRaw.Count) * 15))
                 Write-Progress -Activity "Exporting GitLab Identity" -Status "Processing projects ($projectIndex/$($projectsRaw.Count))..." -PercentComplete $pct
             }
@@ -739,48 +785,10 @@ else {
 }
 
 # ---------------------------
-# Helper: compute member inherited flag (all vs direct)
-# ---------------------------
-# Helper: compute member inherited flag (all vs direct)
-# ---------------------------
-function Add-InheritedFlag {
-    param(
-        [Parameter(Mandatory=$true)][array]$AllMembers,
-        [Parameter(Mandatory=$true)][array]$DirectMembers
-    )
-    $directIds = @{}
-    foreach ($m in $DirectMembers) { $directIds[[string]$m.id] = $true }
-    foreach ($m in $AllMembers) {
-        $isDirect = $false
-        if ($m.PSObject.Properties.Name -contains 'id') {
-            $isDirect = $directIds.ContainsKey([string]$m.id)
-        }
-        $m | Add-Member -NotePropertyName inherited -NotePropertyValue ($isDirect -eq $false) -Force
-    }
-    return $AllMembers
-}
-
-# ---------------------------
-# Helper: Convert GitLab access level integer to name
-# GitLab: 10=Guest, 20=Reporter, 30=Developer, 40=Maintainer, 50=Owner
-# ---------------------------
-function Get-AccessLevelName {
-    param([int]$AccessLevel)
-    switch ($AccessLevel) {
-        10 { return 'Guest' }
-        20 { return 'Reporter' }
-        30 { return 'Developer' }
-        40 { return 'Maintainer' }
-        50 { return 'Owner' }
-        default { return "Unknown ($AccessLevel)" }
-    }
-}
-
-# ---------------------------
 # 4) Export Group Memberships (users + group links)
 # ---------------------------
-if ($Profile -eq 'Minimal' -or $Profile -eq 'Standard') {
-    Write-Log "[PROFILE] Skipping group memberships export - Profile is set to '$Profile'"
+if ($Profile -ne 'Complete') {
+    Write-Log "[PROFILE] Skipping group memberships export - '$Profile' profile omits memberships"
     $groupMemberships = @()
     $metadata.counts.group_memberships = 0
     $metadata.counts.group_membership_entries = 0
@@ -788,6 +796,7 @@ if ($Profile -eq 'Minimal' -or $Profile -eq 'Standard') {
 elseif ($Resume.IsPresent -and $resumeFlags.group_memberships) {
     Write-Log "[RESUME] Skipping group memberships export - $groupMembershipsFile already exists"
     $groupMemberships = Get-Content -LiteralPath $groupMembershipsFile -Raw | ConvertFrom-Json
+    if ($groupMemberships -eq $null) { $groupMemberships = @() } else { $groupMemberships = @($groupMemberships) }
     $metadata.counts.group_memberships = $groupMemberships.Count
     $totalGroupMemberEntries = 0
     foreach ($gm in $groupMemberships) { $totalGroupMemberEntries += ($gm.members | Measure-Object).Count }
@@ -802,7 +811,7 @@ else {
         $groupIdx++
         if ($groupIdx % 20 -eq 0) {
             $pct = [Math]::Min(70, 55 + (($groupIdx / $groups.Count) * 15))
-            Write-Progress -Activity "Exporting GitLab Identity" -Status "Group memberships ($groupIdx/$($groups.Count))..." -PercentComplete $pct
+            Write-Progress -Activity "Exporting GitLab Identity" -Status "Processing group memberships ($groupIdx/$($groups.Count))..." -PercentComplete $pct
         }
         $gid = $g.id
         $gpath = $g.full_path
@@ -883,8 +892,8 @@ else {
 # ---------------------------
 # 5) Export Project Memberships (users + group shares)
 # ---------------------------
-if ($Profile -eq 'Minimal' -or $Profile -eq 'Standard') {
-    Write-Log "[PROFILE] Skipping project memberships export - Profile is set to '$Profile'"
+if ($Profile -ne 'Complete') {
+    Write-Log "[PROFILE] Skipping project memberships export - '$Profile' profile omits memberships"
     $projectMemberships = @()
     $metadata.counts.project_memberships = 0
     $metadata.counts.project_membership_entries = 0
@@ -892,6 +901,7 @@ if ($Profile -eq 'Minimal' -or $Profile -eq 'Standard') {
 elseif ($Resume.IsPresent -and $resumeFlags.project_memberships) {
     Write-Log "[RESUME] Skipping project memberships export - $projectMembershipsFile already exists"
     $projectMemberships = Get-Content -LiteralPath $projectMembershipsFile -Raw | ConvertFrom-Json
+    if ($projectMemberships -eq $null) { $projectMemberships = @() } else { $projectMemberships = @($projectMemberships) }
     $metadata.counts.project_memberships = $projectMemberships.Count
     $totalProjectMemberEntries = 0
     foreach ($pm in $projectMemberships) { $totalProjectMemberEntries += ($pm.members | Measure-Object).Count }
@@ -906,14 +916,16 @@ else {
         $projIdx++
         if ($projIdx % 20 -eq 0) {
             $pct = [Math]::Min(90, 75 + (($projIdx / $projects.Count) * 15))
-            Write-Progress -Activity "Exporting GitLab Identity" -Status "Project memberships ($projIdx/$($projects.Count))..." -PercentComplete $pct
+            Write-Progress -Activity "Exporting GitLab Identity" -Status "Processing project memberships ($projIdx/$($projects.Count))..." -PercentComplete $pct
         }
         $pid = $p.id
         $ppath = $p.path_with_namespace
 
         # Users: all vs direct
-        $pmAllResp = Invoke-GitLabPagedRequest -Endpoint "/projects/$pid/members/all"
-        $pmDirectResp = Invoke-GitLabPagedRequest -Endpoint "/projects/$pid/members"
+        $projectMembersAllEndpoint = "/projects/{0}/members/all" -f $pid
+        $projectMembersDirectEndpoint = "/projects/{0}/members" -f $pid
+        $pmAllResp = Invoke-GitLabPagedRequest -Endpoint $projectMembersAllEndpoint
+        $pmDirectResp = Invoke-GitLabPagedRequest -Endpoint $projectMembersDirectEndpoint
 
         $allDenied = $pmAllResp.Denied
         $dirDenied = $pmDirectResp.Denied
@@ -987,6 +999,7 @@ if ($IncludeMemberRoles.IsPresent) {
     if ($Resume.IsPresent -and $resumeFlags.member_roles) {
         Write-Log "[RESUME] Skipping member roles export - $memberRolesFile already exists"
         $roles = Get-Content -LiteralPath $memberRolesFile -Raw | ConvertFrom-Json
+        if ($roles -eq $null) { $roles = @() } else { $roles = @($roles) }
         $metadata.counts.member_roles = $roles.Count
     }
     else {
@@ -1078,6 +1091,7 @@ finally {
     # Clean up sensitive token from memory
     if ($PlainToken) {
         $PlainToken = $null
+        $script:PlainToken = $null
         [GC]::Collect()
         [GC]::WaitForPendingFinalizers()
     }

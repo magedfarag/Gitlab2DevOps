@@ -10,7 +10,7 @@
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
 
-#>
+
 function New-AdoRepositoryTemplates {
     [CmdletBinding()]
     param(
@@ -176,7 +176,7 @@ function New-AdoRepositoryTemplates {
     return $filesCreated
 }
 
-#>
+
 function New-AdoRepository {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact='High')]
     param(
@@ -267,7 +267,7 @@ function New-AdoRepository {
     }
 }
 
-#>
+
 function Get-AdoRepoDefaultBranch {
     [CmdletBinding()]
     param(
@@ -295,7 +295,7 @@ function Get-AdoRepoDefaultBranch {
     }
 }
 
-#>
+
 function New-Adobranchpolicies {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact='Medium')]
     param(
@@ -437,7 +437,7 @@ function New-Adobranchpolicies {
     }
 }
 
-#>
+
 function Set-AdoRepoDeny {
     [CmdletBinding()]
     param(
@@ -485,7 +485,7 @@ function Set-AdoRepoDeny {
     Write-Host "[INFO] Deny permissions successfully applied" -ForegroundColor Green
 }
 
-#>
+
 function New-AdoRepoFiles {
     [CmdletBinding()]
     param(
@@ -638,7 +638,7 @@ function Ensure-AdoRepoFiles {
     return New-AdoRepoFiles -Project $Project -RepoId $RepoId -RepoName $RepoName -ProjectType $ProjectType
 }
 
-#>
+
 function New-AdoSecurityRepoFiles {
     [CmdletBinding()]
     param(

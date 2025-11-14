@@ -15,6 +15,13 @@ $script:ProjectListCache = $null
 $script:ProjectListCacheTime = $null
 $script:ProjectListCacheTTL = 300 # 5 minutes
 
+# Ensure Core REST dependencies are available when module is imported standalone
+$moduleRoot = Split-Path $PSScriptRoot -Parent
+$coreRestModule = Join-Path $moduleRoot 'core\Core.Rest.psm1'
+if (-not (Get-Module -Name 'Core.Rest') -and (Test-Path $coreRestModule)) {
+    Import-Module $coreRestModule -Force -ErrorAction Stop
+}
+
 <#
 .SYNOPSIS
     Gets a list of all Azure DevOps projects with caching.
@@ -105,7 +112,7 @@ function Get-AdoProjectRepositories {
     }
 }
 
-#>
+
 function Measure-Adoproject {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact='Medium')]
     param(
@@ -208,7 +215,7 @@ function Measure-Adoproject {
     }
 }
 
-#>
+
 function Test-AdoProjectExists {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -234,7 +241,7 @@ function Test-AdoProjectExists {
     }
 }
 
-#>
+
 function Get-AdoProjectProcessTemplate {
     [CmdletBinding()]
     param(
@@ -285,7 +292,7 @@ function Get-AdoProjectProcessTemplate {
     }
 }
 
-#>
+
 function Get-AdoWorkItemTypes {
     [CmdletBinding()]
     param(
@@ -414,7 +421,7 @@ function Get-AdoWorkItemTypes {
     }
 }
 
-#>
+
 function Measure-Adoarea {
     [CmdletBinding()]
     param(
@@ -441,7 +448,7 @@ function Measure-Adoarea {
     }
 }
 
-#>
+
 function Measure-Adoiterations {
     [CmdletBinding()]
     param(
@@ -665,7 +672,7 @@ Export-ModuleMember -Function @(
     'Get-AdoProjectProcessTemplate',
     'Get-AdoWorkItemTypes',
     'Measure-Adoarea',
-    'Measure-Adoiterations'
-    ,'Ensure-AdoIteration'
+    'Measure-Adoiterations',
+    'Ensure-AdoIteration'
 )
 

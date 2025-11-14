@@ -335,8 +335,9 @@ function Test-DotEnvConfig {
     return $allPresent
 }
 
+## NOTE: Import-DotEnvFile and Test-DotEnvConfig are internal utilities.
+## Core.Rest centralizes .env loading at runtime. Export only the template
+## generator so documentation tooling can still create templates.
 Export-ModuleMember -Function @(
-    'Import-DotEnvFile',
-    'New-DotEnvTemplate',
-    'Test-DotEnvConfig'
-)
+    'New-DotEnvTemplate'
+) 
