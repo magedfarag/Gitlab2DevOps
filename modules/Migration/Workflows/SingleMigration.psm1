@@ -264,7 +264,7 @@ function Invoke-SingleMigration {
     $repoName = $gl.path
     
     # Create migration log
-    $logFile = New-LogFilePath $logsDir "migration"
+    $logFile = New-LogFilePath -LogsDir $logsDir -Prefix "migration"
     $startTime = Get-Date
     $stepTiming = @{}
 

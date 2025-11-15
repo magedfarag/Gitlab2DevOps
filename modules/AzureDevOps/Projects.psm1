@@ -638,6 +638,11 @@ function Ensure-AdoIteration {
 
     try {
         Write-Verbose "[Ensure-AdoIteration] Creating iteration '$Name' in project '$Project'"
+        try {
+            # Emit diagnostic about collection URL type to help trace op_Addition issues
+            try { $coreCfgDiag = Ensure-CoreRestInitialized } catch { $coreCfgDiag = $null }
+            if ($coreCfgDiag -and $coreCfgDiag.CollectionUrl) { Write-Verbose "[Ensure-AdoIteration] CollectionUrl type: $($coreCfgDiag.CollectionUrl.GetType().FullName)" }
+        } catch { }
         $iteration = Invoke-AdoRest POST "/$projEnc/_apis/wit/classificationnodes/iterations" -Body $body
 
         if ($Team -and $iteration -and $iteration.identifier) {
@@ -668,6 +673,7 @@ function Ensure-AdoIteration {
             }
         }
 
+                
         Write-Warning "Failed to create iteration '$Name': $_"
         try { Add-InitMetric -Category 'iterations' -Action 'failed' } catch { }
         return @{ Name = $Name; Created = $false; Node = $null; Error = $_ }
@@ -675,6 +681,39 @@ function Ensure-AdoIteration {
 }
 
 # Export functions
+ 
+# Initialize or ensure a project wiki exists. Returns the wiki object or $null on failure.
+function Initialize-AdoProjectWikis {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$ProjectName
+    )
+
+    try {
+        $projEnc = [uri]::EscapeDataString($ProjectName)
+        # Get existing wikis for project
+        $wikis = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis" -ReturnNullOnNotFound
+        if ($wikis -and $wikis.value -and $wikis.value.Count -gt 0) {
+            Write-Verbose "[Initialize-AdoProjectWikis] Wiki already exists for project '$ProjectName'"
+            return $wikis.value[0]
+        }
+
+        # Create project wiki
+        $proj = Invoke-AdoRest GET "/_apis/projects/$projEnc?api-version=7.1" -ReturnNullOnNotFound
+        $projectId = if ($proj -and $proj.id) { $proj.id } else { $null }
+
+        $wikiBody = @{ name = "$ProjectName Wiki" }
+        if ($projectId) { $wikiBody.projectId = $projectId }
+
+        $created = Invoke-AdoRest POST "/$projEnc/_apis/wiki/wikis" -Body $wikiBody
+        if ($created) { Write-Host "[SUCCESS] Project wiki created" -ForegroundColor Green }
+        return $created
+    }
+    catch {
+        Write-Warning "Failed to initialize project wiki for '$ProjectName': $($_.Exception.Message)"
+        return $null
+    }
+}
 Export-ModuleMember -Function @(
     'Get-AdoProjectList',
     'Get-AdoProjectRepositories',
@@ -684,6 +723,7 @@ Export-ModuleMember -Function @(
     'Get-AdoWorkItemTypes',
     'Measure-Adoarea',
     'Measure-Adoiterations',
-    'Ensure-AdoIteration'
+    'Ensure-AdoIteration',
+    'Initialize-AdoProjectWikis'
 )
 

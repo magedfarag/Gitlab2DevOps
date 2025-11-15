@@ -1465,6 +1465,36 @@ function Write-LogLevelVerbose {
     }
 }
 
+<#
+.SYNOPSIS
+    Writes a log message with level.
+
+.DESCRIPTION
+    Convenience function for logging with level. Calls Write-LogLevelMessage.
+
+.PARAMETER Message
+    Log message.
+
+.PARAMETER Level
+    Log level: DEBUG, INFO, WARN, ERROR.
+
+.EXAMPLE
+    Write-Log "Starting operation" "INFO"
+#>
+function Write-Log {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position=0)]
+        [string]$Message,
+
+        [Parameter(Position=1)]
+        [ValidateSet('DEBUG', 'INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
+
+    Write-LogLevelMessage -Message $Message -Level $Level
+}
+
 Export-ModuleMember -Function @(
     'Get-MigrationsDirectory',
     'Get-ProjectPaths',
@@ -1481,5 +1511,6 @@ Export-ModuleMember -Function @(
     'New-MigrationHtmlReport',
     'New-MigrationsOverviewReport',
     'Write-LogLevelMessage',
-    'Write-LogLevelVerbose'
+    'Write-LogLevelVerbose',
+    'Write-Log'
 )

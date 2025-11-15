@@ -31,6 +31,13 @@ foreach ($dep in @($corePath, $loggingPath)) {
     }
 }
 
+# Initialize GitLab-specific script variables
+try {
+    $script:PlainToken = Get-GitLabToken
+} catch {
+    Write-Verbose "[GitLab] GitLab token not available yet: $_"
+}
+
 <#
 .SYNOPSIS
     Retrieves GitLab project information with statistics.
@@ -59,30 +66,15 @@ function Get-GitLabProject {
     $fullPath = "/api/v4/projects/$enc" + "?statistics=true"
     
     try {
-        $resp = Invoke-GitLabRest $fullPath
+        $resp = Invoke-GitLabRest -Method GET -Endpoint $fullPath
     }
     catch {
-        # Try to produce a helpful normalized error message
-        try {
-            $norm = New-NormalizedError -Exception $_ -Side 'gitlab' -Endpoint $fullPath
-            $msg = $norm.message
-            $raw = $norm.rawBody
-        }
-        catch {
-            $msg = if ($_.Exception.Message) { $_.Exception.Message } elseif ($_ -is [string]) { $_ } else { $_.ToString() }
-            $raw = $null
-        }
-
         Write-Host "[ERROR] Failed to fetch GitLab project '$PathWithNamespace'." -ForegroundColor Red
-        Write-Host "        Error: $msg" -ForegroundColor Red
-        if ($raw) {
-            Write-Host "        Response (truncated): $($raw.ToString().Substring(0, [Math]::Min(400, $raw.ToString().Length)))" -ForegroundColor DarkYellow
-        }
         Write-Host "        Suggestions:" -ForegroundColor Yellow
         Write-Host "          - Verify the project path is correct (group/subgroup/project)." -ForegroundColor Yellow
         Write-Host "          - Ensure the GitLab token has 'api' scope and can access the project." -ForegroundColor Yellow
         Write-Host "          - If the project is private, confirm the token user is a member or has access." -ForegroundColor Yellow
-        throw $msg
+        throw "[ERROR] Failed to fetch GitLab project '$PathWithNamespace'."
     }
 
     # Validate response shape
@@ -90,6 +82,13 @@ function Get-GitLabProject {
         Write-Host "[ERROR] GitLab returned an empty response for '$PathWithNamespace'." -ForegroundColor Red
         Write-Host "        Ensure the token has access and the project exists." -ForegroundColor Yellow
         throw "Empty response from GitLab for $PathWithNamespace"
+    }
+
+    # Check if response indicates an error
+    if ($resp.Data -and ($resp.Data | Get-Member -Name 'message' -MemberType Properties -ErrorAction SilentlyContinue)) {
+        Write-Host "[ERROR] GitLab API error for '$PathWithNamespace': $($resp.Data.message)" -ForegroundColor Red
+        Write-Host "        Verify the project path is correct and the token has access." -ForegroundColor Yellow
+        throw "GitLab API error: $($resp.Data.message)"
     }
 
     # If a raw string was returned, attempt to parse JSON for more useful diagnostics
@@ -106,13 +105,148 @@ function Get-GitLabProject {
     }
 
     # Ensure we have an object with expected properties
-    if (-not ($resp | Get-Member -Name 'id' -MemberType Properties -ErrorAction SilentlyContinue)) {
+    if (-not ($resp.Data | Get-Member -Name 'id' -MemberType Properties -ErrorAction SilentlyContinue)) {
         Write-Host "[ERROR] Unexpected GitLab response shape for '$PathWithNamespace'. Missing 'id' property." -ForegroundColor Red
-        Write-Host "        Response object type: $($resp.GetType().FullName)" -ForegroundColor Yellow
+        Write-Host "        Response object type: $($resp.Data.GetType().FullName)" -ForegroundColor Yellow
+        if ($resp.Data) {
+            Write-Host "        Response properties: $($resp.Data | Get-Member -MemberType Properties | Select-Object -ExpandProperty Name -Join ', ')" -ForegroundColor Yellow
+        }
         throw "Unexpected response shape from GitLab for $PathWithNamespace"
     }
 
-    return $resp
+    return $resp.Data
+}
+
+
+function Invoke-GitLabRest {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][ValidateSet('GET','POST','PUT','PATCH','DELETE')][string]$Method,
+        [Parameter(Mandatory=$true)][string]$Endpoint,
+        [hashtable]$Query = @{},
+        [int]$MaxRetries = 3
+    )
+
+    # Ensure token is available
+    if (-not $script:PlainToken) {
+        Write-Warning "[Invoke-GitLabRest] Fetching GitLab token..."
+        $script:PlainToken = Get-GitLabToken
+    }
+
+    $gitLabBaseUrl = Get-GitLabBaseUrl
+    $gitLabApiVersion = Get-GitLabApiVersion
+    Write-Warning "[Invoke-GitLabRest] Base URL: $gitLabBaseUrl"
+    Write-Warning "[Invoke-GitLabRest] API Version: $gitLabApiVersion"
+    Write-Warning "[Invoke-GitLabRest] Endpoint: $Endpoint"
+    $uriBuilder = New-Object System.UriBuilder("$gitLabBaseUrl$Endpoint")
+    if ($Query -and $Query -is [hashtable] -and $Query.Count -gt 0) {
+        Write-Warning "[Invoke-GitLabRest] Building query string..."
+        $nv = New-Object System.Collections.Specialized.NameValueCollection
+        foreach ($k in $Query.Keys) {
+            $v = if ($null -ne $Query[$k]) { [string]$Query[$k] } else { '' }
+            $nv.Add([string]$k, $v)
+            Write-Warning "[Invoke-GitLabRest] Query param: $k = $v"
+        }
+        $qs = [System.Web.HttpUtility]::ParseQueryString('')
+        $qs.Add($nv)
+        $uriBuilder.Query = $qs.ToString()
+    }
+    $uri = $uriBuilder.Uri.AbsoluteUri
+    Write-Warning "[Invoke-GitLabRest] Final URI: $uri"
+
+    $headers = @{
+        'Private-Token' = $script:PlainToken
+        'Accept'        = 'application/json'
+    }
+    Write-Warning "[Invoke-GitLabRest] Headers: $(($headers | Out-String).Trim())"
+
+    $attempt = 0
+    $delay = 1
+    Write-Log "[GitLabRest] Starting $Method $uri" 'DEBUG'
+    Write-Warning "[Invoke-GitLabRest] Starting $Method $uri"
+    while ($true) {
+        try {
+            Write-Log "[GitLabRest] Attempt $($attempt+1): $Method $uri" 'DEBUG'
+            Write-Warning "[Invoke-GitLabRest] Attempt $($attempt+1): $Method $uri"
+            $resp = Invoke-WebRequest -Method $Method -Uri $uri -Headers $headers -UseBasicParsing
+            Write-Log "[GitLabRest] Response status: $($resp.StatusCode)" 'DEBUG'
+            Write-Warning "[Invoke-GitLabRest] Response status: $($resp.StatusCode)"
+            $raw = $resp.Content
+            $data = if ($raw) { $raw | ConvertFrom-Json } else { $null }
+            Write-Log "[GitLabRest] Success: $Method $uri" 'INFO'
+            Write-Warning "[Invoke-GitLabRest] Success: $Method $uri"
+            return [pscustomobject]@{
+                Data    = $data
+                Headers = $resp.Headers
+                Status  = $resp.StatusCode
+                Uri     = $uri
+            }
+        }
+        catch {
+            $attempt++
+            $webEx = $_.Exception
+            $statusCode = $null
+            $errorBody = $null
+
+            Write-Log "[GitLabRest] Exception on $Method $($uri): $($_.Exception.Message)" 'ERROR'
+            Write-Warning "[Invoke-GitLabRest] Exception: $($_.Exception.Message)"
+
+            if ($webEx.Response -and $webEx.Response.StatusCode) {
+                $statusCode = [int]$webEx.Response.StatusCode
+                Write-Warning "[Invoke-GitLabRest] HTTP Status: $statusCode"
+                try {
+                    $stream = $webEx.Response.GetResponseStream()
+                    $reader = New-Object System.IO.StreamReader($stream)
+                    $errorBody = $reader.ReadToEnd()
+                    $reader.Close()
+                    $stream.Close()
+                    Write-Log "[GitLabRest] Error body: $errorBody" 'DEBUG'
+                    Write-Warning "[Invoke-GitLabRest] Error body: $errorBody"
+                }
+                catch {
+                    Write-Warning "checking error Message at line 190"
+                    $errorBody = $_.ErrorDetails.Message
+                    Write-Log "[GitLabRest] Error details fallback: $errorBody" 'DEBUG'
+                    Write-Warning "[Invoke-GitLabRest] Error details fallback: $errorBody"
+                }
+            }
+
+            if (-not $errorBody) {
+                Write-Warning "checking error Message at line 196"
+                $errorBody = $_.ErrorDetails.Message ?? $_.Exception.Message
+                Write-Log "[GitLabRest] No error body, using message: $errorBody" 'DEBUG'
+                Write-Warning "[Invoke-GitLabRest] No error body, using message: $errorBody"
+            }
+
+            if ($statusCode -eq 429 -and $attempt -le $MaxRetries) {
+                $retryAfter = 0
+                try { $retryAfter = [int]$webEx.Response.Headers['Retry-After'] } catch {}
+                if ($retryAfter -lt 1) { $retryAfter = $delay }
+                Write-Log "429 Too Many Requests on $uri. Retrying in $retryAfter sec... (attempt $attempt/$MaxRetries)" 'WARN'
+                Write-Warning "[Invoke-GitLabRest] 429 Too Many Requests. Retrying in $retryAfter sec... (attempt $attempt/$MaxRetries)"
+                Start-Sleep -Seconds $retryAfter
+                $delay = [Math]::Min($delay * 2, 30)
+                continue
+            }
+
+            if ($statusCode -in 401,403) {
+                $logMsg = "Access denied ($statusCode) calling $uri"
+                if ($errorBody) { $logMsg += " - $errorBody" }
+                Write-Log $logMsg 'ERROR'
+                Write-Warning "[Invoke-GitLabRest] Access denied ($statusCode): $errorBody"
+                return [pscustomobject]@{ Data = $null; Headers = $null; Status = $statusCode; Uri = $uri }
+            }
+
+            if ($errorBody) {
+                Write-Log "[GitLabRest] HTTP $statusCode on $($uri): $errorBody" 'ERROR'
+                Write-Warning "[Invoke-GitLabRest] HTTP $statusCode on $($uri): $errorBody"
+                throw "HTTP $statusCode on $($uri): $errorBody"
+            }
+            Write-Log "[GitLabRest] Unknown error on $Method $($uri): $($_.Exception.Message)" 'ERROR'
+            Write-Warning "[Invoke-GitLabRest] Unknown error on $Method $($uri): $($_.Exception.Message)"
+            throw
+        }
+    }
 }
 
 <#
@@ -132,7 +266,7 @@ function Test-GitLabAuth {
     
     try {
         $uri = "/api/v4/projects?membership=true&per_page=5"
-        $res = Invoke-GitLabRest $uri
+        $res = Invoke-GitLabRest -Method GET -Endpoint $uri
         
         Write-Host "[OK] GitLab auth successful. Returned $(($res | Measure-Object).Count) project(s)." -ForegroundColor Green
         $res | Select-Object -Property id, path_with_namespace, visibility | Format-Table -AutoSize
@@ -399,6 +533,31 @@ function Initialize-GitLab {
     Write-Host "  Log: $prepLogFile"
     if (Test-Path $repoDir) { Write-Host "  Repository: $repoDir" }
     Write-Host "===========================" -ForegroundColor Cyan
+
+    # After preparation, optionally extract documentation files for bulk container
+    # If CustomBaseDir provided, create container-level docs folder and extract
+    # supported documentation files for this repository into container/docs/<repoName>/
+    try {
+        if ($CustomBaseDir) {
+            # Container docs folder (per repository subfolder)
+            $containerDocsDir = Join-Path $CustomBaseDir "docs"
+            if (-not (Test-Path $containerDocsDir)) { New-Item -ItemType Directory -Path $containerDocsDir -Force | Out-Null }
+
+            $targetRepoDocsDir = Join-Path $containerDocsDir $projectName
+            if (-not (Test-Path $targetRepoDocsDir)) { New-Item -ItemType Directory -Path $targetRepoDocsDir -Force | Out-Null }
+
+            if (Test-Path $repoDir) {
+                # Call helper to extract documentation files from this repository
+                Extract-DocumentationFromRepo -RepositoryPath $repoDir -TargetDocsDir $targetRepoDocsDir -RepoName $projectName
+            }
+            else {
+                Write-Warning "[GitLab] Repository path not found for doc extraction: $repoDir"
+            }
+        }
+    }
+    catch {
+        Write-Warning "[WARN] Documentation extraction step failed for $($projectName): $_"
+    }
 }
 
 <#
@@ -423,9 +582,12 @@ function Invoke-BulkPrepareGitLab {
     param(
         [Parameter(Mandatory)]
         [array]$ProjectPaths,
-        
+
         [Parameter(Mandatory)]
-        [string]$DestProjectName
+        [string]$DestProjectName,
+
+        [Parameter()]
+        [switch]$Force
     )
     
     if ($ProjectPaths.Count -eq 0) {
@@ -450,12 +612,17 @@ function Invoke-BulkPrepareGitLab {
     if (Test-Path $configFile) {
         Write-Host "⚠️  Existing preparation found for '$DestProjectName'" -ForegroundColor Yellow
         Write-Host "   Folder: $bulkPrepDir"
-        $choice = Read-Host "Continue and update existing preparation? (y/N)"
-        if ($choice -notmatch '^[Yy]') {
-            Write-Host "Bulk preparation cancelled."
-            return
+        if (-not $Force.IsPresent) {
+            $choice = Read-Host "Continue and update existing preparation? (y/N)"
+            if ($choice -notmatch '^[Yy]') {
+                Write-Host "Bulk preparation cancelled."
+                return
+            }
+            Write-Host "Updating existing preparation..."
         }
-        Write-Host "Updating existing preparation..."
+        else {
+            Write-Host "Force mode: updating existing preparation without prompting..."
+        }
     }
     else {
         Write-Host "Creating new self-contained preparation for '$DestProjectName'..."
@@ -921,5 +1088,111 @@ Export-ModuleMember -Function @(
     'Test-GitLabAuth',
     'Initialize-GitLab',
     'Invoke-BulkPrepareGitLab',
-    'Export-GitLabDocumentation'
+    'Export-GitLabDocumentation',
+    'Extract-DocumentationFromRepo'
 )
+
+#
+# Helper: Extract documentation files from a repository into target docs dir
+# Filters: extensions (docx,pdf,xlsx,pptx), filename must contain English or Arabic letters,
+#          filename must not contain more than 7 numeric digits, and extracted file size > 0
+#
+function Extract-DocumentationFromRepo {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepositoryPath,
+
+        [Parameter(Mandatory)]
+        [string]$TargetDocsDir,
+
+        [Parameter()]
+        [string]$RepoName = ''
+    )
+
+    # Supported extensions
+    $extensions = @('docx','pdf','xlsx','pptx')
+
+    if (-not (Test-Path $RepositoryPath)) {
+        Write-Verbose "[Docs] Repository path not found: $RepositoryPath"
+        return @{ total = 0; extracted = 0 }
+    }
+
+    # Ensure target docs dir
+    if (-not (Test-Path $TargetDocsDir)) { New-Item -ItemType Directory -Path $TargetDocsDir -Force | Out-Null }
+
+    $extractedCount = 0
+    $totalFound = 0
+
+    # Determine if bare repo (contains HEAD file) or working tree
+    $isBare = Test-Path (Join-Path $RepositoryPath 'HEAD')
+
+    if ($isBare) {
+        Push-Location $RepositoryPath
+        try {
+            $gitFiles = git ls-tree -r --name-only HEAD 2>$null
+            if (-not $gitFiles) { return @{ total = 0; extracted = 0 } }
+
+            foreach ($f in $gitFiles) {
+                $ext = [System.IO.Path]::GetExtension($f).TrimStart('.').ToLower()
+                if (-not ($extensions -contains $ext)) { continue }
+                $totalFound++
+
+                $fileName = [System.IO.Path]::GetFileName($f)
+                $nameOnly = [System.IO.Path]::GetFileNameWithoutExtension($f)
+
+                # Filter: must contain at least one English or Arabic letter
+                $hasEnglish = $nameOnly -match '[A-Za-z]'
+                $hasArabic = $nameOnly -match '[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]'
+                if (-not ($hasEnglish -or $hasArabic)) { continue }
+
+                # Digit count <= 7
+                $digitCount = ([regex]::Matches($nameOnly, '\d')).Count
+                if ($digitCount -gt 7) { continue }
+
+                # Extract file contents via git show to a temp file then verify size
+                $tempOut = Join-Path $TargetDocsDir $fileName
+                try {
+                    # Use git show to extract
+                    git show "HEAD:$f" > $tempOut 2>$null
+                    if ((Test-Path $tempOut) -and ((Get-Item $tempOut).Length -gt 0)) {
+                        $extractedCount++
+                    }
+                    else {
+                        # Remove zero-length file
+                        if (Test-Path $tempOut) { Remove-Item $tempOut -Force -ErrorAction SilentlyContinue }
+                    }
+                }
+                catch {
+                    Write-Verbose "[Docs] Failed to extract $f : $_"
+                }
+            }
+        }
+        finally { Pop-Location }
+    }
+    else {
+        # Non-bare repo: scan filesystem
+        $files = Get-ChildItem -Path $RepositoryPath -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $extensions -contains ($_.Extension.TrimStart('.').ToLower()) }
+        foreach ($file in $files) {
+            $totalFound++
+            $fileName = $file.Name
+            $nameOnly = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
+
+            # Filter for english or arabic letters
+            $hasEnglish = $nameOnly -match '[A-Za-z]'
+            $hasArabic = $nameOnly -match '[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]'
+            if (-not ($hasEnglish -or $hasArabic)) { continue }
+
+            $digitCount = ([regex]::Matches($nameOnly, '\d')).Count
+            if ($digitCount -gt 7) { continue }
+
+            if ($file.Length -gt 0) {
+                $targetPath = Join-Path $TargetDocsDir $fileName
+                try { Copy-Item -Path $file.FullName -Destination $targetPath -Force; $extractedCount++ } catch { Write-Verbose "[Docs] Failed to copy $($file.FullName): $_" }
+            }
+        }
+    }
+
+    Write-Verbose "[Docs] Found $totalFound candidate files, extracted $extractedCount to $TargetDocsDir"
+    return @{ total = $totalFound; extracted = $extractedCount }
+}

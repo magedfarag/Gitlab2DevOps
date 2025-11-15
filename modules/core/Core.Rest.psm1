@@ -149,6 +149,14 @@ function Initialize-CoreRest {
     }
 
     Set-CoreRestConfigFromEnvironment
+    # Ensure critical variables are initialized - be explicit about CollectionUrl
+    if (-not $script:CollectionUrl -or [string]::IsNullOrWhiteSpace($script:CollectionUrl)) {
+        # Try reading directly from environment as a last resort
+        $script:CollectionUrl = [Environment]::GetEnvironmentVariable('ADO_COLLECTION_URL')
+        if (-not $script:CollectionUrl -or [string]::IsNullOrWhiteSpace($script:CollectionUrl)) {
+            throw "ADO_COLLECTION_URL environment variable is not set"
+        }
+    }
     # Projects cache (used by Invoke-AdoRest) - ensure consistent naming
     $script:ProjectCache = @{}
     $script:ProjectsCache = $null
@@ -164,7 +172,7 @@ function Initialize-CoreRest {
         $script:AdoHeaders = New-AuthHeader -Pat $script:AdoPat
     }
 
-    Write-Verbose "[Core.Rest] Module initialized (v$script:ModuleVersion) from environment variables"
+    Write-Verbose "[Core.Rest] Module initialized (v$($script:ModuleVersion)) from environment variables"
     Write-Verbose "[Core.Rest] ADO API Version: $($script:AdoApiVersion)"
     # Note: Preserve detected API version cache across re-initializations to reduce API calls
     # Cache is cleared only on new PowerShell session (when $script:AdoApiVersionDetected is naturally $null)
@@ -193,9 +201,11 @@ function Initialize-CoreRest {
     # Mark module initialized to prevent re-running import-time initialization
     try { $script:CoreRest_Initialized = $true } catch { }
 }
-if (-not $script:CoreRest_Initialized) {
-    try { Initialize-CoreRest; $script:CoreRest_Initialized = $true } catch { Write-Verbose "[Core.Rest] Initialize-CoreRest at import failed: $_" }
-}
+# Do NOT auto-initialize network clients at module import time. Auto-initialization
+# caused network calls during test discovery which prevented Pester mocks from
+# intercepting HTTP calls. Callers should explicitly call Initialize-CoreRest or
+# rely on Ensure-CoreRestInitialized which will raise a helpful error if the
+# configuration is missing.
 <#
 .SYNOPSIS
     Ensures the Core.Rest module is initialized and returns the config.
@@ -320,7 +330,21 @@ function Detect-AdoMaxApiVersion {
     foreach ($cand in $candidates) {
         try {
             # Use a cheap endpoint: list projects with $top=1
-            $testUri = $script:CollectionUrl.TrimEnd('/') + "/_apis/projects?`$top=1&api-version=$cand"
+            # Build the test URI defensively to avoid the addition operator being invoked
+            # on a non-string PSObject (which causes the op_Addition error).
+            try {
+                # Normalize base and ensure no trailing slash
+                $basePart = ([string]$script:CollectionUrl).TrimEnd('/')
+                # Ensure the path begins with a single '/'
+                $pathPart = '/_apis/projects'
+                # Use a single-quoted literal for the $top query so $ is not expanded
+                $queryPart = '?$top=1&api-version='
+                $testUri = $basePart + $pathPart + $queryPart + $cand
+            }
+            catch {
+                # Fallback to conservative string conversion with the same normalization
+                $testUri = ([string]$script:CollectionUrl).TrimEnd('/') + '/_apis/projects' + '?$top=1&api-version=' + $cand
+            }
             # Clone headers defensively - AdoHeaders may be $null in some test contexts
             $headers = @{}
             if ($script:AdoHeaders) {
@@ -474,7 +498,21 @@ function Add-InitMetric {
         $script:InitMetrics[$Category][$Action] = 0
     }
 
-    $script:InitMetrics[$Category][$Action] += $Increment
+    # Defensive numeric update: coerce stored value to int before addition to avoid
+    # PSObject op_Addition errors when the stored value is an unexpected wrapper type.
+    try {
+        $current = 0
+        if ($script:InitMetrics[$Category].ContainsKey($Action)) {
+            $current = [int]$script:InitMetrics[$Category][$Action]
+        }
+        $new = $current + [int]$Increment
+        $script:InitMetrics[$Category][$Action] = $new
+    }
+    catch {
+        # Fallback: replace the value with the increment if coercion fails
+        $script:InitMetrics[$Category][$Action] = [int]$Increment
+    }
+
     Write-Verbose "[InitMetrics] $Category.$Action += $Increment (now $($script:InitMetrics[$Category][$Action]))"
     return $script:InitMetrics[$Category]
 }
@@ -507,7 +545,7 @@ function Write-InitSummaryReport {
     $outPath = Join-Path $ReportsDir $FileName
     try {
         $summary | ConvertTo-Json -Depth 10 | Out-File -FilePath $outPath -Encoding utf8 -Force
-        Write-Host "[INFO] Summary: $outPath" -ForegroundColor Cyan
+        Write-Host "[INFO] Summary: $($outPath)" -ForegroundColor Cyan
         return $outPath
     }
     catch {
@@ -611,7 +649,7 @@ Recovery steps:
      - Azure DevOps: Code (Read & Write), Project (Read)
      - GitLab: api, read_repository
   3. Re-run Initialize-CoreRest with correct token
-  4. Check token in environment: `$env:ADO_PAT or `$env:GITLAB_PAT
+  4. Check token in environment: `$env:ADO_PAT or $env:GITLAB_PAT`
 "@
         }
         
@@ -661,10 +699,10 @@ Recovery steps:
 $($Details.TokenType) token not configured.
 
 Recovery steps:
-  1. Set environment variable: `$env:$tokenType = 'your-token-here'
+  1. Set environment variable: `$env:$tokenType` = 'your-token-here'
   2. Or add to .env file: $tokenType=your-token-here
   3. Or pass via parameter: -$($Details.TokenType)Pat 'your-token-here'
-  4. Verify with: `$env:$tokenType (should show masked value)
+  4. Verify with: `$env:$tokenType` (should show masked value)
   5. Re-run Initialize-CoreRest
 "@
         }
@@ -829,6 +867,52 @@ function Get-GitLabToken {
     }
     
     return $script:GitLabToken
+}
+
+<#
+.SYNOPSIS
+    Gets the GitLab base URL.
+
+.DESCRIPTION
+    Returns the GitLab base URL configured during module initialization.
+
+.OUTPUTS
+    String GitLab base URL.
+
+.EXAMPLE
+    $baseUrl = Get-GitLabBaseUrl
+#>
+function Get-GitLabBaseUrl {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    
+    if ([string]::IsNullOrWhiteSpace($script:GitLabBaseUrl)) {
+        throw "GitLab base URL not configured. Set GITLAB_BASE_URL environment variable."
+    }
+    
+    return $script:GitLabBaseUrl
+}
+
+<#
+.SYNOPSIS
+    Gets the GitLab API version.
+
+.DESCRIPTION
+    Returns the GitLab API version (fixed at v4).
+
+.OUTPUTS
+    String API version.
+
+.EXAMPLE
+    $apiVersion = Get-GitLabApiVersion
+#>
+function Get-GitLabApiVersion {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    
+    return 'v4'
 }
 
 <#
@@ -1029,7 +1113,7 @@ function New-NormalizedError {
 }
 
 <#
-#.SYNOPSIS
+.SYNOPSIS
     Writes raw HTTP output to a log file when JSON parsing fails.
 
 .DESCRIPTION
@@ -1315,311 +1399,17 @@ function Invoke-RestWithRetry {
             else {
                 throw "HTTP $status : $errorContent"
             }
-            }
+        }
         catch {
             $errMessage = if ($_.Exception) { $_.Exception.Message } else { $_.ToString() }
+            # Emit richer diagnostics to help trace op_Addition errors originating inside HttpClient or header handling
+            try {
+                Write-Verbose "[Core.Rest] Exception details: $($_ | Out-String)"
+                if ($_.Exception -and $_.Exception.StackTrace) { Write-Verbose "[Core.Rest] StackTrace: $($_.Exception.StackTrace)" }
+            } catch { }
             Write-Host "[$Side] ✗ Request failed: $errMessage" -ForegroundColor Red
             throw
         }
     }
 }
-<#
-.SYNOPSIS
-    Invokes an Azure DevOps REST API call.
 
-.DESCRIPTION
-    Wrapper around Invoke-RestMethod with ADO-specific error handling,
-    authentication, API versioning, and automatic retry logic.
-
-.PARAMETER Method
-    HTTP method (GET, POST, PUT, PATCH, DELETE).
-
-.PARAMETER Path
-    API path starting with /_apis or /{project}/_apis.
-
-.PARAMETER Body
-    Request body (will be converted to JSON if not already a string).
-
-.PARAMETER Preview
-    Use preview API version.
-
-.OUTPUTS
-    API response object.
-
-.EXAMPLE
-    Invoke-AdoRest -Method GET -Path "/_apis/projects"
-#>
-function Invoke-AdoRest {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [ValidateSet('GET', 'POST', 'PUT', 'PATCH', 'DELETE')]
-        [string]$Method,
-
-        [Parameter(Mandatory)]
-        [string]$Path,
-
-        [object]$Body = $null,
-
-        [switch]$Preview,
-
-        # Optional: explicit API version string (e.g. '7.1-preview.3' or '7.2').
-        # If provided, it takes priority over Detect-AdoMaxApiVersion/Preview.
-        [string]$ApiVersion,
-
-        # Optional overrides for retry behavior (passed to Invoke-RestWithRetry)
-        [int]$MaxAttempts,
-        [int]$DelaySeconds,
-
-        [string]$ContentType,
-        [switch]$ReturnNullOnNotFound
-    )
-    
-    # Check cache for projects list
-    if ($Method -eq 'GET' -and $Path -eq '/_apis/projects') {
-        $now = Get-Date
-        if ($script:ProjectsCache -and $script:ProjectsCacheTimestamp -and ($now - $script:ProjectsCacheTimestamp).TotalMinutes -lt $script:ProjectsCacheExpiryMinutes) {
-            Write-Verbose "[Core.Rest] Returning cached projects list"
-            return $script:ProjectsCache
-        }
-    }
-    
-    # Ensure core rest initialized and get a stable config object (avoids relying on module script: vars across modules)
-    try {
-        $coreRestConfig = Ensure-CoreRestInitialized
-    }
-    catch {
-        throw
-    }
-
-    # Determine API version to use. Priority:
-    # 1. Explicit -ApiVersion parameter
-    # 2. -Preview switch (append preview suffix to detected version)
-    # 3. Detected max API version from server
-    if ($ApiVersion) {
-        $api = $ApiVersion
-    }
-    else {
-        $detected = Detect-AdoMaxApiVersion
-        if ($Preview) {
-            # Use a conservative preview suffix; callers may pass explicit ApiVersion for different previews
-            $api = "$detected-preview.3"
-        }
-        else {
-            $api = $detected
-        }
-    }
-    
-    # Determine query string separator based on whether Path already has query parameters
-    if ($Path -like '*api-version=*') {
-        $queryString = ''
-    }
-    elseif ($Path -like '*`?*') {
-        $queryString = "&api-version=$api"
-    }
-    else {
-        $queryString = "?api-version=$api"
-    }
-    
-    if ($null -eq $script:CollectionUrl) {
-        Write-Verbose "[Invoke-AdoRest] CollectionUrl is null"
-    }
-    else {
-        try { Write-Verbose "[Invoke-AdoRest] CollectionUrl type: $($script:CollectionUrl.GetType().FullName)" } catch { }
-    }
-
-    $collectionUrl = $coreRestConfig.CollectionUrl
-    if ($null -eq $collectionUrl) { throw "Core REST not initialized with a CollectionUrl" }
-    $uri = $collectionUrl.TrimEnd('/') + $Path + $queryString
-    
-    if ($null -ne $Body -and ($Body -isnot [string])) {
-        $Body = ($Body | ConvertTo-Json -Depth 100)
-    }
-    
-    # Ensure headers exists (tests may initialize minimal context without headers)
-    if (-not $script:AdoHeaders) {
-        if ($coreRestConfig.AdoPat) {
-            try { $script:AdoHeaders = New-AuthHeader -Pat $coreRestConfig.AdoPat } catch { $script:AdoHeaders = @{} }
-        }
-        else {
-            $script:AdoHeaders = @{}
-        }
-    }
-
-    # Clone headers and add custom Content-Type if specified
-    $headers = $script:AdoHeaders.Clone()
-    if ($ContentType) {
-        $headers['Content-Type'] = $ContentType
-        Write-Verbose "[Invoke-AdoRest] Using custom Content-Type: $ContentType"
-    }
-    
-    try {
-        # Build parameters for Invoke-RestWithRetry and only include overrides when provided
-        $irtParams = @{
-            Method  = $Method
-            Uri     = $uri
-            Headers = $headers
-            Body    = $Body
-            Side    = 'ado'
-        }
-        if ($PSBoundParameters.ContainsKey('MaxAttempts')) { $irtParams['MaxAttempts'] = $MaxAttempts }
-        if ($PSBoundParameters.ContainsKey('DelaySeconds')) { $irtParams['DelaySeconds'] = $DelaySeconds }
-
-        $result = Invoke-RestWithRetry @irtParams
-        
-        # Cache projects list
-        if ($Method -eq 'GET' -and $Path -eq '/_apis/projects') {
-            $script:ProjectsCache = $result
-            $script:ProjectsCacheTimestamp = Get-Date
-            Write-Verbose "[Core.Rest] Cached projects list"
-        }
-        
-        return $result
-    }
-    catch {
-        # If the caller requested that GET 404s return $null (avoid noisy TerminatingError in transcripts),
-        # inspect the normalized error and return $null when appropriate.
-        try {
-            $normalized = New-NormalizedError -Exception $_ -Side 'ado' -Endpoint $uri
-            if ($ReturnNullOnNotFound.IsPresent -and $Method -eq 'GET' -and $normalized.status -eq 404) {
-                Write-Verbose "[Core.Rest] GET 404 on $Path - returning $null (ReturnNullOnNotFound requested)"
-                return $null
-            }
-        }
-        catch {
-            # If normalization fails, fall through to the throw below
-        }
-
-        Write-Error "[Core.Rest] Invoke-RestWithRetry failed. CollectionUrl present: $([bool]$script:CollectionUrl); AdoHeaders present: $([bool]$script:AdoHeaders); Headers keys: $($script:AdoHeaders.Keys -join ',')"
-        throw
-    }
-}
-
-<#
-.SYNOPSIS
-    Invokes a GitLab REST API call.
-
-.DESCRIPTION
-    Wrapper around Invoke-RestMethod with GitLab-specific error handling
-    and authentication.
-
-.PARAMETER Path
-    API path starting with /api/v4/.
-
-.OUTPUTS
-    API response object.
-
-.EXAMPLE
-    Invoke-GitLabRest -Path "/api/v4/projects/123"
-#>
-function Invoke-GitLabRest {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$Path
-    )
-    
-    if (-not $script:GitLabToken) {
-        $errorMsg = New-ActionableError -ErrorType 'TokenNotSet' -Details @{ TokenType = 'GitLab' }
-        throw $errorMsg
-    }
-    
-    $headers = @{ 'PRIVATE-TOKEN' = $script:GitLabToken }
-    $uri = $script:GitLabBaseUrl.TrimEnd('/') + $Path
-    
-    $invokeParams = @{
-        Method  = 'GET'
-        Uri     = $uri
-        Headers = $headers
-    }
-    
-    if ($script:SkipCertificateCheck) {
-        $invokeParams.SkipCertificateCheck = $true
-    }
-    
-    return Invoke-RestWithRetry -Method 'GET' -Uri $uri -Headers $headers -Body $null -Side 'gitlab'
-}
-
-<#
-.SYNOPSIS
-    Clears Git credentials from Windows Credential Manager.
-
-.DESCRIPTION
-    Removes cached Git credentials to prevent authentication conflicts
-    during migrations.
-
-.PARAMETER RemoteName
-    Git remote name (default: "ado").
-
-.EXAMPLE
-    Clear-GitCredentials -RemoteName "origin"
-#>
-function Clear-GitCredentials {
-    [CmdletBinding()]
-    param(
-        [string]$RemoteName = "ado"
-    )
-    
-    Write-Verbose "[Core.Rest] Clearing Git credentials for remote: $RemoteName"
-    
-    # Try to get the remote URL
-    $remoteUrl = git remote get-url $RemoteName 2>$null
-    
-    if ($remoteUrl) {
-        Write-Host "[INFO] Clearing cached credentials for: $remoteUrl"
-        
-        # Windows Credential Manager
-        git credential-manager delete $remoteUrl 2>$null
-        
-        # Git credential helper
-        $credInput = "url=$remoteUrl`n`n"
-        $credInput | git credential reject 2>$null
-        
-        Write-Host "[INFO] Credentials cleared successfully"
-    }
-    else {
-        Write-Verbose "[Core.Rest] Remote '$RemoteName' not found, skipping credential cleanup"
-    }
-}
-
-function Test-HttpClientInitialized {
-    [CmdletBinding()]
-    param()
-
-    try {
-        if ($null -ne $script:HttpClient) { return $true }
-        return $false
-    }
-    catch {
-        return $false
-    }
-}
-
-# Export public functions
-
-Export-ModuleMember -Function @(
-    'Initialize-CoreRest',
-    'Ensure-CoreRestInitialized',
-    'Get-CoreRestVersion',
-    'Get-CoreRestConfig',
-    'Get-GitLabToken',
-    'Get-SkipCertificateCheck',
-    'Hide-Secret',
-    'Test-AdoRepositoryName',
-    'New-ActionableError',
-    'New-NormalizedError',
-    'New-AuthHeader',
-    'Invoke-RestWithRetry',
-    'Invoke-AdoRest',
-    'Test-HttpClientInitialized',
-    'Set-AdoContext',
-    'Invoke-GitLabRest',
-    'Clear-GitCredentials',
-    'Initialize-InitMetrics',
-    'Add-InitMetric',
-    'Get-InitMetrics',
-    'Write-InitSummaryReport'
-    # Note: Raw HTTP debug helper intentionally not exported to prevent any
-    # external fallback mechanisms. All HTTP communication must use the
-    # reusable script:HttpClient created by Initialize-CoreRest.
-)

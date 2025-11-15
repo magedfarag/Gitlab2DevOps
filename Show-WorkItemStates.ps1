@@ -1,7 +1,6 @@
 # Script to show allowed work item states in Azure DevOps
 # This helps understand why certain states are rejected during Excel import
 # NOTE: Do not import EnvLoader here; Core.Rest centralizes .env handling.
-Import-Module .\modules\core\Core.Rest.psm1 -Force
 
 param(
     [Parameter(Mandatory)]
@@ -9,6 +8,8 @@ param(
 
     [string]$WorkItemType = "Feature"  # Default to Feature since that's what the user asked about
 )
+
+Import-Module .\modules\core\Core.Rest.psm1 -Force
 
 Write-Host "🔍 Azure DevOps Work Item States Diagnostic" -ForegroundColor Magenta
 Write-Host "=" * 50 -ForegroundColor Magenta
@@ -22,7 +23,15 @@ Import-Module (Join-Path $modulesPath "Core.Rest.psm1") -Force
 Import-Module (Join-Path $modulesPath "AzureDevOps\WorkItems.psm1") -Force
 
 # Initialize CoreRest (you may need to modify these values for your environment)
-# Initialize-CoreRest -CollectionUrl "https://dev.azure.com/your-org" -AdoPat "your-pat"
+# If your environment is configured via .env or Get-CoreRestConfig, this may be unnecessary.
+if (Get-Command -Name Initialize-CoreRest -ErrorAction SilentlyContinue) {
+    try {
+        Initialize-CoreRest -ErrorAction Stop
+    }
+    catch {
+        Write-Verbose "Initialize-CoreRest failed or already initialized: $_"
+    }
+}
 
 Write-Host "📋 Checking allowed states for $WorkItemType in project '$ProjectName'..." -ForegroundColor Cyan
 Write-Host ""

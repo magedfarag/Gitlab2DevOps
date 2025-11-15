@@ -13,17 +13,20 @@ param(
     [string]$ConfigFile = 'projects.json',
 
     [Parameter()]
-    [switch]$DryRun
+    [switch]$DryRun,
+
+    [Parameter()]
+    [switch]$Force
 )
 
-# Ensure required modules are loaded when this script is run standalone
+# Import required modules when this script is run standalone
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $coreModule = Join-Path $root 'modules\core\Core.Rest.psm1'
 $gitlabModule = Join-Path $root 'modules\GitLab\GitLab.psm1'
 $loggingModule = Join-Path $root 'modules\core\Logging.psm1'
-if (Test-Path $coreModule) { Import-Module $coreModule -Force -ErrorAction SilentlyContinue }
-if (Test-Path $gitlabModule) { Import-Module $gitlabModule -Force -ErrorAction SilentlyContinue }
-if (Test-Path $loggingModule) { Import-Module $loggingModule -Force -ErrorAction SilentlyContinue }
+if (Test-Path $coreModule) { Import-Module $coreModule -Force -ErrorAction Stop }
+if (Test-Path $gitlabModule) { Import-Module $gitlabModule -Force -ErrorAction Stop }
+if (Test-Path $loggingModule) { Import-Module $loggingModule -Force -ErrorAction Stop }
 
 # NOTE: Core.Rest is responsible for reading .env files and exposing
 # configuration via Get-CoreRestConfig / Get-GitLabToken. This script must
@@ -125,7 +128,12 @@ foreach ($entry in $config) {
             Write-Host "[DRYRUN] Generated simulated bulk config: $configFile" -ForegroundColor Green
         }
         else {
-            Invoke-BulkPrepareGitLab -ProjectPaths $projectPaths -DestProjectName $adoProject
+            if ($Force.IsPresent) {
+                Invoke-BulkPrepareGitLab -ProjectPaths $projectPaths -DestProjectName $adoProject -Force
+            }
+            else {
+                Invoke-BulkPrepareGitLab -ProjectPaths $projectPaths -DestProjectName $adoProject
+            }
         }
     } catch {
         # Use subexpression to avoid PowerShell confusing "$adoProject:" as a variable namespace

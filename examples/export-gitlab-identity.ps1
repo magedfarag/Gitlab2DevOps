@@ -123,6 +123,7 @@ param(
 )
 
 Import-Module "C:\Projects\devops\Gitlab2DevOps\modules\core\Core.Rest.psm1" -Force -ErrorAction Stop
+Import-Module "C:\Projects\devops\Gitlab2DevOps\modules\GitLab\GitLab.psm1" -Force -ErrorAction Stop
 
 # ---------------------------
 # Helper Functions (available even when script is dot-sourced)
@@ -148,96 +149,6 @@ function Save-Json {
     $json = $Data | ConvertTo-Json -Depth 20
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($Path, $json, $utf8NoBom)
-}
-
-function Invoke-GitLabRest {
-    param(
-        [Parameter(Mandatory=$true)][ValidateSet('GET','POST','PUT','PATCH','DELETE')][string]$Method,
-        [Parameter(Mandatory=$true)][string]$Endpoint,
-        [hashtable]$Query = @{},
-        [int]$MaxRetries = 3
-    )
-
-    $uriBuilder = New-Object System.UriBuilder("$script:GitLabBaseUrl/api/$script:ApiVersion$Endpoint")
-    if ($Query -and $Query -is [hashtable] -and $Query.Count -gt 0) {
-        $nv = New-Object System.Collections.Specialized.NameValueCollection
-        foreach ($k in $Query.Keys) {
-            $v = if ($null -ne $Query[$k]) { [string]$Query[$k] } else { '' }
-            $nv.Add([string]$k, $v)
-        }
-        $qs = [System.Web.HttpUtility]::ParseQueryString('')
-        $qs.Add($nv)
-        $uriBuilder.Query = $qs.ToString()
-    }
-    $uri = $uriBuilder.Uri.AbsoluteUri
-
-    $headers = @{
-        'Private-Token' = $script:PlainToken
-        'Accept'        = 'application/json'
-    }
-
-    $attempt = 0
-    $delay = 1
-    while ($true) {
-        try {
-            $resp = Invoke-WebRequest -Method $Method -Uri $uri -Headers $headers -UseBasicParsing
-            # $contentType = ($resp.Headers['Content-Type'])
-            $raw = $resp.Content
-            $data = if ($raw) { $raw | ConvertFrom-Json } else { $null }
-            return [pscustomobject]@{
-                Data    = $data
-                Headers = $resp.Headers
-                Status  = $resp.StatusCode
-                Uri     = $uri
-            }
-        }
-        catch {
-            $attempt++
-            $webEx = $_.Exception
-            $statusCode = $null
-            $errorBody = $null
-
-            if ($webEx.Response -and $webEx.Response.StatusCode) {
-                $statusCode = [int]$webEx.Response.StatusCode
-                try {
-                    $stream = $webEx.Response.GetResponseStream()
-                    $reader = New-Object System.IO.StreamReader($stream)
-                    $errorBody = $reader.ReadToEnd()
-                    $reader.Close()
-                    $stream.Close()
-                }
-                catch {
-                    $errorBody = $_.ErrorDetails.Message
-                }
-            }
-
-            if (-not $errorBody) {
-                $errorBody = $_.ErrorDetails.Message ?? $_.Exception.Message
-            }
-
-            if ($statusCode -eq 429 -and $attempt -le $MaxRetries) {
-                $retryAfter = 0
-                try { $retryAfter = [int]$webEx.Response.Headers['Retry-After'] } catch {}
-                if ($retryAfter -lt 1) { $retryAfter = $delay }
-                Write-Log "429 Too Many Requests on $uri. Retrying in $retryAfter sec... (attempt $attempt/$MaxRetries)" 'WARN'
-                Start-Sleep -Seconds $retryAfter
-                $delay = [Math]::Min($delay * 2, 30)
-                continue
-            }
-
-            if ($statusCode -in 401,403) {
-                $logMsg = "Access denied ($statusCode) calling $uri"
-                if ($errorBody) { $logMsg += " - $errorBody" }
-                Write-Log $logMsg 'ERROR'
-                return [pscustomobject]@{ Data = $null; Headers = $null; Status = $statusCode; Uri = $uri }
-            }
-
-            if ($errorBody) {
-                throw "HTTP $statusCode on $uri`: $errorBody"
-            }
-            throw
-        }
-    }
 }
 
 function Invoke-GitLabPagedRequest {

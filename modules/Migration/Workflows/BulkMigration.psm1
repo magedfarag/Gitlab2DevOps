@@ -19,6 +19,39 @@ Set-StrictMode -Version Latest
 $migrationRoot = Split-Path $PSScriptRoot -Parent
 Import-Module (Join-Path $migrationRoot "Core\MigrationCore.psm1") -Force -Global
 
+# Helper: safely add or set a property on an object (avoids exceptions when object comes from ConvertFrom-Json)
+function Set-ExecutionProperty {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [object]$Object,
+        [Parameter(Mandatory)] [string]$PropertyName,
+        [Parameter(Mandatory)] [object]$Value
+    )
+
+    try {
+        if ($null -eq $Object) { throw 'Target object is $null' }
+
+        # If object supports PSObject properties, use Add-Member when property missing
+        if ($Object.PSObject -and $Object.PSObject.Properties[$PropertyName] -eq $null) {
+            $Object | Add-Member -NotePropertyName $PropertyName -NotePropertyValue $Value -Force
+        }
+        else {
+            # Use direct assignment for existing properties (works for PSCustomObject)
+            try {
+                $Object.$PropertyName = $Value
+            }
+            catch {
+                # Last resort: replace via Add-Member Force
+                $Object | Add-Member -NotePropertyName $PropertyName -NotePropertyValue $Value -Force
+            }
+        }
+    }
+    catch {
+        Write-Verbose "Set-ExecutionProperty failed to set $PropertyName on object: $_"
+        throw
+    }
+}
+
 <#
 .SYNOPSIS
     Prepares multiple GitLab projects for bulk migration.
@@ -209,6 +242,20 @@ function Invoke-BulkPreparationWorkflow {
     Write-Host "       Total size: $totalSizeMB MB"
     Write-Host "       Duration: $([math]::Round($totalDuration, 1)) minutes"
     Write-Host "       Configuration: $($bulkPaths.configFile)"
+
+    # Write init metrics summary for bulk preparation (if metrics helper available)
+    try {
+        if (Get-Command -Name Write-InitSummaryReport -ErrorAction SilentlyContinue) {
+            Write-Verbose "[Bulk] Writing init summary report to $($bulkPaths.reportsDir)"
+            Write-InitSummaryReport -ReportsDir $bulkPaths.reportsDir -FileName 'bulk-preparation-init-summary.json' | Out-Null
+        }
+        else {
+            Write-Verbose "[Bulk] Write-InitSummaryReport not available in this session"
+        }
+    }
+    catch {
+        Write-Warning "[WARN] Failed to write bulk preparation init summary: $_"
+    }
     
     # Extract documentation files if any projects were successful
     if ($successCount -gt 0) {
@@ -245,19 +292,10 @@ function Invoke-BulkPreparationWorkflow {
     return $bulkConfig
 }
 
-# Write init metrics summary for bulk preparation (if metrics helper available)
-try {
-    if (Get-Command -Name Write-InitSummaryReport -ErrorAction SilentlyContinue) {
-        Write-Verbose "[Bulk] Writing init summary report to $($bulkPaths.reportsDir)"
-        Write-InitSummaryReport -ReportsDir $bulkPaths.reportsDir -FileName 'bulk-preparation-init-summary.json' | Out-Null
-    }
-    else {
-        Write-Verbose "[Bulk] Write-InitSummaryReport not available in this session"
-    }
-}
-catch {
-    Write-Warning "[WARN] Failed to write bulk preparation init summary: $_"
-}
+    # (No-op) Module-level bulk init summary was removed because it referenced
+    # function-local variables ($bulkPaths) at import time causing spurious
+    # warnings. The init summary is now written inside the preparation workflow
+    # at the end of successful preparation.
 
 <#
 .SYNOPSIS
@@ -318,7 +356,7 @@ function Invoke-BulkMigrationWorkflow {
     Write-Host "[SUCCESS] Azure DevOps project confirmed: $AdoProject" -ForegroundColor Green
     
     # Initialize bulk execution log
-    $bulkLogFile = New-LogFilePath $bulkPaths.logsDir "bulk-execution"
+    $bulkLogFile = New-LogFilePath -LogsDir $bulkPaths.logsDir -Prefix "bulk-execution"
     $totalStartTime = Get-Date
     
     Write-MigrationLog $bulkLogFile @(
@@ -370,17 +408,25 @@ function Invoke-BulkMigrationWorkflow {
     $totalEndTime = Get-Date
     $totalDuration = ($totalEndTime - $totalStartTime).TotalMinutes
     
-    # Update bulk configuration with execution results
-    $config.execution_summary = @{
-        execution_time = $totalStartTime.ToString('yyyy-MM-dd HH:mm:ss')
-        execution_duration_minutes = [math]::Round($totalDuration, 1)
-        total_migrations = $successfulProjects.Count
-        successful_migrations = $successCount
-        failed_migrations = $failureCount
+    # Build a richer execution summary and persist safely
+    $execSummary = @{
+        StartTime = $totalStartTime.ToString('yyyy-MM-dd HH:mm:ss')
+        EndTime = $totalEndTime.ToString('yyyy-MM-dd HH:mm:ss')
+        Status = if ($failureCount -eq 0) { 'Completed' } else { 'CompletedWithFailures' }
+        Errors = @()
+        SuccessCount = $successCount
+        TotalCount = $successfulProjects.Count
+        ExecutionDurationMinutes = [math]::Round($totalDuration, 1)
     }
-    $config.migration_results = $migrationResults
-    
-    $config | ConvertTo-Json -Depth 5 | Set-Content -Path $bulkPaths.configFile -Encoding UTF8
+
+    # Safely add or set the execution_summary property on the config object
+    Set-ExecutionProperty -Object $config -PropertyName 'execution_summary' -Value $execSummary
+
+    # Ensure migration_results is set on config (use Add-Member if missing)
+    Set-ExecutionProperty -Object $config -PropertyName 'migration_results' -Value $migrationResults
+
+    # Persist updated configuration
+    $config | ConvertTo-Json -Depth 10 | Set-Content -Path $bulkPaths.configFile -Encoding UTF8
     
     # Write final summary
     Write-MigrationLog $bulkLogFile @(

@@ -104,13 +104,17 @@ function Show-MigrationMenu {
     Write-Host ""
     Write-Host "  7) Add Team Packs           " -ForegroundColor White -NoNewline
     Write-Host "│ Enhance existing project with team resources" -ForegroundColor Gray
-    Write-Host "  8) Prepare Bulk from Config File" -ForegroundColor White -NoNewline
-    Write-Host "│ Prepare all migrations from projects.json" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  9) Exit" -ForegroundColor Yellow
+    Write-Host "  8) Unattended: Prepare from projects.json" -ForegroundColor White -NoNewline
+    Write-Host "│ Prepare all migrations" -ForegroundColor Gray
+    Write-Host "  9) Unattended: Import from projects.json " -ForegroundColor White -NoNewline
+    Write-Host "│ end-to-end prepare/initialize/migrate"
+    Write-Host ""
+    Write-Host "  10) Exit" -ForegroundColor Yellow
+    Write-Host ""
     Write-Host ""
     
-    $choice = Read-Host "Select option (1-9)"
+    $choice = Read-Host "Select option (1-10)"
     if ($choice -eq '8') {
         Write-Host ""
         Write-Host "=== BULK PREPARATION FROM CONFIG FILE ===" -ForegroundColor Cyan
@@ -124,7 +128,13 @@ function Show-MigrationMenu {
             return
         }
         try {
-            & $prepScript #-AdoPat $script:AdoPat -GitLabBaseUrl $script:GitLabBaseUrl -GitLabToken $script:GitLabToken
+            # Run unattended bulk preparation using projects.json at repo root and force updates
+            $configPath = Join-Path (Split-Path $projectRoot -Parent) 'projects.json'
+            if (-not (Test-Path $configPath)) {
+                # fall back to repo root path
+                $configPath = Join-Path $projectRoot 'projects.json'
+            }
+            & $prepScript -ConfigFile $configPath -Force
             Write-Host "[SUCCESS] Bulk preparation from config completed!" -ForegroundColor Green
         } catch {
             Write-Host "[ERROR] Bulk preparation failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -734,6 +744,83 @@ function Show-MigrationMenu {
         }
         '9' {
             Write-Host ""
+            Write-Host "=== MIGRATE ALL PREPARED PROJECTS ===" -ForegroundColor Cyan
+            Write-Host "This will migrate all projects that have already been prepared (no preparations will be performed)." -ForegroundColor Gray
+            Write-Host ""
+
+            # Retrieve prepared projects
+            $prepared = Get-PreparedProjects
+
+            if (-not $prepared -or $prepared.Count -eq 0) {
+                Write-Host "[INFO] No prepared projects found. Run Option 1 or 2 to prepare projects first." -ForegroundColor Yellow
+                return
+            }
+
+            # Run migrations non-interactively where possible
+            $oldConfirm = $ConfirmPreference
+            $oldWhatIf = $WhatIfPreference
+            try {
+                $ConfirmPreference = 'None'
+                $WhatIfPreference = $false
+
+                $total = $prepared.Count
+                $successCount = 0
+                $failureCount = 0
+
+                foreach ($item in $prepared) {
+                    try {
+                        if ($item.Type -eq 'Single') {
+                            # Skip already migrated repos
+                            if ($item.RepoMigrated) {
+                                Write-Host "[INFO] Skipping already-migrated repo: $($item.ProjectName) / $($item.GitLabRepoName)" -ForegroundColor Gray
+                                continue
+                            }
+
+                            Write-Host "[INFO] Migrating single project: $($item.GitLabPath) → $($item.ProjectName)" -ForegroundColor Cyan
+                            # Use Force to avoid interactive prompts
+                            Invoke-SingleMigration -SrcPath $item.GitLabPath -DestProject $item.ProjectName -Force
+                            $successCount++
+                            Write-Host "[SUCCESS] Migrated: $($item.GitLabPath)" -ForegroundColor Green
+                        }
+                        elseif ($item.Type -eq 'Bulk') {
+                            # Skip if all projects already migrated
+                            if ($item.MigratedCount -ge $item.ProjectCount) {
+                                Write-Host "[INFO] Skipping bulk project (already migrated): $($item.ProjectName)" -ForegroundColor Gray
+                                continue
+                            }
+
+                            Write-Host "[INFO] Executing bulk migration for: $($item.ProjectName)" -ForegroundColor Cyan
+                            Invoke-BulkMigrationWorkflow -AdoProject $item.ProjectName -Force
+                            $successCount++
+                            Write-Host "[SUCCESS] Bulk migration completed for: $($item.ProjectName)" -ForegroundColor Green
+                        }
+                        else {
+                            Write-Host "[WARN] Unknown prepared item type: $($item.Type) - skipping" -ForegroundColor Yellow
+                        }
+                    }
+                    catch {
+                        Write-Host "[ERROR] Failed to migrate $($item.ProjectName): $($_.Exception.Message)" -ForegroundColor Red
+                        $failureCount++
+                        continue
+                    }
+                }
+
+                Write-Host ""
+                Write-Host "[INFO] Migration run completed. Summary:" -ForegroundColor Cyan
+                Write-Host "       Total prepared items: $total" -ForegroundColor White
+                Write-Host "       Successful migrations: $successCount" -ForegroundColor Green
+                Write-Host "       Failed migrations: $failureCount" -ForegroundColor Red
+            }
+            finally {
+                $ConfirmPreference = $oldConfirm
+                $WhatIfPreference = $oldWhatIf
+            }
+
+            return
+        }
+
+        '10' {
+            Write-Host ""
             Write-Host "Thank you for using GitLab → Azure DevOps Migration Tool" -ForegroundColor Cyan
             Write-Host "Goodbye! 👋" -ForegroundColor Green
             Write-Host ""
@@ -741,7 +828,7 @@ function Show-MigrationMenu {
         }
         default {
             Write-Host ""
-            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 9." -ForegroundColor Red
+            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 10." -ForegroundColor Red
             Write-Host ""
         }
     }
