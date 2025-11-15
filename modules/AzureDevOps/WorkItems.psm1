@@ -2148,7 +2148,7 @@ function Import-AdoWorkItemsFromExcel {
     Write-LogLevelVerbose "Initializing field cache for validation..."
     $fieldCache = @{}  # Will store per work item type: $fieldCache["User Story"]["System.State"] = @("New", "Active", ...)}}}
 }
-    # Helper function to get allowed values for a field on a specific work item type
+        # Helper function to get allowed values for a field on a specific work item type
     function Get-FieldAllowedValues {
         param(
             [string]$WorkItemType,
@@ -2183,7 +2183,7 @@ function Import-AdoWorkItemsFromExcel {
             }
             return @()
         }
-    }
+    
     
     # Get current iteration for default assignment
     $currentIterationPath = $null
@@ -2863,7 +2863,7 @@ function Import-AdoWorkItemsFromExcel {
             }
         }
     }
-    
+}
     # Summary
     Write-Host ""
     Write-Host "[SUCCESS] Imported $successCount work items successfully" -ForegroundColor Green
@@ -2880,6 +2880,7 @@ function Import-AdoWorkItemsFromExcel {
         SkippedRows  = $(@($skippedRows).Count)
     }
 }
+
 
 <#
 .SYNOPSIS

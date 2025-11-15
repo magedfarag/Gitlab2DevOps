@@ -781,6 +781,7 @@ function Show-MigrationMenu {
                             Invoke-SingleMigration -SrcPath $item.GitLabPath -DestProject $item.ProjectName -Force
                             $successCount++
                             Write-Host "[SUCCESS] Migrated: $($item.GitLabPath)" -ForegroundColor Green
+                            Invoke-AllTeamPacks -ProjectName $item.ProjectName
                         }
                         elseif ($item.Type -eq 'Bulk') {
                             # Skip if all projects already migrated
@@ -793,6 +794,7 @@ function Show-MigrationMenu {
                             Invoke-BulkMigrationWorkflow -AdoProject $item.ProjectName -Force
                             $successCount++
                             Write-Host "[SUCCESS] Bulk migration completed for: $($item.ProjectName)" -ForegroundColor Green
+                            Invoke-AllTeamPacks -ProjectName $item.ProjectName
                         }
                         else {
                             Write-Host "[WARN] Unknown prepared item type: $($item.Type) - skipping" -ForegroundColor Yellow
@@ -978,6 +980,59 @@ function Invoke-TeamPackMenu {
         default {
             Write-Host ""
             Write-Host "[INFO] Invalid selection. Skipping team packs." -ForegroundColor Yellow
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Automatically provisions every team pack for a project without prompts.
+
+.DESCRIPTION
+    Runs Business, Development, Security, and Management initialization packs
+    sequentially so migrated projects receive the full suite of wiki pages,
+    queries, dashboards, and repository assets in unattended scenarios (Option 9).
+
+.PARAMETER ProjectName
+    Azure DevOps project that should receive all packs.
+#>
+function Invoke-AllTeamPacks {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ProjectName
+    )
+
+    Write-Host ""
+    Write-Host "[INFO] Provisioning complete feature set for '$ProjectName'..." -ForegroundColor Cyan
+
+    $packs = @(
+        @{
+            Name   = "Business"
+            Action = { Initialize-BusinessInit -DestProject $ProjectName }
+        },
+        @{
+            Name   = "Development"
+            Action = { Initialize-DevInit -DestProject $ProjectName -ProjectType 'all' }
+        },
+        @{
+            Name   = "Security"
+            Action = { Initialize-SecurityInit -DestProject $ProjectName }
+        },
+        @{
+            Name   = "Management"
+            Action = { Initialize-ManagementInit -DestProject $ProjectName }
+        }
+    )
+
+    foreach ($pack in $packs) {
+        try {
+            Write-Host "[INFO] Applying $($pack.Name) pack..." -ForegroundColor Cyan
+            & $pack.Action
+            Write-Host "[SUCCESS] $($pack.Name) pack completed." -ForegroundColor Green
+        }
+        catch {
+            Write-Host "[WARN] $($pack.Name) pack failed: $($_.Exception.Message)" -ForegroundColor Yellow
         }
     }
 }

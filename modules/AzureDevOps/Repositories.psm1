@@ -268,6 +268,87 @@ function New-AdoRepository {
 }
 
 
+function Remove-AdoDefaultRepository {
+    <#
+    .SYNOPSIS
+        Removes the auto-created default repository from a newly provisioned Azure DevOps project.
+
+    .DESCRIPTION
+        Newly created Azure DevOps projects ship with a single Git repository whose name matches the
+        project. This helper deletes that default repository when it is the only repository present
+        and still empty (zero or one commits), allowing migration workflows to recreate repositories
+        with clean history.
+
+    .PARAMETER Project
+        Azure DevOps project name.
+
+    .PARAMETER ProjId
+        Azure DevOps project ID (GUID).
+
+    .OUTPUTS
+        [bool] True when a repository was deleted, otherwise False.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+
+        [Parameter(Mandatory)]
+        [string]$ProjId
+    )
+
+    if ($env:GITLAB2DEVOPS_SKIP_DEFAULT_REPO_DELETE -and $env:GITLAB2DEVOPS_SKIP_DEFAULT_REPO_DELETE -match '^(1|true)$') {
+        Write-Host "[INFO] Skip flag detected (GITLAB2DEVOPS_SKIP_DEFAULT_REPO_DELETE). Default repository will not be removed." -ForegroundColor Yellow
+        return $false
+    }
+
+    try {
+        $projectEscaped = [uri]::EscapeDataString($Project)
+        $repoList = Invoke-AdoRest GET "/$projectEscaped/_apis/git/repositories" -ReturnNullOnNotFound
+        if (-not $repoList -or -not $repoList.value -or $repoList.value.Count -ne 1) {
+            return $false
+        }
+
+        $defaultRepo = $repoList.value[0]
+
+        # Ensure this is the auto-created repo (same project, matching name)
+        if ($defaultRepo.name -ne $Project -or `
+            -not $defaultRepo.project -or `
+            $defaultRepo.project.id -ne $ProjId) {
+            return $false
+        }
+
+        # If repository already has more than one commit, treat it as user content and skip removal
+        $commitCount = 0
+        try {
+            $commits = Invoke-AdoRest GET "/$projectEscaped/_apis/git/repositories/$($defaultRepo.id)/commits?`$top=2"
+            if ($commits -and $commits.count) {
+                $commitCount = [int]$commits.count
+            }
+        }
+        catch {
+            Write-Verbose "[Remove-AdoDefaultRepository] Unable to determine commit count: $_"
+        }
+
+        if ($commitCount -gt 1) {
+            Write-Verbose "[Remove-AdoDefaultRepository] Repository '$($defaultRepo.name)' has more than one commit. Skipping deletion to avoid data loss."
+            return $false
+        }
+
+        Write-Host "[INFO] Removing default repository '$($defaultRepo.name)' from project '$Project'..." -ForegroundColor Yellow
+        Invoke-AdoRest DELETE "/$projectEscaped/_apis/git/repositories/$($defaultRepo.id)" | Out-Null
+        Start-Sleep -Seconds 2
+        Write-Host "[SUCCESS] Default repository removed." -ForegroundColor Green
+        return $true
+    }
+    catch {
+        Write-Warning "[Remove-AdoDefaultRepository] Failed to remove default repository: $_"
+        return $false
+    }
+}
+
+
 function Get-AdoRepoDefaultBranch {
     [CmdletBinding()]
     param(
@@ -920,6 +1001,7 @@ language-settings: {}
 Export-ModuleMember -Function @(
     'New-AdoRepositoryTemplates',
     'New-AdoRepository',
+    'Remove-AdoDefaultRepository',
     'Get-AdoRepoDefaultBranch',
     'New-Adobranchpolicies',
     'Set-AdoRepoDeny',

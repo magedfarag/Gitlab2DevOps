@@ -370,8 +370,10 @@ function Initialize-GitLab {
     }
     
     # Create subdirectories for organization
-    # In v2.1.0, only create reports/ in GitLab subfolder
-    # (logs/ is already created at container level by Get-ProjectPaths)
+    # In v2.1.0, create both logs/ at container level and reports/ in GitLab subfolder
+    if (-not (Test-Path $logsDir)) {
+        New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+    }
     if (-not (Test-Path $reportsDir)) {
         New-Item -ItemType Directory -Path $reportsDir -Force | Out-Null
     }
@@ -483,40 +485,129 @@ function Initialize-GitLab {
         }
     }
     
-    # Create preparation log
+    # Capture preparation start time
+    $prepStartTime = Get-Date
+    
+    # Validate Git access (quick check) BEFORE creating log
+    Write-Host "[INFO] Validating Git access..."
+    $gitValidationResult = "SUCCESS"
+    $gitValidationError = $null
+    try {
+        $skipCert = (Get-SkipCertificateCheck) -or $false
+        if ($skipCert) {
+            git -c http.sslVerify=false ls-remote $gitUrl HEAD | Out-Null
+        } else {
+            git ls-remote $gitUrl HEAD | Out-Null
+        }
+        Write-Host "[OK] Git access validated."
+    } catch {
+        $gitValidationResult = "FAILED"
+        $gitValidationError = $_.ToString()
+        Write-Warning "[WARN] Git access validation failed: $_"
+        Write-Warning "[INFO] Migration can still proceed but may require fresh download in Option 3"
+    }
+    
+    # Get environment info
+    $psVersion = $PSVersionTable.PSVersion.ToString()
+    $gitVersion = try { (git --version).Split(' ')[-1] } catch { "Unknown" }
+    
+    # Calculate preparation duration
+    $prepEndTime = Get-Date
+    $prepDuration = $prepEndTime - $prepStartTime
+    
+    # Check LFS details
+    $lfsObjectsCount = 0
+    $lfsWarning = $null
+    if ($report.lfs_enabled -and (Test-Path $repoDir)) {
+        try {
+            Push-Location $repoDir
+            $lfsObjects = git lfs ls-files 2>$null
+            $lfsObjectsCount = if ($lfsObjects) { ($lfsObjects | Measure-Object).Count } else { 0 }
+            if ($report.lfs_size_MB -eq 0 -and $lfsObjectsCount -gt 0) {
+                $lfsWarning = "WARNING: LFS enabled with objects but reported size is 0 MB - possible analysis issue"
+            } elseif ($report.lfs_enabled -and $lfsObjectsCount -eq 0) {
+                $lfsWarning = "NOTE: LFS enabled but no LFS objects found in repository"
+            }
+        } catch {
+            $lfsObjectsCount = -1  # Error checking
+            $lfsWarning = "WARNING: Could not check LFS objects: $_"
+        } finally {
+            Pop-Location
+        }
+    }
+    
+    # Get file sizes
+    $reportSize = if (Test-Path $reportFile) { [math]::Round((Get-Item $reportFile).Length / 1KB, 2) } else { 0 }
+    $logSize = 0  # Will be calculated after writing
+    
+    # Create preparation log with enhanced details
     $prepLogFile = Join-Path $logsDir "preparation-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
-    @(
+    $logContent = @(
         "=== GitLab Project Preparation Log ==="
-        "Timestamp: $(Get-Date)"
-        "Project: $($p.path_with_namespace)"
-        "GitLab URL: $($p.http_url_to_repo)"
-        "Project Directory: $projectDir"
-        "Repository Size: $($report.repo_size_MB) MB"
-        "LFS Enabled: $($report.lfs_enabled)"
-        "LFS Size: $($report.lfs_size_MB) MB"
-        "Default Branch: $($report.default_branch)"
-        "Visibility: $($report.visibility)"
-        "Last Activity: $($report.last_activity)"
+        "Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+        "Preparation Start: $($prepStartTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+        "Preparation End: $($prepEndTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+        "Duration: $($prepDuration.ToString('hh\:mm\:ss')) ($([math]::Round($prepDuration.TotalSeconds, 1)) seconds)"
+        ""
+        "Environment:"
+        "- PowerShell Version: $psVersion"
+        "- Git Version: $gitVersion"
+        "- Operating System: $([Environment]::OSVersion.VersionString)"
+        ""
+        "Project Details:"
+        "- Project: $($p.path_with_namespace)"
+        "- GitLab URL: $($p.http_url_to_repo)"
+        "- Project Directory: $projectDir"
+        "- Repository Size: $($report.repo_size_MB) MB"
+        "- LFS Enabled: $($report.lfs_enabled)"
+        "- LFS Size: $($report.lfs_size_MB) MB"
+        "- LFS Objects Count: $(if ($lfsObjectsCount -eq -1) { 'Error checking' } elseif ($lfsObjectsCount -eq 0) { 'No LFS objects found' } else { $lfsObjectsCount })"
+        if ($lfsWarning) { "- LFS Note: $lfsWarning" }
+        "- Default Branch: $($report.default_branch)"
+        "- Visibility: $($report.visibility)"
+        "- Last Activity: $($report.last_activity.ToString('yyyy-MM-dd HH:mm:ss'))"
+        ""
+        "Validation Results:"
+        "- Git Access: $gitValidationResult"
+    )
+    
+    if ($gitValidationResult -eq "FAILED") {
+        $logContent += "- Git Error: $gitValidationError"
+    }
+    
+    $logContent += @(
         ""
         "Files Created:"
-        "- Report: $reportFile"
+        "- Report: $reportFile ($reportSize KB)"
         if (Test-Path $repoDir) { "- Repository: $repoDir" }
         "- Log: $prepLogFile"
         ""
-        "=== Preparation Completed Successfully ==="
-    ) | Out-File -FilePath $prepLogFile -Encoding utf8
+        "Preparation Steps Performed:"
+        "1. Retrieved project metadata from GitLab API"
+        "2. Downloaded repository mirror (bare clone)"
+        "3. Analyzed repository structure and size"
+        "4. Generated preflight report with statistics"
+        "5. Validated Git access to source repository"
+        "6. Created preparation log"
+    )
     
-    # Validate Git access (quick check)
-    Write-Host "[INFO] Validating Git access..."
-    # Validate Git access; respect invalid certificate setting
-    try { $skipCert = (Get-SkipCertificateCheck) } catch { $skipCert = $false }
-    if ($skipCert) {
-        git -c http.sslVerify=false ls-remote $gitUrl HEAD | Out-Null
+    # Add documentation extraction info if performed
+    if ($CustomBaseDir) {
+        $logContent += "7. Extracted documentation files to container docs folder"
     }
-    else {
-        git ls-remote $gitUrl HEAD | Out-Null
-    }
-    Write-Host "[OK] Git access validated."
+    
+    $logContent += @(
+        ""
+        "Status: SUCCESS"
+        ""
+        "=== Preparation Completed Successfully ==="
+    )
+    
+    $logContent | Out-File -FilePath $prepLogFile -Encoding utf8
+    
+    # Update log size
+    $logSize = [math]::Round((Get-Item $prepLogFile).Length / 1KB, 2)
+    (Get-Content $prepLogFile) -replace [regex]::Escape("- Log: $prepLogFile"), "- Log: $prepLogFile ($logSize KB)" | Out-File -FilePath $prepLogFile -Encoding utf8
     
     # Summary
     Write-Host ""
@@ -537,26 +628,27 @@ function Initialize-GitLab {
     # After preparation, optionally extract documentation files for bulk container
     # If CustomBaseDir provided, create container-level docs folder and extract
     # supported documentation files for this repository into container/docs/<repoName>/
+    $docExtractionResult = $null
     try {
         if ($CustomBaseDir) {
-            # Container docs folder (per repository subfolder)
-            $containerDocsDir = Join-Path $CustomBaseDir "docs"
-            if (-not (Test-Path $containerDocsDir)) { New-Item -ItemType Directory -Path $containerDocsDir -Force | Out-Null }
-
-            $targetRepoDocsDir = Join-Path $containerDocsDir $projectName
-            if (-not (Test-Path $targetRepoDocsDir)) { New-Item -ItemType Directory -Path $targetRepoDocsDir -Force | Out-Null }
-
-            if (Test-Path $repoDir) {
-                # Call helper to extract documentation files from this repository
-                Extract-DocumentationFromRepo -RepositoryPath $repoDir -TargetDocsDir $targetRepoDocsDir -RepoName $projectName
-            }
-            else {
-                Write-Warning "[GitLab] Repository path not found for doc extraction: $repoDir"
-            }
+            Write-Host "[INFO] Extracting documentation files..."
+            $docExtractionResult = Extract-DocumentationFromRepo -RepositoryPath $repoDir -TargetDocsDir (Join-Path $CustomBaseDir "docs" $projectName) -RepoName $projectName
+            Write-Host "[OK] Documentation extraction completed: $($docExtractionResult.extracted) files extracted from $($docExtractionResult.total) found"
         }
     }
     catch {
+        $docExtractionResult = @{ extracted = 0; total = 0; error = $_.ToString() }
         Write-Warning "[WARN] Documentation extraction step failed for $($projectName): $_"
+    }
+    
+    # Update log with documentation extraction results
+    if ($docExtractionResult) {
+        $docLogEntry = if ($docExtractionResult.ContainsKey('error') -and $docExtractionResult['error']) {
+            "7. Documentation extraction: FAILED - $($docExtractionResult['error'])"
+        } else {
+            "7. Documentation extraction: SUCCESS - $($docExtractionResult['extracted']) files extracted from $($docExtractionResult['total']) found"
+        }
+        (Get-Content $prepLogFile) -replace "6. Created preparation log", "6. Created preparation log`n$docLogEntry" | Out-File -FilePath $prepLogFile -Encoding utf8
     }
 }
 

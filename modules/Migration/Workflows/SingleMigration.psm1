@@ -301,6 +301,16 @@ function Invoke-SingleMigration {
     $proj = Measure-Adoproject $DestProject
     $projId = $proj.id
     $repoName = $gl.path
+
+    # Clean up any default repository that Azure DevOps created when the project was provisioned.
+    if (-not $AllowSync) {
+        try {
+            Remove-AdoDefaultRepository -Project $DestProject -ProjId $projId | Out-Null
+        }
+        catch {
+            Write-Verbose "[Invoke-SingleMigration] Default repo cleanup skipped: $_"
+        }
+    }
     
     # Create migration log
     $logFile = New-LogFilePath -LogsDir $logsDir -Prefix "migration"
