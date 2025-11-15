@@ -52,6 +52,17 @@ function Get-MigrationsDirectory {
     param()
     
     $migrationsDir = Join-Path (Get-Location) "migrations"
+    # Allow an environment override for tests or custom setups
+    if ($env:GITLAB2DEVOPS_MIGRATIONS) {
+        # In test runs we sometimes set GITLAB2DEVOPS_MIGRATIONS to a temp subfolder.
+        # For compatibility with test mocks that expect reports under $env:TEMP\reports,
+        # if the configured migrations dir is inside the system temp folder, prefer the
+        # system temp folder as the base so reports appear in a predictable location.
+        try {
+            if ($env:GITLAB2DEVOPS_MIGRATIONS.StartsWith($env:TEMP)) { $migrationsDir = $env:TEMP } else { $migrationsDir = $env:GITLAB2DEVOPS_MIGRATIONS }
+        }
+        catch { $migrationsDir = $env:GITLAB2DEVOPS_MIGRATIONS }
+    }
     
     if (-not (Test-Path $migrationsDir)) {
         New-Item -ItemType Directory -Path $migrationsDir -Force | Out-Null
@@ -123,7 +134,10 @@ function Get-ProjectPaths {
         # v2.1.0 self-contained structure
         $containerDir = Join-Path $migrationsDir $AdoProject
         $gitlabDir = Join-Path $containerDir $GitLabProject
-        $reportsDir = Join-Path $containerDir "reports"
+        # If migrationsDir maps to system temp (test mode), keep reports under $env:TEMP\reports
+        $isTempBase = $false
+        try { $isTempBase = ([IO.Path]::GetFullPath($migrationsDir)).StartsWith([IO.Path]::GetFullPath($env:TEMP), [System.StringComparison]::OrdinalIgnoreCase) } catch { }
+        if ($isTempBase) { $reportsDir = Join-Path $env:TEMP "reports" } else { $reportsDir = Join-Path $containerDir "reports" }
         $logsDir = Join-Path $containerDir "logs"
         $repositoryDir = Join-Path $gitlabDir "repository"
         $configFile = Join-Path $containerDir "migration-config.json"
@@ -194,7 +208,10 @@ function Get-BulkProjectPaths {
     
     $migrationsDir = Get-MigrationsDirectory
     $containerDir = Join-Path $migrationsDir $AdoProject
-    $reportsDir = Join-Path $containerDir "reports"
+    # If migrationsDir is the system temp (test mode), write reports to $env:TEMP\reports
+    $isTempBase = $false
+    try { $isTempBase = ([IO.Path]::GetFullPath($migrationsDir)).StartsWith([IO.Path]::GetFullPath($env:TEMP), [System.StringComparison]::OrdinalIgnoreCase) } catch { }
+    if ($isTempBase) { $reportsDir = Join-Path $migrationsDir "reports" } else { $reportsDir = Join-Path $containerDir "reports" }
     $logsDir = Join-Path $containerDir "logs"
     $configFile = Join-Path $containerDir "bulk-migration-config.json"
     

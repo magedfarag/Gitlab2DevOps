@@ -2133,6 +2133,12 @@ function Import-AdoWorkItemsFromExcel {
     catch {
         Write-Warning "Could not retrieve current iteration, work items may fail if iteration path is required: $_"
     }
+
+    # Respect environment override to disable automatic area creation (useful for migrations/tests)
+    $disableAreaCreation = $false
+    if ($env:GITLAB2DEVOPS_DISABLE_AREA_CREATION) {
+        if ($env:GITLAB2DEVOPS_DISABLE_AREA_CREATION -match '^(1|true)$') { $disableAreaCreation = $true }
+    }
     
     # Get first area and first iteration for default assignment to all work items
     $firstAreaPath = $null
@@ -2166,8 +2172,10 @@ function Import-AdoWorkItemsFromExcel {
         try {
             Write-Host "[INFO] Creating default Area and Iteration: $Project" -ForegroundColor Cyan
             $projEnc = [uri]::EscapeDataString($Project)
-            # Create root area node named after the project
-            Invoke-AdoRest POST "/$projEnc/_apis/wit/classificationnodes/areas?api-version=7.1" -Body @{ name = $Project } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
+            # Create root area node named after the project (skip if disabled)
+            if (-not $disableAreaCreation) {
+                Invoke-AdoRest POST "/$projEnc/_apis/wit/classificationnodes/areas?api-version=7.1" -Body @{ name = $Project } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
+            }
 
             # Create root iteration node named after the project using idempotent helper
             $rootIter = Ensure-AdoIteration -Project $Project -Name $Project
@@ -2188,6 +2196,7 @@ function Import-AdoWorkItemsFromExcel {
             }
 
             # Assign created values as defaults
+            # Use project root as default area path even when creation disabled
             $firstAreaPath = $Project
             $firstIterationPath = $Project
             Write-Host "[SUCCESS] Default area and iteration '$Project' created and will be assigned to imported work items" -ForegroundColor Green
@@ -2253,30 +2262,20 @@ function Import-AdoWorkItemsFromExcel {
                 Write-LogLevelVerbose "Assigned area path '$firstAreaPath' to work item '$($row.Title)'"
             }
             
-            # Decide iteration assignment: child work items (User Story, Bug, Test Case, Task, PBI,
-            # and also Epic/Feature when desired) should go to Project\Sprint 1
-            # Include Epic and Feature here so they inherit the same iteration as other children
-            $childTypes = @('User Story','Bug','Test Case','Task','Product Backlog Item','Epic','Feature')
-            $childIterationPath = if ($sprintIterationPath) { $sprintIterationPath } else { "$Project\Sprint 1" }
+            # Decide iteration assignment. Prefer the current team iteration if available,
+            # else fall back to a sprint iteration (sprintIterationPath), then the firstIterationPath.
+            $iterationToAssign = $null
+            if ($currentIterationPath) { $iterationToAssign = $currentIterationPath }
+            elseif ($sprintIterationPath) { $iterationToAssign = $sprintIterationPath }
+            elseif ($firstIterationPath) { $iterationToAssign = $firstIterationPath }
 
-            if ($firstIterationPath) {
-                if ($childTypes -contains $wit) {
-                    $operations += [pscustomobject]@{
-                        op    = "add"
-                        path  = "/fields/System.IterationPath"
-                        value = $childIterationPath
-                    }
-                    Write-LogLevelVerbose "Assigned child iteration path '$childIterationPath' to work item '$($row.Title)' (type: $wit)"
+            if ($iterationToAssign) {
+                $operations += [pscustomobject]@{
+                    op    = "add"
+                    path  = "/fields/System.IterationPath"
+                    value = $iterationToAssign
                 }
-                else {
-                    # For parent types (Epic, Feature, etc.) keep the project's first iteration/default
-                    $operations += [pscustomobject]@{
-                        op    = "add"
-                        path  = "/fields/System.IterationPath"
-                        value = $firstIterationPath
-                    }
-                    Write-LogLevelVerbose "Assigned iteration path '$firstIterationPath' to parent work item '$($row.Title)' (type: $wit)"
-                }
+                Write-LogLevelVerbose "Assigned iteration path '$iterationToAssign' to work item '$($row.Title)' (type: $wit)"
             }
             
             # IterationPath is intentionally ignored during Excel import to use default project area
@@ -2480,9 +2479,32 @@ function Import-AdoWorkItemsFromExcel {
                 if ($localToAdoMap.ContainsKey($parentKey)) { $parentAdoId = $localToAdoMap[$parentKey] }
                 if ($parentAdoId) {
                     $projEnc = [uri]::EscapeDataString($Project)
+                    # Build absolute URL for parent work item relation. Azure DevOps expects a full
+                    # absolute URL for relation targets (not a relative path). Try to get the
+                    # configured CollectionUrl from Core.Rest; fall back to the relative form
+                    # if the collection URL is not available in this context.
+                    try {
+                        $coreCfg = Get-CoreRestConfig
+                    }
+                    catch {
+                        $coreCfg = $null
+                    }
+
+                    $collectionUrl = $null
+                    if ($coreCfg -and $coreCfg.CollectionUrl) { $collectionUrl = $coreCfg.CollectionUrl.TrimEnd('/') }
+
+                    if ($collectionUrl) {
+                        $relTargetUrl = "$collectionUrl/_apis/wit/workItems/$parentAdoId"
+                    }
+                    else {
+                        # Last resort: use relative URL (older codepath). This is less likely to be
+                        # accepted by the server but preserves behavior when collection URL isn't available.
+                        $relTargetUrl = "/$projEnc/_apis/wit/workItems/$parentAdoId"
+                    }
+
                     $relValue = [pscustomobject]@{
                         rel = "System.LinkTypes.Hierarchy-Reverse"
-                        url = "/$projEnc/_apis/wit/workItems/$parentAdoId" # Now uses relative path, base URL from Core.Rest
+                        url = $relTargetUrl
                         attributes = [pscustomobject]@{ comment = "Imported from Excel" }
                     }
                     $operations += [pscustomobject]@{
@@ -2500,6 +2522,28 @@ function Import-AdoWorkItemsFromExcel {
             $witEncoded = [uri]::EscapeDataString($wit)
             $projEnc = [uri]::EscapeDataString($Project)
             
+            # Assign area and iteration to each imported work item
+            try {
+                # Determine area: prefer firstAreaPath, fallback to project root
+                $assignArea = $null
+                if ($firstAreaPath) { $assignArea = $firstAreaPath }
+                elseif ($Project) { $assignArea = $Project }
+                if ($assignArea) {
+                    $operations += [pscustomobject]@{ op = "add"; path = "/fields/System.AreaPath"; value = $assignArea }
+                }
+
+                # Determine iteration: prefer current sprint for the team if available, otherwise use firstIterationPath
+                $assignIteration = $null
+                if ($currentIterationPath) { $assignIteration = $currentIterationPath }
+                elseif ($firstIterationPath) { $assignIteration = $firstIterationPath }
+                if ($assignIteration) {
+                    $operations += [pscustomobject]@{ op = "add"; path = "/fields/System.IterationPath"; value = $assignIteration }
+                }
+            }
+            catch {
+                Write-LogLevelVerbose "Could not set default Area/Iteration on import for row LocalId=$($row.LocalId): $_"
+            }
+
             # Ensure $operations is JSON-serializable by ConvertTo-Json
             $workItemBody = $operations | ConvertTo-Json -Depth 20
             $workItem = Invoke-AdoRest POST "/$projEnc/_apis/wit/workitems/`$$witEncoded" `

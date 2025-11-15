@@ -13,11 +13,14 @@
     Version: 2.1.0
 #>
 
+# Import Core.Rest FIRST so all functions are available for parameter validation and runtime usage
+$migrationRoot = Split-Path $PSScriptRoot -Parent
+$coreRestPath = Join-Path $migrationRoot "core\Core.Rest.psm1"
+if (-not (Get-Module -Name 'Core.Rest') -and (Test-Path $coreRestPath)) {
+    Import-Module $coreRestPath -Force -Global -ErrorAction Stop
+}
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
-
-# Import required modules
-$migrationRoot = Split-Path $PSScriptRoot -Parent
 Import-Module (Join-Path $migrationRoot "Core\MigrationCore.psm1") -Force -Global
 
 # Progress tracking defaults (avoids StrictMode complaints before initialization)
@@ -106,12 +109,6 @@ function Initialize-AdoProject {
         [Parameter(Mandatory, ParameterSetName = 'Standard')]
         [Parameter(Mandatory, ParameterSetName = 'Profile')]
         [Parameter(Mandatory, ParameterSetName = 'Selective')]
-        [ValidateScript({
-            if ($_ -and -not (Test-AdoRepositoryName $_ -ThrowOnError:$false)) {
-                throw "Invalid repository name: $_"
-            }
-            $true
-        })]
         [string]$RepoName,
         
         [Parameter(ParameterSetName = 'BulkInit')]
@@ -161,6 +158,16 @@ function Initialize-AdoProject {
         [switch]$Force
     )
     
+    # Ensure Core.Rest is imported in the current session for validation
+    $migrationRoot = Split-Path $PSScriptRoot -Parent
+    $coreRestPath = Join-Path $migrationRoot "core\Core.Rest.psm1"
+    if (-not (Get-Module -Name 'Core.Rest') -and (Test-Path $coreRestPath)) {
+        Import-Module $coreRestPath -Force -Global -ErrorAction Stop
+    }
+    # Validate repository name (moved from parameter block to function body for module import timing)
+    if ($RepoName -and -not (Test-AdoRepositoryName $RepoName -ThrowOnError:$false)) {
+        throw "Invalid repository name: $RepoName"
+    }
     # Initialize logging for project initialization
     $migrationsDir = Join-Path $PSScriptRoot "..\..\..\migrations"
     $projectDir = Join-Path $migrationsDir $DestProject

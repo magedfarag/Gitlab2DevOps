@@ -436,6 +436,12 @@ function Measure-Adoarea {
         [string]$AdoApiVersion
     )
     
+    # Respect environment override to disable automatic area creation
+    $disableAreaCreation = $false
+    if ($env:GITLAB2DEVOPS_DISABLE_AREA_CREATION) {
+        if ($env:GITLAB2DEVOPS_DISABLE_AREA_CREATION -match '^(1|true)$') { $disableAreaCreation = $true }
+    }
+
     try {
         $area = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/areas/$([uri]::EscapeDataString($Area))"
         Write-Host "[INFO] Area '$Area' already exists" -ForegroundColor Gray
@@ -443,6 +449,11 @@ function Measure-Adoarea {
     }
     catch {
         # 404 is expected for new areas - don't treat as error
+        if ($disableAreaCreation) {
+            Write-Host "[INFO] Area creation disabled; skipping creation of area '$Area'" -ForegroundColor Yellow
+            # Return a placeholder object so callers can continue
+            return [PSCustomObject]@{ name = $Area }
+        }
         Write-Host "[INFO] Creating area '$Area'" -ForegroundColor Cyan
         Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/classificationnodes/areas" -Body @{ name = $Area }
     }

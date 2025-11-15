@@ -10,6 +10,12 @@
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
 
+# Import Core.Rest FIRST so all functions are available for parameter validation and runtime usage
+$migrationRoot = Split-Path $PSScriptRoot -Parent
+$coreRestPath = Join-Path $migrationRoot "core\Core.Rest.psm1"
+if (-not (Get-Module -Name 'Core.Rest') -and (Test-Path $coreRestPath)) {
+    Import-Module $coreRestPath -Force -Global -ErrorAction Stop
+}
 
 function Measure-Adoprojectwiki {
     [CmdletBinding()]

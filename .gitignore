@@ -4,6 +4,7 @@
 
 # Migration Data (contains cloned repositories and sensitive data)
 migrations/
+exports/
 migrations1/
 !migrations/.gitkeep
 projects.json
