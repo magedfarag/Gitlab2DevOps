@@ -97,7 +97,7 @@ function Test-GitLabChanges {
     # Get recent commits from GitLab
     $encodedPath = [uri]::EscapeDataString($ProjectPath)
     $commits = Invoke-RestMethod `
-        -Uri "$env:GITLAB_BASE_URL/api/v4/projects/$encodedPath/repository/commits?since=$SinceDate" `
+        -Uri "$($env:GITLAB_BASE_URL)/api/v4/projects/$encodedPath/repository/commits?since=$SinceDate" `
         -Headers @{ "PRIVATE-TOKEN" = $env:GITLAB_PAT }
     
     return $commits.Count -gt 0
@@ -215,13 +215,13 @@ function Test-MigrationSuccess {
     # Get latest commit from GitLab
     $encodedPath = [uri]::EscapeDataString($GitLabProject)
     $gitlabCommit = Invoke-RestMethod `
-        -Uri "$env:GITLAB_BASE_URL/api/v4/projects/$encodedPath/repository/commits/main" `
+        -Uri "$($env:GITLAB_BASE_URL)/api/v4/projects/$encodedPath/repository/commits/main" `
         -Headers @{ "PRIVATE-TOKEN" = $env:GITLAB_PAT }
     
     # Get latest commit from Azure DevOps
     $adoCommit = Invoke-RestMethod `
-    -Uri "$env:ADO_COLLECTION_URL/$AdoProject/_apis/git/repositories/$AdoRepo/commits?api-version=7.2&`$top=1" `
-        -Headers @{ Authorization = "Basic $([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$env:ADO_PAT")))" }
+    -Uri "$($env:ADO_COLLECTION_URL)/$(AdoProject)/_apis/git/repositories/$AdoRepo/commits?api-version=7.2&`$top=1" `
+        -Headers @{ Authorization = "Basic $([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$($env:ADO_PAT)")))" }
     
     # Compare commit SHAs
     $gitlabSha = $gitlabCommit.id

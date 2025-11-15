@@ -18,7 +18,7 @@ $apiVersion = "7.0"
 # PAT auth header
 $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$Pat"))
 
-Import-Module ImportExcel -ErrorAction Stop
+Import-Module -WarningAction SilentlyContinue ImportExcel -ErrorAction Stop
 
 # 1) read
 $rawRows = Import-Excel -Path $ExcelPath -WorksheetName 'Requirements'

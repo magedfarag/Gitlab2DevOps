@@ -30,7 +30,7 @@ catch {
 # Import Templates module for HTML generation
 $templatesPath = Join-Path (Split-Path $PSScriptRoot -Parent) "templates\Templates.psm1"
 if (Test-Path $templatesPath) {
-    Import-Module $templatesPath -Force -Global
+    Import-Module -WarningAction SilentlyContinue $templatesPath -Force -Global
 }
 
 <#
@@ -874,12 +874,114 @@ function New-MigrationHtmlReport {
         return $null
     }        # Load migration config
         $configFile = Join-Path $ProjectPath "migration-config.json"
-        if (-not (Test-Path $configFile)) {
+    $config = $null
+    $syntheticPreflight = $null
+
+    if (Test-Path $configFile) {
+        $config = Get-Content -Path $configFile -Raw | ConvertFrom-Json
+    }
+    else {
+        $containerDir = Split-Path $ProjectPath -Parent
+        $bulkConfigPath = Join-Path $containerDir "bulk-migration-config.json"
+        if (Test-Path $bulkConfigPath) {
+            try {
+                $bulkConfig = Get-Content -Path $bulkConfigPath -Raw | ConvertFrom-Json
+                $projectFolder = Split-Path $ProjectPath -Leaf
+                $projectEntry = $null
+                if ($bulkConfig.projects) {
+                    $projectEntry = $bulkConfig.projects |
+                        Where-Object {
+                            ($_.ado_repo_name -and $_.ado_repo_name -ieq $projectFolder) -or
+                            ($_.gitlab_path -and (Split-Path $_.gitlab_path -Leaf) -ieq $projectFolder)
+                        } | Select-Object -First 1
+                }
+
+                if ($projectEntry) {
+                    $resultEntry = $null
+                    if ($bulkConfig.migration_results) {
+                        $resultEntry = $bulkConfig.migration_results |
+                            Where-Object { $_.ado_repo_name -and $_.ado_repo_name -ieq $projectEntry.ado_repo_name } |
+                            Select-Object -First 1
+                    }
+
+                    $statusValue = if ($resultEntry -and $resultEntry.status) {
+                        $resultEntry.status
+                    }
+                    elseif ($projectEntry.preparation_status) {
+                        $projectEntry.preparation_status
+                    }
+                    else {
+                        'UNKNOWN'
+                    }
+
+                    $createdStamp = if ($bulkConfig.preparation_summary -and $bulkConfig.preparation_summary.preparation_time) {
+                        $bulkConfig.preparation_summary.preparation_time
+                    }
+                    else {
+                        (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                    }
+
+                    $updatedStamp = if ($bulkConfig.execution_summary -and $bulkConfig.execution_summary.EndTime) {
+                        $bulkConfig.execution_summary.EndTime
+                    }
+                    elseif ($bulkConfig.execution_summary -and $bulkConfig.execution_summary.StartTime) {
+                        $bulkConfig.execution_summary.StartTime
+                    }
+                    else {
+                        $createdStamp
+                    }
+
+                    $config = [pscustomobject]@{
+                        ado_project      = $bulkConfig.destination_project
+                        gitlab_repo_name = $projectEntry.ado_repo_name
+                        gitlab_project   = $projectEntry.gitlab_path
+                        migration_type   = if ($bulkConfig.migration_type) { $bulkConfig.migration_type } else { 'BULK' }
+                        status           = $statusValue
+                        repo_size_MB     = $projectEntry.repo_size_MB
+                        lfs_enabled      = $projectEntry.lfs_enabled
+                        created_date     = $createdStamp
+                        last_updated     = $updatedStamp
+                    }
+
+                    if ($projectEntry.PSObject.Properties['description']) {
+                        $config | Add-Member -NotePropertyName 'description' -NotePropertyValue $projectEntry.description
+                    }
+                    if ($projectEntry.PSObject.Properties['ado_repo_name']) {
+                        $config | Add-Member -NotePropertyName 'ado_repo_name' -NotePropertyValue $projectEntry.ado_repo_name
+                    }
+                    if ($projectEntry.PSObject.Properties['gitlab_path']) {
+                        $config | Add-Member -NotePropertyName 'gitlab_path' -NotePropertyValue $projectEntry.gitlab_path
+                    }
+
+                    # Build lightweight synthetic preflight data from bulk metadata
+                    $syntheticPreflight = [pscustomobject]@{}
+                    if ($projectEntry.PSObject.Properties['default_branch'] -and $projectEntry.default_branch) {
+                        $syntheticPreflight | Add-Member -NotePropertyName 'default_branch' -NotePropertyValue $projectEntry.default_branch
+                    }
+                    if ($projectEntry.PSObject.Properties['visibility'] -and $projectEntry.visibility) {
+                        $syntheticPreflight | Add-Member -NotePropertyName 'visibility' -NotePropertyValue $projectEntry.visibility
+                    }
+                    if ($projectEntry.PSObject.Properties['lfs_size_MB']) {
+                        $syntheticPreflight | Add-Member -NotePropertyName 'lfs_size_MB' -NotePropertyValue $projectEntry.lfs_size_MB
+                    }
+                }
+                else {
+                    Write-Verbose "[New-MigrationHtmlReport] Bulk config did not contain entry for '$projectFolder'"
+                }
+            }
+            catch {
+                Write-Verbose "[New-MigrationHtmlReport] Failed to load bulk fallback config: $_"
+            }
+        }
+
+        if (-not $config) {
             Write-Warning "[New-MigrationHtmlReport] Config not found: $configFile"
             return $null
         }
-        
-        $config = Get-Content -Path $configFile -Raw | ConvertFrom-Json
+        else {
+            Write-Verbose "[New-MigrationHtmlReport] Using bulk fallback data for $ProjectPath"
+        }
+    }
         
         # Determine output path
         if (-not $OutputPath) {
@@ -891,9 +993,9 @@ function New-MigrationHtmlReport {
         }
         
         # Try to load additional data
-        $preflightData = $null
-        $migrationSummary = $null
-        $errorData = $null
+    $preflightData = $null
+    $migrationSummary = $null
+    $errorData = $null
         
         # Check for preflight report in GitLab subfolder
         $gitlabSubfolder = Get-ChildItem -Path $ProjectPath -Directory -ErrorAction SilentlyContinue | 
@@ -901,10 +1003,14 @@ function New-MigrationHtmlReport {
         
         if ($gitlabSubfolder) {
             $preflightFile = Join-Path $gitlabSubfolder.FullName "reports\preflight-report.json"
-            if (Test-Path $preflightFile) {
-                $preflightData = Get-Content -Path $preflightFile -Raw | ConvertFrom-Json
-            }
+        if (Test-Path $preflightFile) {
+            $preflightData = Get-Content -Path $preflightFile -Raw | ConvertFrom-Json
         }
+    }
+
+if (-not $preflightData -and $syntheticPreflight) {
+    $preflightData = $syntheticPreflight
+}
         
         # Check for migration summary
         $summaryFile = Join-Path $ProjectPath "reports\migration-summary.json"

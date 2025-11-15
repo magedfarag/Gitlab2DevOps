@@ -15,11 +15,11 @@
 Set-StrictMode -Version Latest
 
 # Import required modules
-Import-Module (Join-Path $PSScriptRoot "core\Core.Rest.psm1") -Force -Global
-Import-Module (Join-Path $PSScriptRoot "AzureDevOps\AzureDevOps.psm1") -Force -Global
-Import-Module (Join-Path $PSScriptRoot "GitLab\GitLab.psm1") -Force -Global
-Import-Module (Join-Path $PSScriptRoot "core\Logging.psm1") -Force -Global
-Import-Module (Join-Path $PSScriptRoot "core\ConfigLoader.psm1") -Force -Global
+Import-Module -WarningAction SilentlyContinue (Join-Path $PSScriptRoot "core\Core.Rest.psm1") -Force -Global -DisableNameChecking
+Import-Module -WarningAction SilentlyContinue (Join-Path $PSScriptRoot "AzureDevOps\AzureDevOps.psm1") -Force -Global
+Import-Module -WarningAction SilentlyContinue (Join-Path $PSScriptRoot "GitLab\GitLab.psm1") -Force -Global
+Import-Module -WarningAction SilentlyContinue (Join-Path $PSScriptRoot "core\Logging.psm1") -Force -Global
+Import-Module -WarningAction SilentlyContinue (Join-Path $PSScriptRoot "core\ConfigLoader.psm1") -Force -Global
 
 # Import Migration sub-modules (without -Global to allow re-exporting)
 $migrationModulePath = Join-Path $PSScriptRoot "Migration"
@@ -37,7 +37,7 @@ foreach ($module in $subModules) {
     $modulePath = Join-Path $migrationModulePath $module.Path
     if (Test-Path $modulePath) {
         # Import in current scope (not Global) so we can re-export
-        Import-Module $modulePath -Force -ErrorAction Stop
+        Import-Module -WarningAction SilentlyContinue $modulePath -Force -ErrorAction Stop
         
         # Collect functions from this module
         $moduleObj = Get-Module -Name $module.Name

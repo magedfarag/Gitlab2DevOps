@@ -8,8 +8,8 @@ Write-Host ""
 
 # Import required modules
 try {
-    Import-Module .\modules\core\Logging.psm1 -Force
-    Import-Module .\modules\GitLab\GitLab.psm1 -Force
+    Import-Module -WarningAction SilentlyContinue .\modules\core\Logging.psm1 -Force
+    Import-Module -WarningAction SilentlyContinue .\modules\GitLab\GitLab.psm1 -Force
     Write-Host "[SUCCESS] Modules loaded" -ForegroundColor Green
 }
 catch {

@@ -16,7 +16,7 @@
 Set-StrictMode -Version Latest
 
 # Import required modules
-Import-Module (Join-Path $PSScriptRoot "..\..\core\ConfigLoader.psm1") -Force -Global
+Import-Module -WarningAction SilentlyContinue (Join-Path $PSScriptRoot "..\..\core\ConfigLoader.psm1") -Force -Global
 
 # Module-level constants for configuration defaults
 $script:DEFAULT_SPRINT_COUNT = 6

@@ -197,7 +197,7 @@ Test-Path .env
 Get-Content .env
 
 # Manually test EnvLoader module
-Import-Module .\modules\core\EnvLoader.psm1
+Import-Module -WarningAction SilentlyContinue .\modules\core\EnvLoader.psm1
 $config = Import-DotEnvFile -Path ".env"
 $config
 ```

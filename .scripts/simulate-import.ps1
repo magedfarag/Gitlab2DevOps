@@ -1,7 +1,7 @@
 Set-Location 'c:\Projects\devops\Gitlab2DevOps'
-$null = Import-Module .\modules\core\Core.Rest.psm1 -Force -ErrorAction SilentlyContinue
-$null = Import-Module .\modules\core\Logging.psm1 -Force -ErrorAction SilentlyContinue
-$null = Import-Module .\modules\AzureDevOps\WorkItems.psm1 -Force
+$null = Import-Module -WarningAction SilentlyContinue .\modules\core\Core.Rest.psm1 -Force -ErrorAction SilentlyContinue
+$null = Import-Module -WarningAction SilentlyContinue .\modules\core\Logging.psm1 -Force -ErrorAction SilentlyContinue
+$null = Import-Module -WarningAction SilentlyContinue .\modules\AzureDevOps\WorkItems.psm1 -Force
 $script:relationshipsCreated = 0
 # Ensure the work item types cache exists and populate with common types for simulation
 # Populate the module cache explicitly with common ADO types for the simulated project

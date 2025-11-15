@@ -17,7 +17,7 @@ Set-StrictMode -Version Latest
 
 # Import required modules
 $migrationRoot = Split-Path $PSScriptRoot -Parent
-Import-Module (Join-Path $migrationRoot "Core\MigrationCore.psm1") -Force -Global
+Import-Module -WarningAction SilentlyContinue (Join-Path $migrationRoot "Core\MigrationCore.psm1") -Force -Global
 
 <#
 .SYNOPSIS
@@ -152,6 +152,45 @@ function New-MigrationPreReport {
 .EXAMPLE
     Invoke-SingleMigration "group/project" "MyProject" -AllowSync
 #>
+function Clear-GitCredentials {
+    [CmdletBinding()]
+    param(
+        [string]$RemoteName = 'origin',
+        [string]$RepoPath
+    )
+
+    $pushed = $false
+    try {
+        if ($RepoPath -and (Test-Path $RepoPath)) {
+            Push-Location $RepoPath
+            $pushed = $true
+        }
+
+        $remoteUrl = $null
+        try {
+            $remoteUrl = (git remote get-url $RemoteName 2>$null)
+        }
+        catch { $remoteUrl = $null }
+
+        if ($remoteUrl) {
+            $remoteUrl = $remoteUrl.Trim()
+            if ($remoteUrl) {
+                try { git config --unset-all ("http.$remoteUrl.extraheader") 2>$null | Out-Null } catch { }
+                try { git config --unset-all ("credential.$remoteUrl.helper") 2>$null | Out-Null } catch { }
+            }
+        }
+
+        try { git config --unset credential.helper 2>$null | Out-Null } catch { }
+        Write-Verbose "[Clear-GitCredentials] Cleared cached credentials for remote '$RemoteName'."
+    }
+    catch {
+        Write-Verbose "[Clear-GitCredentials] Unable to clear credentials for remote '$RemoteName': $_"
+    }
+    finally {
+        if ($pushed) { Pop-Location }
+    }
+}
+
 function Invoke-SingleMigration {
     [CmdletBinding()]
     param(

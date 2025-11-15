@@ -458,7 +458,7 @@ function Set-AdoRepoDeny {
     
     # Verify current permissions
     try {
-        $currentAcl = Invoke-AdoRest GET "/_apis/securitynamespaces/$script:NS_GIT/accesscontrolentries?token=$([uri]::EscapeDataString($token))&descriptors=$([uri]::EscapeDataString($GroupDescriptor))"
+        $currentAcl = Invoke-AdoRest GET "/_apis/securitynamespaces/$($script:NS_GIT)/accesscontrolentries?token=$([uri]::EscapeDataString($token))&descriptors=$([uri]::EscapeDataString($GroupDescriptor))"
         Write-LogLevelVerbose "[AzureDevOps] Current ACL for group $GroupDescriptor"
         if ($currentAcl.value.Count -gt 0) {
             Write-LogLevelVerbose "[AzureDevOps] Current permissions - Allow: $($currentAcl.value[0].allow), Deny: $($currentAcl.value[0].deny)"
@@ -473,7 +473,7 @@ function Set-AdoRepoDeny {
     
     # Apply deny permissions
     Write-Host "[INFO] Applying deny permissions (bits: $DenyBits) to group"
-    Invoke-AdoRest POST "/_apis/securitynamespaces/$script:NS_GIT/accesscontrolentries" -Body @{
+Invoke-AdoRest POST "/_apis/securitynamespaces/$($script:NS_GIT)/accesscontrolentries" -Body @{
         token                = $token
         merge                = $true
         accessControlEntries = @(@{

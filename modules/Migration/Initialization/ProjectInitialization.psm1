@@ -17,11 +17,11 @@
 $migrationRoot = Split-Path $PSScriptRoot -Parent
 $coreRestPath = Join-Path $migrationRoot "core\Core.Rest.psm1"
 if (-not (Get-Module -Name 'Core.Rest') -and (Test-Path $coreRestPath)) {
-    Import-Module $coreRestPath -Force -Global -ErrorAction Stop
+    Import-Module -WarningAction SilentlyContinue $coreRestPath -Force -Global -ErrorAction Stop
 }
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
-Import-Module (Join-Path $migrationRoot "Core\MigrationCore.psm1") -Force -Global
+Import-Module -WarningAction SilentlyContinue (Join-Path $migrationRoot "Core\MigrationCore.psm1") -Force -Global
 
 # Progress tracking defaults (avoids StrictMode complaints before initialization)
 $script:totalSteps = 0
@@ -162,7 +162,7 @@ function Initialize-AdoProject {
     $migrationRoot = Split-Path $PSScriptRoot -Parent
     $coreRestPath = Join-Path $migrationRoot "core\Core.Rest.psm1"
     if (-not (Get-Module -Name 'Core.Rest') -and (Test-Path $coreRestPath)) {
-        Import-Module $coreRestPath -Force -Global -ErrorAction Stop
+        Import-Module -WarningAction SilentlyContinue $coreRestPath -Force -Global -ErrorAction Stop
     }
     # Validate repository name (moved from parameter block to function body for module import timing)
     if ($RepoName -and -not (Test-AdoRepositoryName $RepoName -ThrowOnError:$false)) {

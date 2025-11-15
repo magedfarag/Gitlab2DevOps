@@ -127,6 +127,33 @@ function New-AuthHeader {
     return $hdr
 }
 
+function Clear-GitCredentials {
+    [CmdletBinding()]
+    param(
+        [string]$RemoteName = "ado"
+    )
+    
+    Write-Verbose "[Core.Rest] Clearing Git credentials for remote: $RemoteName"
+    
+    # Try to get the remote URL
+    $remoteUrl = git remote get-url $RemoteName 2>$null
+    
+    if ($remoteUrl) {
+        Write-Host "[INFO] Clearing cached credentials for: $remoteUrl"
+        
+        # Windows Credential Manager
+        git credential-manager delete $remoteUrl 2>$null
+        
+        # Git credential helper
+        $credInput = "url=$remoteUrl`n`n"
+        $credInput | git credential reject 2>$null
+        
+        Write-Host "[INFO] Credentials cleared successfully"
+    }
+    else {
+        Write-Verbose "[Core.Rest] Remote '$RemoteName' not found, skipping credential cleanup"
+    }
+}
 
 <#
 .SYNOPSIS
@@ -253,7 +280,7 @@ try {
         # Lazy-load Logging module if available
         $logModule = Join-Path (Split-Path $PSScriptRoot -Parent) 'core\Logging.psm1'
         if (Test-Path $logModule) {
-            Import-Module $logModule -Force -Global -ErrorAction SilentlyContinue
+            Import-Module -WarningAction SilentlyContinue $logModule -Force -Global -ErrorAction SilentlyContinue
             try { Enable-VerboseLogCapture -Prefix 'core-rest' } catch { }
         }
         else {
@@ -1114,6 +1141,137 @@ function New-NormalizedError {
 
 <#
 .SYNOPSIS
+    Generic wrapper for Azure DevOps REST API calls.
+    
+.DESCRIPTION
+    Handles authentication, error handling, and consistent API versioning.
+    Supports all HTTP methods and provides meaningful error messages.
+#>
+function Invoke-AdoRest {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Method,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$RelativeUrl,
+        
+        [string]$ApiVersion = $AdoApiVersion,
+        
+        [object]$Body = $null,
+        
+        [hashtable]$Headers,
+
+        [switch]$ReturnNullOnNotFound,
+
+        [switch]$Preview,
+
+        [int]$MaxAttempts,
+
+        [int]$DelaySeconds,
+
+        [ValidateSet('ado','gitlab')]
+        [string]$Side = 'ado'
+    )
+    
+    $methodNormalized = $Method.ToUpperInvariant()
+
+    # Get config from Core.Rest module
+    $config = Get-CoreRestConfig
+    if (-not $config -or -not $config.CollectionUrl) {
+        throw "Azure DevOps configuration not initialized. Call Initialize-CoreRest first."
+    }
+    
+    # Create headers if not provided (reuse script-level headers so callers can inject custom values)
+    if (-not $Headers) {
+        if ($script:AdoHeaders) {
+            $Headers = $script:AdoHeaders
+        }
+        elseif ($config.AdoPat) {
+            $Headers = New-AuthHeader -Pat $config.AdoPat
+            $script:AdoHeaders = $Headers
+        }
+        else {
+            $Headers = @{}
+        }
+    }
+
+    # Normalize base collection URL and relative paths
+    $baseUrl = ($config.CollectionUrl -as [string])
+    if ([string]::IsNullOrWhiteSpace($baseUrl)) {
+        throw "Azure DevOps CollectionUrl not configured. Call Initialize-CoreRest first."
+    }
+    $baseUrl = $baseUrl.TrimEnd('/')
+    if ($RelativeUrl -match '^(https?|ftp)://') {
+        $url = $RelativeUrl
+    }
+    else {
+        $prefix = if ($RelativeUrl.StartsWith('/')) { '' } else { '/' }
+        $url = "$baseUrl$prefix$RelativeUrl"
+    }
+
+    if ($url -notlike "*api-version=*") {
+        $effectiveApiVersion = if ($PSBoundParameters.ContainsKey('ApiVersion')) { $ApiVersion } else { $config.AdoApiVersion }
+        if ([string]::IsNullOrWhiteSpace($effectiveApiVersion)) { $effectiveApiVersion = '7.1' }
+
+        if ($Preview.IsPresent -and $effectiveApiVersion -notmatch 'preview') {
+            if ($effectiveApiVersion -match '^\d+(\.\d+)*$') {
+                $effectiveApiVersion = "$effectiveApiVersion-preview.1"
+            }
+            elseif ($effectiveApiVersion -notmatch 'preview') {
+                $effectiveApiVersion = "$effectiveApiVersion-preview.1"
+            }
+        }
+
+        $separator = if ($url.Contains('?')) { "&" } else { "?" }
+        $url += "$separator" + "api-version=$effectiveApiVersion"
+    }
+    
+    $bodyPayload = $null
+    if ($Body -and $methodNormalized -in @('POST', 'PUT', 'PATCH')) {
+        if ($Body -is [string]) {
+            $bodyPayload = $Body
+        }
+        else {
+            $bodyPayload = $Body | ConvertTo-Json -Depth 10
+        }
+    }
+
+    if ($WhatIf -and $methodNormalized -in @('POST', 'PUT', 'PATCH', 'DELETE')) {
+        Write-Log "WHATIF: Would call $methodNormalized $url" "INFO"
+        return $null
+    }
+    
+    $restParams = @{
+        Method = $methodNormalized
+        Uri = $url
+        Headers = $Headers
+        Side = $Side
+    }
+    if ($bodyPayload) { $restParams.Body = $bodyPayload }
+    if ($PSBoundParameters.ContainsKey('MaxAttempts')) { $restParams.MaxAttempts = $MaxAttempts }
+    if ($PSBoundParameters.ContainsKey('DelaySeconds')) { $restParams.DelaySeconds = $DelaySeconds }
+    if ($ReturnNullOnNotFound) { $restParams.ReturnNullOnNotFound = $true }
+    
+    try {
+        Write-Log "REST: $methodNormalized $url" "DEBUG"
+        $response = Invoke-RestWithRetry @restParams
+        Write-Log "REST: $methodNormalized $url - SUCCESS" "DEBUG"
+        return $response
+    }
+    catch {
+        $errorMsg = "REST API call failed: $methodNormalized $url"
+        if ($_.Exception -and $_.Exception.Message) {
+            $errorMsg += " - Error: $($_.Exception.Message)"
+        }
+        Write-Log $errorMsg "ERROR"
+        throw $errorMsg
+    }
+}
+
+
+<#
+.SYNOPSIS
     Writes raw HTTP output to a log file when JSON parsing fails.
 
 .DESCRIPTION
@@ -1253,11 +1411,24 @@ function Invoke-RestWithRetry {
         
         # Optional overrides for retry behavior (for testing or advanced scenarios)
         [int]$MaxAttempts,
-        [int]$DelaySeconds
+        [int]$DelaySeconds,
+
+        [switch]$ReturnNullOnNotFound
     )
     
     if (-not $script:HttpClient) {
-        throw "HttpClient not initialized. Call Initialize-CoreRest first."
+        try {
+            if (Get-Command -Name 'Initialize-CoreRest' -ErrorAction SilentlyContinue) {
+                Initialize-CoreRest
+            }
+        }
+        catch {
+            Write-Verbose "[Core.Rest] Initialize-CoreRest attempt failed while ensuring HttpClient: $_"
+        }
+
+        if (-not $script:HttpClient) {
+            throw "HttpClient not initialized. Call Initialize-CoreRest first."
+        }
     }
     
     $attempt = 0
@@ -1349,6 +1520,16 @@ function Invoke-RestWithRetry {
                     return $rawResult
                 }
                 catch {
+                    if ($ReturnNullOnNotFound -and $_.Exception -and $_.Exception.Response) {
+                        try {
+                            $respStatus = [int]$_.Exception.Response.StatusCode
+                            if ($respStatus -eq 404) {
+                                Write-Verbose "[Core.Rest] ReturnNullOnNotFound: Invoke-RestMethod fallback received 404 for $Uri"
+                                return $null
+                            }
+                        }
+                        catch { }
+                    }
                     # Rethrow the original exception if fallback also fails
                     throw
                 }
@@ -1386,6 +1567,11 @@ function Invoke-RestWithRetry {
             $statusColor = if ($status -in @(429, 500, 502, 503, 504)) { 'Yellow' } elseif ($status -eq 404 -and $Method -eq 'GET') { 'DarkYellow' } else { 'Red' }
             Write-Host "[$Side] ← $status ($errorPreview)" -ForegroundColor $statusColor
 
+            if ($status -eq 404 -and $ReturnNullOnNotFound) {
+                Write-Verbose "[$Side] ReturnNullOnNotFound: returning `$null for 404 response on $Uri"
+                return $null
+            }
+
             # Determine if we should retry on transient failures
             $shouldRetry = $status -in @(429, 500, 502, 503, 504) -and $attempt -lt $effectiveMaxAttempts
             if ($shouldRetry) {
@@ -1413,3 +1599,26 @@ function Invoke-RestWithRetry {
     }
 }
 
+
+
+# Export functions
+Export-ModuleMember -Function @(
+    'Initialize-CoreRest',
+    'Ensure-CoreRestInitialized',
+    'Get-CoreRestConfig',
+    'Invoke-AdoRest',
+    'Invoke-RestWithRetry',
+    'New-AuthHeader',
+    'Hide-Secret',
+    'Get-GitLabApiVersion',
+    'Get-GitLabToken',
+    'Get-GitLabBaseUrl',
+    'Get-SkipCertificateCheck',
+    'Test-AdoRepositoryName',
+    'New-ActionableError',
+    'Initialize-InitMetrics',
+    'Add-InitMetric',
+    'Get-InitMetrics',
+    'Clear-GitCredentials',
+    'Write-InitSummaryReport'
+)

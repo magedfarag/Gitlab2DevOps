@@ -30,7 +30,7 @@ $script:GIT_BITS = @{
 $migrationRoot = Split-Path $PSScriptRoot -Parent
 $coreRestPath = Join-Path $migrationRoot "core\Core.Rest.psm1"
 if (-not (Get-Module -Name 'Core.Rest') -and (Test-Path $coreRestPath)) {
-    Import-Module $coreRestPath -Force -Global -ErrorAction Stop
+    Import-Module -WarningAction SilentlyContinue $coreRestPath -Force -Global -ErrorAction Stop
 }
 
 $subModuleDir = $PSScriptRoot
@@ -39,7 +39,7 @@ $subModules = @('Core.psm1', 'Security.psm1', 'Projects.psm1', 'Repositories.psm
 foreach ($module in $subModules) {
     $modulePath = Join-Path $subModuleDir $module
     if (Test-Path $modulePath) {
-        Import-Module $modulePath -Global -Force -ErrorAction Stop
+        Import-Module -WarningAction SilentlyContinue $modulePath -Global -Force -ErrorAction Stop
     }
     else {
         Write-Warning "Sub-module not found: $modulePath"

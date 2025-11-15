@@ -122,8 +122,8 @@ param(
     [switch]$ShowStatistics
 )
 
-Import-Module "C:\Projects\devops\Gitlab2DevOps\modules\core\Core.Rest.psm1" -Force -ErrorAction Stop
-Import-Module "C:\Projects\devops\Gitlab2DevOps\modules\GitLab\GitLab.psm1" -Force -ErrorAction Stop
+Import-Module -WarningAction SilentlyContinue "C:\Projects\devops\Gitlab2DevOps\modules\core\Core.Rest.psm1" -Force -DisableNameChecking -ErrorAction Stop
+Import-Module -WarningAction SilentlyContinue "C:\Projects\devops\Gitlab2DevOps\modules\GitLab\GitLab.psm1" -Force -ErrorAction Stop
 
 # ---------------------------
 # Helper Functions (available even when script is dot-sourced)

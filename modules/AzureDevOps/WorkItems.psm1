@@ -84,14 +84,14 @@ function Ensure-WorkItemTypesCache {
     }
 }
 
-# Load dependent modules so single-module import (Import-Module WorkItems.psm1) brings helpers into scope
+# Load dependent modules so single-module import (Import-Module -WarningAction SilentlyContinue WorkItems.psm1) brings helpers into scope
 try {
     $corePath = Join-Path $PSScriptRoot '..\core\Core.Rest.psm1'
-    if (Test-Path $corePath) { Import-Module $corePath -Force -Global -ErrorAction Stop }
+    if (Test-Path $corePath) { Import-Module -WarningAction SilentlyContinue $corePath -Force -Global -ErrorAction Stop }
     $loggingPath = Join-Path $PSScriptRoot '..\core\Logging.psm1'
-    if (Test-Path $loggingPath) { Import-Module $loggingPath -Force -Global -ErrorAction Stop }
+    if (Test-Path $loggingPath) { Import-Module -WarningAction SilentlyContinue $loggingPath -Force -Global -ErrorAction Stop }
     $projectsPath = Join-Path $PSScriptRoot 'Projects.psm1'
-    if (Test-Path $projectsPath) { Import-Module $projectsPath -Force -Global -ErrorAction Stop }
+    if (Test-Path $projectsPath) { Import-Module -WarningAction SilentlyContinue $projectsPath -Force -Global -ErrorAction Stop }
 }
 catch {
     # Non-fatal: continue without failing module import; tests may import dependencies explicitly
@@ -2040,7 +2040,7 @@ function Import-AdoWorkItemsFromExcel {
     if (-not (Test-Path variable:script:relationshipsCreated)) { $script:relationshipsCreated = 0 }
     if (-not (Get-Variable -Name fieldCache -Scope Local -ErrorAction SilentlyContinue)) { $fieldCache = @{} }
 
-    # Import Excel data. Do not proactively Import-Module here so that tests can mock Import-Excel freely.
+    # Import Excel data. Do not proactively Import-Module -WarningAction SilentlyContinue here so that tests can mock Import-Excel freely.
     # Small wrapper to call Import-Excel via an indirection so Pester can mock Import-Excel reliably
     function Invoke-ImportExcel {
         param(
@@ -2220,9 +2220,22 @@ function Import-AdoWorkItemsFromExcel {
     $firstAreaPath = $null
     $firstIterationPath = $null
     try {
-        $callProjectName = if ($PSBoundParameters.ContainsKey('Project')) { $PSBoundParameters['Project'] } else { $Project }
+        $callProjectName = if ($PSBoundParameters.ContainsKey('Project')) { [string]$PSBoundParameters['Project'] } else { [string]$Project }
+        if ($callProjectName) { $callProjectName = $callProjectName.Trim() }
+        if ([string]::IsNullOrWhiteSpace($callProjectName)) {
+            try {
+                $coreCfg = Get-CoreRestConfig
+                if ($coreCfg -and $coreCfg.ProjectName) {
+                    $callProjectName = ($coreCfg.ProjectName).ToString().Trim()
+                }
+            }
+            catch { }
+        }
         Write-LogLevelVerbose ("Getting first area and iteration for project: {0}" -f ($callProjectName -or '<unknown>'))
-        $projEnc = if ($PSBoundParameters.ContainsKey('Project')) { [uri]::EscapeDataString([string]$PSBoundParameters['Project']) } else { $null }
+        if ([string]::IsNullOrWhiteSpace($callProjectName)) {
+            throw "[Import-AdoWorkItemsFromExcel] No project context available for classification node lookup"
+        }
+        $projEnc = [uri]::EscapeDataString($callProjectName)
         
         # Get first area. Use ReturnNullOnNotFound to avoid noisy TerminatingError when no areas exist yet.
         $areasResponse = Invoke-AdoRest GET "/$projEnc/_apis/wit/classificationnodes/areas?`$depth=1" -ReturnNullOnNotFound
@@ -2251,7 +2264,12 @@ function Import-AdoWorkItemsFromExcel {
         # and can trigger op_Addition errors in some mocked environments. Instead, fall back to
         # sensible defaults so imports can continue in unattended/test scenarios.
         try {
-            $projCheck = Invoke-AdoRest GET "/_apis/projects/$projEnc?api-version=7.1" -ReturnNullOnNotFound
+            if ($projEnc) {
+                $projCheck = Invoke-AdoRest GET "/_apis/projects/$projEnc" -ReturnNullOnNotFound
+            }
+            else {
+                $projCheck = $null
+            }
         }
         catch { $projCheck = $null }
 
@@ -2266,15 +2284,18 @@ function Import-AdoWorkItemsFromExcel {
         # If classification nodes are missing, create default area and iteration with the project name so imports have sensible defaults
         if (-not $skipCreation) {
         try {
-            $displayProject = if ($PSBoundParameters.ContainsKey('Project')) { $PSBoundParameters['Project'] } else { $Project }
+            if (-not $projEnc -or [string]::IsNullOrWhiteSpace($callProjectName)) {
+                throw "[Import-AdoWorkItemsFromExcel] Cannot create default classification nodes without a project name"
+            }
+            $displayProject = $callProjectName
             Write-Host "[INFO] Creating default Area and Iteration: $displayProject" -ForegroundColor Cyan
-            $projEnc = if ($PSBoundParameters.ContainsKey('Project')) { [uri]::EscapeDataString([string]$PSBoundParameters['Project']) } else { $projEnc }
+            $projEnc = [uri]::EscapeDataString($callProjectName)
 
             # Step 1: Create root area node named after the project (skip if disabled)
             try {
                 Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Creating root area node for project: $displayProject (disableAreaCreation=$disableAreaCreation)"
                 if (-not $disableAreaCreation) {
-                    Invoke-AdoRest POST "/$projEnc/_apis/wit/classificationnodes/areas?api-version=7.1" -Body @{ name = $Project } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
+                    Invoke-AdoRest POST "/$projEnc/_apis/wit/classificationnodes/areas?api-version=7.1" -Body @{ name = $callProjectName } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
                 }
                 Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Root area creation attempted"
             }

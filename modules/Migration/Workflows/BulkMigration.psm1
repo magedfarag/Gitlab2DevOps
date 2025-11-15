@@ -17,7 +17,7 @@ Set-StrictMode -Version Latest
 
 # Import required modules
 $migrationRoot = Split-Path $PSScriptRoot -Parent
-Import-Module (Join-Path $migrationRoot "Core\MigrationCore.psm1") -Force -Global
+Import-Module -WarningAction SilentlyContinue (Join-Path $migrationRoot "Core\MigrationCore.psm1") -Force -Global
 
 # Helper: safely add or set a property on an object (avoids exceptions when object comes from ConvertFrom-Json)
 function Set-ExecutionProperty {

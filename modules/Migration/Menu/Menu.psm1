@@ -14,11 +14,11 @@
 Set-StrictMode -Version Latest
 # Import required modules
 $migrationRoot = Split-Path $PSScriptRoot -Parent
-Import-Module (Join-Path $migrationRoot "Core\MigrationCore.psm1") -Force -Global
+Import-Module -WarningAction SilentlyContinue (Join-Path $migrationRoot "Core\MigrationCore.psm1") -Force -Global
 
 # Calculate absolute path to AzureDevOps module
 $azureDevOpsModulePath = Join-Path (Split-Path $migrationRoot -Parent) "AzureDevOps\AzureDevOps.psm1"
-Import-Module $azureDevOpsModulePath -Force -Global
+Import-Module -WarningAction SilentlyContinue $azureDevOpsModulePath -Force -Global
 
 # Module-level variables for menu context
 $script:CollectionUrl = $null

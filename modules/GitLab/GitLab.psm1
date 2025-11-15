@@ -23,7 +23,7 @@ $loggingPath = Join-Path $coreDir 'core\Logging.psm1'
 foreach ($dep in @($corePath, $loggingPath)) {
     try {
         if (Test-Path $dep) {
-            Import-Module $dep -Force -ErrorAction Stop
+            Import-Module -WarningAction SilentlyContinue $dep -Force -ErrorAction Stop
         }
     }
     catch {
@@ -129,52 +129,52 @@ function Invoke-GitLabRest {
 
     # Ensure token is available
     if (-not $script:PlainToken) {
-        Write-Warning "[Invoke-GitLabRest] Fetching GitLab token..."
+        Write-Verbose "[Invoke-GitLabRest] Fetching GitLab token..."
         $script:PlainToken = Get-GitLabToken
     }
 
     $gitLabBaseUrl = Get-GitLabBaseUrl
     $gitLabApiVersion = Get-GitLabApiVersion
-    Write-Warning "[Invoke-GitLabRest] Base URL: $gitLabBaseUrl"
-    Write-Warning "[Invoke-GitLabRest] API Version: $gitLabApiVersion"
-    Write-Warning "[Invoke-GitLabRest] Endpoint: $Endpoint"
+    Write-Verbose "[Invoke-GitLabRest] Base URL: $gitLabBaseUrl"
+    Write-Verbose "[Invoke-GitLabRest] API Version: $gitLabApiVersion"
+    Write-Verbose "[Invoke-GitLabRest] Endpoint: $Endpoint"
     $uriBuilder = New-Object System.UriBuilder("$gitLabBaseUrl$Endpoint")
     if ($Query -and $Query -is [hashtable] -and $Query.Count -gt 0) {
-        Write-Warning "[Invoke-GitLabRest] Building query string..."
+        Write-Verbose "[Invoke-GitLabRest] Building query string..."
         $nv = New-Object System.Collections.Specialized.NameValueCollection
         foreach ($k in $Query.Keys) {
             $v = if ($null -ne $Query[$k]) { [string]$Query[$k] } else { '' }
             $nv.Add([string]$k, $v)
-            Write-Warning "[Invoke-GitLabRest] Query param: $k = $v"
+            Write-Verbose "[Invoke-GitLabRest] Query param: $k = $v"
         }
         $qs = [System.Web.HttpUtility]::ParseQueryString('')
         $qs.Add($nv)
         $uriBuilder.Query = $qs.ToString()
     }
     $uri = $uriBuilder.Uri.AbsoluteUri
-    Write-Warning "[Invoke-GitLabRest] Final URI: $uri"
+    Write-Verbose "[Invoke-GitLabRest] Final URI: $uri"
 
     $headers = @{
         'Private-Token' = $script:PlainToken
         'Accept'        = 'application/json'
     }
-    Write-Warning "[Invoke-GitLabRest] Headers: $(($headers | Out-String).Trim())"
+    Write-Verbose "[Invoke-GitLabRest] Headers: $(($headers | Out-String).Trim())"
 
     $attempt = 0
     $delay = 1
     Write-Log "[GitLabRest] Starting $Method $uri" 'DEBUG'
-    Write-Warning "[Invoke-GitLabRest] Starting $Method $uri"
+    Write-Verbose "[Invoke-GitLabRest] Starting $Method $uri"
     while ($true) {
         try {
             Write-Log "[GitLabRest] Attempt $($attempt+1): $Method $uri" 'DEBUG'
-            Write-Warning "[Invoke-GitLabRest] Attempt $($attempt+1): $Method $uri"
+            Write-Verbose "[Invoke-GitLabRest] Attempt $($attempt+1): $Method $uri"
             $resp = Invoke-WebRequest -Method $Method -Uri $uri -Headers $headers -UseBasicParsing
             Write-Log "[GitLabRest] Response status: $($resp.StatusCode)" 'DEBUG'
-            Write-Warning "[Invoke-GitLabRest] Response status: $($resp.StatusCode)"
+            Write-Verbose "[Invoke-GitLabRest] Response status: $($resp.StatusCode)"
             $raw = $resp.Content
             $data = if ($raw) { $raw | ConvertFrom-Json } else { $null }
             Write-Log "[GitLabRest] Success: $Method $uri" 'INFO'
-            Write-Warning "[Invoke-GitLabRest] Success: $Method $uri"
+            Write-Verbose "[Invoke-GitLabRest] Success: $Method $uri"
             return [pscustomobject]@{
                 Data    = $data
                 Headers = $resp.Headers
@@ -189,11 +189,11 @@ function Invoke-GitLabRest {
             $errorBody = $null
 
             Write-Log "[GitLabRest] Exception on $Method $($uri): $($_.Exception.Message)" 'ERROR'
-            Write-Warning "[Invoke-GitLabRest] Exception: $($_.Exception.Message)"
+            Write-Verbose "[Invoke-GitLabRest] Exception: $($_.Exception.Message)"
 
             if ($webEx.Response -and $webEx.Response.StatusCode) {
                 $statusCode = [int]$webEx.Response.StatusCode
-                Write-Warning "[Invoke-GitLabRest] HTTP Status: $statusCode"
+                Write-Verbose "[Invoke-GitLabRest] HTTP Status: $statusCode"
                 try {
                     $stream = $webEx.Response.GetResponseStream()
                     $reader = New-Object System.IO.StreamReader($stream)
@@ -201,21 +201,21 @@ function Invoke-GitLabRest {
                     $reader.Close()
                     $stream.Close()
                     Write-Log "[GitLabRest] Error body: $errorBody" 'DEBUG'
-                    Write-Warning "[Invoke-GitLabRest] Error body: $errorBody"
+                    Write-Verbose "[Invoke-GitLabRest] Error body: $errorBody"
                 }
                 catch {
-                    Write-Warning "checking error Message at line 190"
+                    Write-Verbose "checking error Message at line 190"
                     $errorBody = $_.ErrorDetails.Message
                     Write-Log "[GitLabRest] Error details fallback: $errorBody" 'DEBUG'
-                    Write-Warning "[Invoke-GitLabRest] Error details fallback: $errorBody"
+                    Write-Verbose "[Invoke-GitLabRest] Error details fallback: $errorBody"
                 }
             }
 
             if (-not $errorBody) {
-                Write-Warning "checking error Message at line 196"
+                Write-Verbose "checking error Message at line 196"
                 $errorBody = $_.ErrorDetails.Message ?? $_.Exception.Message
                 Write-Log "[GitLabRest] No error body, using message: $errorBody" 'DEBUG'
-                Write-Warning "[Invoke-GitLabRest] No error body, using message: $errorBody"
+                Write-Verbose "[Invoke-GitLabRest] No error body, using message: $errorBody"
             }
 
             if ($statusCode -eq 429 -and $attempt -le $MaxRetries) {
@@ -223,7 +223,7 @@ function Invoke-GitLabRest {
                 try { $retryAfter = [int]$webEx.Response.Headers['Retry-After'] } catch {}
                 if ($retryAfter -lt 1) { $retryAfter = $delay }
                 Write-Log "429 Too Many Requests on $uri. Retrying in $retryAfter sec... (attempt $attempt/$MaxRetries)" 'WARN'
-                Write-Warning "[Invoke-GitLabRest] 429 Too Many Requests. Retrying in $retryAfter sec... (attempt $attempt/$MaxRetries)"
+                Write-Verbose "[Invoke-GitLabRest] 429 Too Many Requests. Retrying in $retryAfter sec... (attempt $attempt/$MaxRetries)"
                 Start-Sleep -Seconds $retryAfter
                 $delay = [Math]::Min($delay * 2, 30)
                 continue
@@ -233,17 +233,17 @@ function Invoke-GitLabRest {
                 $logMsg = "Access denied ($statusCode) calling $uri"
                 if ($errorBody) { $logMsg += " - $errorBody" }
                 Write-Log $logMsg 'ERROR'
-                Write-Warning "[Invoke-GitLabRest] Access denied ($statusCode): $errorBody"
+                Write-Verbose "[Invoke-GitLabRest] Access denied ($statusCode): $errorBody"
                 return [pscustomobject]@{ Data = $null; Headers = $null; Status = $statusCode; Uri = $uri }
             }
 
             if ($errorBody) {
                 Write-Log "[GitLabRest] HTTP $statusCode on $($uri): $errorBody" 'ERROR'
-                Write-Warning "[Invoke-GitLabRest] HTTP $statusCode on $($uri): $errorBody"
+                Write-Verbose "[Invoke-GitLabRest] HTTP $statusCode on $($uri): $errorBody"
                 throw "HTTP $statusCode on $($uri): $errorBody"
             }
             Write-Log "[GitLabRest] Unknown error on $Method $($uri): $($_.Exception.Message)" 'ERROR'
-            Write-Warning "[Invoke-GitLabRest] Unknown error on $Method $($uri): $($_.Exception.Message)"
+            Write-Verbose "[Invoke-GitLabRest] Unknown error on $Method $($uri): $($_.Exception.Message)"
             throw
         }
     }
@@ -686,6 +686,28 @@ function Invoke-BulkPrepareGitLab {
             if (Test-Path $preflightFile) {
                 $preflightData = Get-Content $preflightFile | ConvertFrom-Json
                 
+                try {
+                    $projectConfig = [pscustomobject]@{
+                        ado_project      = $DestProjectName
+                        gitlab_project   = $projectPath
+                        gitlab_repo_name = $projectName
+                        migration_type   = "BULK_CHILD"
+                        created_date     = $projectStartTime.ToString('yyyy-MM-dd HH:mm:ss')
+                        last_updated     = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                        status           = "PREPARED"
+                        repo_size_MB     = $preflightData.repo_size_MB
+                        lfs_enabled      = $preflightData.lfs_enabled
+                        lfs_size_MB      = $preflightData.lfs_size_MB
+                        default_branch   = $preflightData.default_branch
+                        visibility       = $preflightData.visibility
+                    }
+                    $projectConfigPath = Join-Path $projectDir "migration-config.json"
+                    $projectConfig | ConvertTo-Json -Depth 6 | Set-Content -Path $projectConfigPath -Encoding UTF8
+                }
+                catch {
+                    Write-Verbose "[BulkPrepare] Failed to write per-project config for $($projectName): $_"
+                }
+                
                 # Add to bulk template
                 $projects += [pscustomobject]@{
                     gitlab_path       = $projectPath
@@ -744,6 +766,24 @@ function Invoke-BulkPrepareGitLab {
             "Error: $_" | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
             "End time: $(Get-Date)" | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
             "" | Out-File -FilePath $bulkLogFile -Append -Encoding utf8
+
+            try {
+                $failedConfig = [pscustomobject]@{
+                    ado_project      = $DestProjectName
+                    gitlab_project   = $projectPath
+                    gitlab_repo_name = $projectName
+                    migration_type   = "BULK_CHILD"
+                    created_date     = $projectStartTime.ToString('yyyy-MM-dd HH:mm:ss')
+                    last_updated     = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                    status           = "FAILED"
+                    error_message    = $_.ToString()
+                }
+                $failedConfigPath = Join-Path $projectDir "migration-config.json"
+                $failedConfig | ConvertTo-Json -Depth 6 | Set-Content -Path $failedConfigPath -Encoding UTF8
+            }
+            catch {
+                Write-Verbose "[BulkPrepare] Failed to write failure config for $($projectName): $_"
+            }
         }
     }
     
@@ -775,6 +815,47 @@ function Invoke-BulkPrepareGitLab {
     }
     
     $config | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 $configFile
+
+    # Also create/update the top-level migration-config.json used by single-migration workflow
+    $totalEndTime = Get-Date
+    $overallStatus = if ($successCount -eq $ProjectPaths.Count -and $ProjectPaths.Count -gt 0) {
+        'PREPARED'
+    }
+    elseif ($successCount -gt 0) {
+        'PARTIAL'
+    }
+    elseif ($failureCount -gt 0) {
+        'FAILED'
+    }
+    else {
+        'UNKNOWN'
+    }
+
+    $primaryProject = $projects | Where-Object { $_.preparation_status -eq 'SUCCESS' } | Select-Object -First 1
+    if (-not $primaryProject -and $projects.Count -gt 0) {
+        $primaryProject = $projects[0]
+    }
+
+    $gitlabPathValue = if ($primaryProject) { $primaryProject.gitlab_path } elseif ($ProjectPaths.Count -gt 0) { $ProjectPaths[0] } else { $DestProjectName }
+    $adoRepoValue = if ($primaryProject) { $primaryProject.ado_repo_name } elseif ($ProjectPaths.Count -gt 0) { ($ProjectPaths[0] -split '/')[-1] } else { $DestProjectName }
+
+    $topLevelConfig = [pscustomobject]@{
+        ado_project          = $DestProjectName
+        gitlab_project       = $gitlabPathValue
+        gitlab_repo_name     = $adoRepoValue
+        migration_type       = "BULK"
+        created_date         = $startTime.ToString('yyyy-MM-dd HH:mm:ss')
+        last_updated         = $totalEndTime.ToString('yyyy-MM-dd HH:mm:ss')
+        status               = $overallStatus
+        project_count        = $ProjectPaths.Count
+        successful_projects  = $successCount
+        failed_projects      = $failureCount
+        preparation_summary  = $config.preparation_summary
+        projects             = $config.projects
+    }
+
+    $topLevelConfigPath = Join-Path $bulkPaths.containerDir "migration-config.json"
+    $topLevelConfig | ConvertTo-Json -Depth 6 | Out-File -Encoding utf8 $topLevelConfigPath
     
     # Create summary report in reports folder
     $endTime = Get-Date
@@ -1196,3 +1277,4 @@ function Extract-DocumentationFromRepo {
     Write-Verbose "[Docs] Found $totalFound candidate files, extracted $extractedCount to $TargetDocsDir"
     return @{ total = $totalFound; extracted = $extractedCount }
 }
+

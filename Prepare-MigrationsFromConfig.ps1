@@ -24,9 +24,9 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $coreModule = Join-Path $root 'modules\core\Core.Rest.psm1'
 $gitlabModule = Join-Path $root 'modules\GitLab\GitLab.psm1'
 $loggingModule = Join-Path $root 'modules\core\Logging.psm1'
-if (Test-Path $coreModule) { Import-Module $coreModule -Force -ErrorAction Stop }
-if (Test-Path $gitlabModule) { Import-Module $gitlabModule -Force -ErrorAction Stop }
-if (Test-Path $loggingModule) { Import-Module $loggingModule -Force -ErrorAction Stop }
+if (Test-Path $coreModule) { Import-Module -WarningAction SilentlyContinue $coreModule -Force -ErrorAction Stop }
+if (Test-Path $gitlabModule) { Import-Module -WarningAction SilentlyContinue $gitlabModule -Force -ErrorAction Stop }
+if (Test-Path $loggingModule) { Import-Module -WarningAction SilentlyContinue $loggingModule -Force -ErrorAction Stop }
 
 # NOTE: Core.Rest is responsible for reading .env files and exposing
 # configuration via Get-CoreRestConfig / Get-GitLabToken. This script must
@@ -95,6 +95,23 @@ foreach ($entry in $config) {
                 if (-not (Test-Path (Split-Path $reportFile -Parent))) { New-Item -ItemType Directory -Path (Split-Path $reportFile -Parent) -Force | Out-Null }
                 $preflight | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 $reportFile
 
+                $childConfig = [pscustomobject]@{
+                    ado_project      = $adoProject
+                    gitlab_project   = $pp
+                    gitlab_repo_name = $projName
+                    migration_type   = "BULK_CHILD"
+                    created_date     = $preflight.preparation_time
+                    last_updated     = $preflight.preparation_time
+                    status           = "PREPARED"
+                    repo_size_MB     = $preflight.repo_size_MB
+                    lfs_enabled      = $preflight.lfs_enabled
+                    lfs_size_MB      = $preflight.lfs_size_MB
+                    default_branch   = $preflight.default_branch
+                    visibility       = $preflight.visibility
+                }
+                $childConfigPath = Join-Path $gitPaths.gitlabDir "migration-config.json"
+                $childConfig | ConvertTo-Json -Depth 6 | Out-File -Encoding utf8 $childConfigPath
+
                 $projectsOut += [pscustomobject]@{
                     gitlab_path = $pp
                     ado_repo_name = $projName
@@ -126,6 +143,28 @@ foreach ($entry in $config) {
             $configFile = $bulkPaths.configFile
             $configOut | ConvertTo-Json -Depth 6 | Out-File -Encoding utf8 $configFile
             Write-Host "[DRYRUN] Generated simulated bulk config: $configFile" -ForegroundColor Green
+
+            $primarySimProject = $projectsOut | Select-Object -First 1
+            $gitlabPathValue = if ($primarySimProject) { $primarySimProject.gitlab_path } elseif ($projectPaths.Count -gt 0) { $projectPaths[0] } else { $adoProject }
+            $adoRepoValue = if ($primarySimProject) { $primarySimProject.ado_repo_name } elseif ($projectPaths.Count -gt 0) { ($projectPaths[0] -split '/')[-1] } else { $adoProject }
+
+            $topLevelConfig = [pscustomobject]@{
+                ado_project         = $adoProject
+                gitlab_project      = $gitlabPathValue
+                gitlab_repo_name    = $adoRepoValue
+                migration_type      = 'BULK'
+                created_date        = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                last_updated        = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                status              = if ($projectPaths.Count -gt 0) { 'PREPARED' } else { 'UNKNOWN' }
+                project_count       = $projectPaths.Count
+                successful_projects = $projectPaths.Count
+                failed_projects     = 0
+                preparation_summary = $configOut.preparation_summary
+                projects            = $projectsOut
+            }
+
+            $topLevelConfigPath = Join-Path $bulkPaths.containerDir "migration-config.json"
+            $topLevelConfig | ConvertTo-Json -Depth 6 | Out-File -Encoding utf8 $topLevelConfigPath
         }
         else {
             if ($Force.IsPresent) {

@@ -20,7 +20,7 @@ Set-StrictMode -Version Latest
 $migrationRoot = Split-Path $PSScriptRoot -Parent
 $coreRestPath = Join-Path $migrationRoot "core\Core.Rest.psm1"
 if (-not (Get-Module -Name 'Core.Rest') -and (Test-Path $coreRestPath)) {
-    Import-Module $coreRestPath -Force -Global -ErrorAction Stop
+    Import-Module -WarningAction SilentlyContinue $coreRestPath -Force -Global -ErrorAction Stop
 }
 
 # Helper: ensure project exists by querying ADO (uses Invoke-AdoRest so tests can mock)

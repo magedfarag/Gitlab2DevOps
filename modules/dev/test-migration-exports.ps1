@@ -1,4 +1,4 @@
-Import-Module '.\modules\Migration.psm1' -Force
+Import-Module -WarningAction SilentlyContinue '.\modules\Migration.psm1' -Force
 
 Write-Host "`n=== Loaded Modules ===" -ForegroundColor Cyan
 Get-Module | Where-Object { $_.Name -match 'Core|Menu|Project|Team|Single|Bulk|Migration' } | 

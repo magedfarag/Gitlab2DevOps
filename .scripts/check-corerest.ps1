@@ -1,6 +1,6 @@
 Set-Location 'c:\Projects\devops\Gitlab2DevOps'
-Import-Module .\modules\core\Core.Rest.psm1 -Force
-Import-Module .\modules\AzureDevOps\WorkItems.psm1 -Force
+Import-Module -WarningAction SilentlyContinue .\modules\core\Core.Rest.psm1 -Force
+Import-Module -WarningAction SilentlyContinue .\modules\AzureDevOps\WorkItems.psm1 -Force
 # Write-Host '--- Get-CoreRestConfig ---'
 # try { (Get-CoreRestConfig) | ConvertTo-Json -Compress } catch { Write-Host 'Get-CoreRestConfig failed:' $_.Exception.Message }
 Write-Host '--- script:CollectionUrl ---'

@@ -1,5 +1,5 @@
 # Create sample Excel requirements file
-Import-Module ImportExcel -ErrorAction Stop
+Import-Module -WarningAction SilentlyContinue ImportExcel -ErrorAction Stop
 
 Write-Host "[INFO] Creating sample requirements Excel file..." -ForegroundColor Cyan
 

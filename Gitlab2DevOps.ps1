@@ -196,7 +196,7 @@ Write-Host "[INFO] Loading migration modules..."
 $oldWarning = $WarningPreference
 $WarningPreference = 'SilentlyContinue'
 try {
-    Import-Module "$scriptRoot\modules\core\Core.Rest.psm1" -Force -DisableNameChecking -ErrorAction Stop
+    Import-Module "$scriptRoot\modules\core\Core.Rest.psm1" -Force -DisableNameChecking -ErrorAction Stop -WarningAction SilentlyContinue
 }
 catch {
     Write-Warning "[WARN] Failed to import Core.Rest: $_"
@@ -206,16 +206,16 @@ $WarningPreference = $oldWarning
 # Ensure Core.Rest is initialized (idempotent)
 try {
     if (Get-Command -Name 'Initialize-CoreRest' -ErrorAction SilentlyContinue) { Initialize-CoreRest }
-    else { Import-Module "$scriptRoot\modules\core\Core.Rest.psm1" -Force -ErrorAction SilentlyContinue; if (Get-Command -Name 'Initialize-CoreRest' -ErrorAction SilentlyContinue) { Initialize-CoreRest } }
+else { Import-Module "$scriptRoot\modules\core\Core.Rest.psm1" -Force -DisableNameChecking -ErrorAction SilentlyConti`nue -WarningAction SilentlyContinue; if (Get-Command -Name 'Initialize-CoreRest' -ErrorAction SilentlyContinue) { Initialize-CoreRest } }
 }
 catch {
     Write-Warning "[WARN] Core.Rest initialization encountered an error: $_"
 }
 
-Import-Module "$scriptRoot\modules\core\Logging.psm1" -Force -DisableNameChecking
-Import-Module "$scriptRoot\modules\GitLab\GitLab.psm1" -Force -DisableNameChecking
-Import-Module "$scriptRoot\modules\AzureDevOps\AzureDevOps.psm1" -Force -DisableNameChecking
-Import-Module "$scriptRoot\modules\Migration.psm1" -Force -DisableNameChecking
+Import-Module "$scriptRoot\modules\core\Logging.psm1" -Force -DisableNameChecking -WarningAction SilentlyContinue
+Import-Module "$scriptRoot\modules\GitLab\GitLab.psm1" -Force -DisableNameChecking -WarningAction SilentlyContinue
+Import-Module "$scriptRoot\modules\AzureDevOps\AzureDevOps.psm1" -Force -DisableNameChecking -WarningAction SilentlyContinue
+Import-Module "$scriptRoot\modules\Migration.psm1" -Force -DisableNameChecking -WarningAction SilentlyContinue
 Write-Host "[INFO] Modules loaded successfully"
 Write-Host ""
 

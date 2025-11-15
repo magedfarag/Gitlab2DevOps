@@ -19,7 +19,7 @@ $script:ProjectListCacheTTL = 300 # 5 minutes
 $moduleRoot = Split-Path $PSScriptRoot -Parent
 $coreRestModule = Join-Path $moduleRoot 'core\Core.Rest.psm1'
 if (-not (Get-Module -Name 'Core.Rest') -and (Test-Path $coreRestModule)) {
-    Import-Module $coreRestModule -Force -ErrorAction Stop
+    Import-Module -WarningAction SilentlyContinue $coreRestModule -Force -ErrorAction Stop
 }
 
 <#

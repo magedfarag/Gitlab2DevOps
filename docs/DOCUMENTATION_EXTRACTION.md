@@ -129,7 +129,7 @@ You can also manually extract documentation from an already-prepared project:
 
 ```powershell
 # Load the GitLab module
-Import-Module .\modules\GitLab\GitLab.psm1
+Import-Module -WarningAction SilentlyContinue .\modules\GitLab\GitLab.psm1
 
 # Extract documentation
 $stats = Export-GitLabDocumentation -AdoProject "MyProject"

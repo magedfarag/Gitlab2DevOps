@@ -18,7 +18,7 @@ The `ProgressTracking` module provides visual progress bars for long-running ope
 
 ```powershell
 # Import the module
-Import-Module .\modules\ProgressTracking.psm1
+Import-Module -WarningAction SilentlyContinue .\modules\ProgressTracking.psm1
 
 # Start tracking bulk migration
 $progress = Start-MigrationProgress `
@@ -88,7 +88,7 @@ The `Telemetry` module provides opt-in analytics for migration operations. **All
 
 ```powershell
 # Import the module
-Import-Module .\modules\Telemetry.psm1
+Import-Module -WarningAction SilentlyContinue .\modules\Telemetry.psm1
 
 # Start telemetry session (opt-in)
 $session = Initialize-Telemetry -Enabled -SessionName "Production-Migration-2024"
@@ -190,9 +190,9 @@ $stats | Format-List
 
 ```powershell
 # Full telemetry-enabled migration script
-Import-Module .\modules\Core.Rest.psm1
-Import-Module .\modules\Telemetry.psm1
-Import-Module .\modules\Migration.psm1
+Import-Module -WarningAction SilentlyContinue .\modules\Core.Rest.psm1
+Import-Module -WarningAction SilentlyContinue .\modules\Telemetry.psm1
+Import-Module -WarningAction SilentlyContinue .\modules\Migration.psm1
 
 # Initialize
 Initialize-CoreRest -ConfigPath "migration.config.json"
@@ -250,7 +250,7 @@ The `DryRunPreview` module generates comprehensive preview reports before migrat
 
 ```powershell
 # Import module
-Import-Module .\modules\DryRunPreview.psm1
+Import-Module -WarningAction SilentlyContinue .\modules\DryRunPreview.psm1
 
 # Generate console preview
 $preview = New-MigrationPreview `
@@ -439,11 +439,11 @@ Get-Content migrations/project/logs/migration-*.log
 
 ```powershell
 # Full-featured migration script
-Import-Module .\modules\Core.Rest.psm1
-Import-Module .\modules\ProgressTracking.psm1
-Import-Module .\modules\Telemetry.psm1
-Import-Module .\modules\DryRunPreview.psm1
-Import-Module .\modules\Migration.psm1
+Import-Module -WarningAction SilentlyContinue .\modules\Core.Rest.psm1
+Import-Module -WarningAction SilentlyContinue .\modules\ProgressTracking.psm1
+Import-Module -WarningAction SilentlyContinue .\modules\Telemetry.psm1
+Import-Module -WarningAction SilentlyContinue .\modules\DryRunPreview.psm1
+Import-Module -WarningAction SilentlyContinue .\modules\Migration.psm1
 
 # Initialize
 Initialize-CoreRest -ConfigPath "migration.config.json"
