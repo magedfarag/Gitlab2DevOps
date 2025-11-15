@@ -252,19 +252,13 @@ function New-AdoRepository {
     }
     
     # Repository does not exist - create it
-    if ($PSCmdlet.ShouldProcess($RepoName, "Create new repository")) {
-        Write-Host "[INFO] Creating new repository: $RepoName" -ForegroundColor Cyan
-        $newRepo = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/git/repositories" -Body @{
-            name    = $RepoName
-            project = @{ id = $ProjId }
-        }
-        Write-Host "[SUCCESS] Repository '$RepoName' created successfully" -ForegroundColor Green
-        return $newRepo
+    Write-Host "[INFO] Creating new repository: $RepoName" -ForegroundColor Cyan
+    $newRepo = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/git/repositories" -Body @{
+        name    = $RepoName
+        project = @{ id = $ProjId }
     }
-    else {
-        Write-Warning "Repository creation was cancelled by the user"
-        return $null
-    }
+    Write-Host "[SUCCESS] Repository '$RepoName' created successfully" -ForegroundColor Green
+    return $newRepo
 }
 
 
@@ -306,11 +300,21 @@ function Remove-AdoDefaultRepository {
     try {
         $projectEscaped = [uri]::EscapeDataString($Project)
         $repoList = Invoke-AdoRest GET "/$projectEscaped/_apis/git/repositories" -ReturnNullOnNotFound
-        if (-not $repoList -or -not $repoList.value -or $repoList.value.Count -ne 1) {
+        if (-not $repoList -or -not $repoList.value -or $repoList.value.Count -lt 1) {
             return $false
         }
 
-        $defaultRepo = $repoList.value[0]
+        $repos = $repoList.value
+        if ($repos.Count -le 1) {
+            Write-LogLevelVerbose "[Remove-AdoDefaultRepository] Only one repository present in '$Project'. Skipping deletion to satisfy minimum threshold."
+            return $false
+        }
+
+        $defaultRepo = $repos | Where-Object { $_.name -eq $Project } | Select-Object -First 1
+        if (-not $defaultRepo) {
+            Write-LogLevelVerbose "[Remove-AdoDefaultRepository] No default repository matching project name '$Project' found."
+            return $false
+        }
 
         # Ensure this is the auto-created repo (same project, matching name)
         if ($defaultRepo.name -ne $Project -or `

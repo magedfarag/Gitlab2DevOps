@@ -16,6 +16,10 @@ $coreRestPath = Join-Path $migrationRoot "core\Core.Rest.psm1"
 if (-not (Get-Module -Name 'Core.Rest') -and (Test-Path $coreRestPath)) {
     Import-Module -WarningAction SilentlyContinue $coreRestPath -Force -Global -ErrorAction Stop
 }
+$loggingPath = Join-Path $migrationRoot "core\Logging.psm1"
+if (-not (Get-Module -Name 'Logging') -and (Test-Path $loggingPath)) {
+    Import-Module -WarningAction SilentlyContinue $loggingPath -Force -Global -ErrorAction Stop
+}
 
 function Measure-Adoprojectwiki {
     [CmdletBinding()]
@@ -141,7 +145,13 @@ function Set-AdoWikiPage {
             $lastError = $_
 
             # Get normalized error for better status code detection
-            $normalizedError = New-NormalizedError -Exception $_ -Side 'ado' -Endpoint $Path
+            $normalizedError = $null
+            if (Get-Command -Name New-NormalizedError -ErrorAction SilentlyContinue) {
+                try { $normalizedError = New-NormalizedError -Exception $_ -Side 'ado' -Endpoint $Path } catch { }
+            }
+            if (-not $normalizedError) {
+                $normalizedError = [pscustomobject]@{ status = $null; message = $errorMsg }
+            }
             $status = $normalizedError.status
 
             # Check for various wiki-related errors that indicate the wiki isn't ready
@@ -808,16 +818,23 @@ function New-AdoProjectSummaryWikiPage {
 
     try {
         $proj = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))?includeCapabilities=true"
-        # Use provided CollectionUrl or get from override parameters
-        $adoUrl = if ($CollectionUrl) { $CollectionUrl } else { 
-            # Fallback to getting from config if not provided
+        # Resolve collection URL for summary links
+        $adoUrl = $null
+        if (Get-Command -Name Get-AdoBaseUrl -ErrorAction SilentlyContinue) {
+            try { $adoUrl = Get-AdoBaseUrl } catch { }
+        }
+        if (-not $adoUrl) {
             try {
-                $coreRestConfig = Ensure-CoreRestInitialized
-                $coreRestConfig.CollectionUrl
-            } catch {
-                Write-Warning "Could not get CollectionUrl from config, using default"
-                "https://dev.azure.com"  # fallback
+                $coreRestConfig = Get-CoreRestConfig
+                if ($coreRestConfig -and $coreRestConfig.CollectionUrl) {
+                    $adoUrl = $coreRestConfig.CollectionUrl
+                }
             }
+            catch { }
+        }
+        if (-not $adoUrl) {
+            Write-Warning "Could not determine Azure DevOps collection URL. Using default https://dev.azure.com."
+            $adoUrl = "https://dev.azure.com"
         }
 
         # Normalize project id and process template values (response shapes vary)

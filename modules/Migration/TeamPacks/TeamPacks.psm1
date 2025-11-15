@@ -40,8 +40,7 @@ function Ensure-AdoProject {
     }
 
     if ($exists) {
-        # Return a minimal project object (tests often only need id and name)
-        return [PSCustomObject]@{ id = 'proj-guid'; name = $ProjectName }
+        Write-Verbose "[Ensure-AdoProject] Project '$ProjectName' reported as existing. Retrieving project details..."
     }
 
     # Next try project list cache / API (this is also mock-friendly: tests commonly mock Invoke-AdoRest)

@@ -766,6 +766,7 @@ function Show-MigrationMenu {
                 $total = $prepared.Count
                 $successCount = 0
                 $failureCount = 0
+                $excelImportTracker = @{}
 
                 foreach ($item in $prepared) {
                     try {
@@ -782,6 +783,10 @@ function Show-MigrationMenu {
                             $successCount++
                             Write-Host "[SUCCESS] Migrated: $($item.GitLabPath)" -ForegroundColor Green
                             Invoke-AllTeamPacks -ProjectName $item.ProjectName
+                            if (-not $excelImportTracker.ContainsKey($item.ProjectName)) {
+                                Invoke-ExcelRequirementsImport -ProjectName $item.ProjectName | Out-Null
+                                $excelImportTracker[$item.ProjectName] = $true
+                            }
                         }
                         elseif ($item.Type -eq 'Bulk') {
                             # Skip if all projects already migrated
@@ -795,6 +800,10 @@ function Show-MigrationMenu {
                             $successCount++
                             Write-Host "[SUCCESS] Bulk migration completed for: $($item.ProjectName)" -ForegroundColor Green
                             Invoke-AllTeamPacks -ProjectName $item.ProjectName
+                            if (-not $excelImportTracker.ContainsKey($item.ProjectName)) {
+                                Invoke-ExcelRequirementsImport -ProjectName $item.ProjectName | Out-Null
+                                $excelImportTracker[$item.ProjectName] = $true
+                            }
                         }
                         else {
                             Write-Host "[WARN] Unknown prepared item type: $($item.Type) - skipping" -ForegroundColor Yellow
@@ -1034,6 +1043,100 @@ function Invoke-AllTeamPacks {
         catch {
             Write-Host "[WARN] $($pack.Name) pack failed: $($_.Exception.Message)" -ForegroundColor Yellow
         }
+    }
+}
+
+<#
+.SYNOPSIS
+    Imports work items from requirements.xlsx for the specified project when available.
+
+.DESCRIPTION
+    Looks for requirements spreadsheets in project-specific migration folders (or a custom path),
+    then calls Import-AdoWorkItemsFromExcel to create hierarchical Azure DevOps work items.
+    Used by Option 9 so unattended migrations still hydrate work item backlogs.
+
+.PARAMETER ProjectName
+    Destination Azure DevOps project name.
+#>
+function Invoke-ExcelRequirementsImport {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ProjectName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ProjectName)) {
+        return $false
+    }
+
+    if ($env:GITLAB2DEVOPS_SKIP_REQUIREMENTS_IMPORT -and
+        $env:GITLAB2DEVOPS_SKIP_REQUIREMENTS_IMPORT -match '^(1|true)$') {
+        Write-Host "[INFO] Skipping Excel import for '$ProjectName' (GITLAB2DEVOPS_SKIP_REQUIREMENTS_IMPORT=1)." -ForegroundColor Yellow
+        return $false
+    }
+
+    $worksheetName = if ($env:GITLAB2DEVOPS_REQUIREMENTS_SHEET) { $env:GITLAB2DEVOPS_REQUIREMENTS_SHEET } else { "Requirements" }
+    $teamName = "$ProjectName Team"
+
+    $candidatePaths = @()
+    if ($env:GITLAB2DEVOPS_REQUIREMENTS_FILE) {
+        $candidatePaths += $env:GITLAB2DEVOPS_REQUIREMENTS_FILE
+    }
+
+    try {
+        $paths = Get-ProjectPaths -ProjectName $ProjectName -ErrorAction Stop
+        if ($paths -and $paths.projectDir) {
+            $candidatePaths += (Join-Path $paths.projectDir "requirements.xlsx")
+        }
+    }
+    catch {
+        Write-LogLevelVerbose "[Invoke-ExcelRequirementsImport] Get-ProjectPaths failed for '$ProjectName': $_"
+    }
+
+    try {
+        $migrationsDir = Get-MigrationsDirectory
+        if ($migrationsDir) {
+            $candidatePaths += (Join-Path $migrationsDir "$ProjectName\requirements.xlsx")
+        }
+    }
+    catch {
+        Write-LogLevelVerbose "[Invoke-ExcelRequirementsImport] Get-MigrationsDirectory failed: $_"
+    }
+
+    $excelPath = $null
+    foreach ($path in ($candidatePaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)) {
+        if (Test-Path $path) {
+            $excelPath = (Resolve-Path $path).Path
+            break
+        }
+    }
+
+    if (-not $excelPath) {
+        Write-Host "[INFO] No requirements.xlsx found for '$ProjectName'. Skipping Excel import." -ForegroundColor Gray
+        return $false
+    }
+
+    Write-Host "[INFO] Importing work items from Excel for '$ProjectName'..." -ForegroundColor Cyan
+    Write-Host "       File: $excelPath" -ForegroundColor Gray
+    Write-Host "       Worksheet: $worksheetName" -ForegroundColor Gray
+
+    try {
+        $result = Import-AdoWorkItemsFromExcel -Project $ProjectName `
+                                               -ExcelPath $excelPath `
+                                               -WorksheetName $worksheetName `
+                                               -TeamName $teamName
+
+        if ($result) {
+            Write-Host "[SUCCESS] Imported $($result.SuccessCount) work items (errors: $($result.ErrorCount))" -ForegroundColor Green
+        }
+        else {
+            Write-Host "[SUCCESS] Excel import completed." -ForegroundColor Green
+        }
+        return $true
+    }
+    catch {
+        Write-Host "[WARN] Excel import failed for '$ProjectName': $_" -ForegroundColor Yellow
+        return $false
     }
 }
 

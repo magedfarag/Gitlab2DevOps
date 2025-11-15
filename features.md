@@ -22,6 +22,7 @@
 - When the prepared item is **single-project**, Option 9 simply invokes `Invoke-SingleMigration`, so every capability listed in *Single Project Migration* (repo cleanup, policy enforcement, observability assets, etc.) is executed automatically with no functional differences from a manual run.
 - When the prepared item is **bulk**, Option 9 routes through `Invoke-BulkMigrationWorkflow`, which itself drives `Invoke-SingleMigration` for every repo during execution; as a result, the behaviors described in both the *Single Project Migration* and *Bulk Preparation & Execution* sections occur for each target Azure DevOps project.
 - After each successful migration (single or bulk), Option 9 now automatically applies **all** initialization packs (Business, Development, Security, Management) so every Azure DevOps project gets the full set of wikis, queries, dashboards, repo files, and readiness reports without any additional prompts.
+- Option 9 also auto-detects `migrations/{AdoProject}/requirements.xlsx` (or a custom override) and runs `Import-AdoWorkItemsFromExcel` so requirements captured in Excel are imported in the same unattended pass.
 
 ## Identity Management Options (`docs/USER_EXPORT_IMPORT.md`)
 
@@ -157,6 +158,7 @@
 - **Work Item Relationships**: Establishes parent-child links between imported work items
 - **Idempotent Operations**: Safely handles re-imports without creating duplicates
 - **Error Handling**: Comprehensive error reporting with debug logs for failed imports
+- [x] Option 9 automatically triggers Excel import (worksheet `Requirements`) for each migrated project when `migrations/{Project}/requirements.xlsx` exists, so unattended runs populate the backlog without manual intervention.
 
 ### Validation & Safety Features
 - **Excel File Validation**: Validates file existence and format before processing

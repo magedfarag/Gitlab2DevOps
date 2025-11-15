@@ -227,7 +227,12 @@ function Ensure-AdoQuery {
         $payload = @{ name = $Name; isFolder = $true }
     }
     else {
-        if ($Body) { $payload = $Body } else { $payload = @{ name = $Name } }
+        $payload = @{ name = $Name }
+        if ($Body) {
+            foreach ($key in $Body.Keys) {
+                $payload[$key] = $Body[$key]
+            }
+        }
     }
 
     # Try create first (idempotent-ish). If create fails due to conflict/exists, fetch and PATCH (update) the existing resource.

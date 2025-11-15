@@ -302,16 +302,6 @@ function Invoke-SingleMigration {
     $projId = $proj.id
     $repoName = $gl.path
 
-    # Clean up any default repository that Azure DevOps created when the project was provisioned.
-    if (-not $AllowSync) {
-        try {
-            Remove-AdoDefaultRepository -Project $DestProject -ProjId $projId | Out-Null
-        }
-        catch {
-            Write-Verbose "[Invoke-SingleMigration] Default repo cleanup skipped: $_"
-        }
-    }
-    
     # Create migration log
     $logFile = New-LogFilePath -LogsDir $logsDir -Prefix "migration"
     $startTime = Get-Date
@@ -331,6 +321,16 @@ function Invoke-SingleMigration {
     $stepStart = Get-Date
     $repo = New-AdoRepository $DestProject $projId $repoName -AllowExisting:$AllowSync -Replace:$Replace
     $stepTiming['Repository Creation'] = ((Get-Date) - $stepStart).TotalSeconds
+
+    # Safely remove the auto-created default repository once our target repo exists
+    if (-not $AllowSync -and $repoName -ne $DestProject) {
+        try {
+            Remove-AdoDefaultRepository -Project $DestProject -ProjId $projId | Out-Null
+        }
+        catch {
+            Write-Verbose "[Invoke-SingleMigration] Default repo cleanup skipped: $_"
+        }
+    }
     
     $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
     $isSync = $AllowSync -and $preReport.ado_repo_exists

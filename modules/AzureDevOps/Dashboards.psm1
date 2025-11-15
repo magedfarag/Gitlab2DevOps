@@ -116,19 +116,71 @@ function Resolve-AdoDashboardEndpoints {
     param(
         [Parameter(Mandatory=$true)][string]$Project,
         [Parameter(Mandatory=$false)][string]$Team,
-        [Parameter(Mandatory=$false)][string]$TeamId
+        [Parameter(Mandatory=$false)][string]$TeamId,
+        [Parameter(Mandatory=$false)][string]$ProjectId
     )
 
     $endpoints = @()
+    $projEnc = [uri]::EscapeDataString($Project)
+    $teamNameEnc = if ($Team) { [uri]::EscapeDataString($Team) } else { $null }
+
     if ($TeamId) {
-        # Team-scoped endpoint (preferred when team exists)
-        $endpoints += "/$([uri]::EscapeDataString($Project))/$([uri]::EscapeDataString($Team))/_apis/dashboard/dashboards"
+        $teamIdEnc = [uri]::EscapeDataString($TeamId)
+        $projIdEnc = if ($ProjectId) { [uri]::EscapeDataString($ProjectId) } else { $projEnc }
+
+        # Preferred: project/teams route using GUIDs (works even when names contain spaces)
+        $endpoints += "/_apis/projects/$projIdEnc/teams/$teamIdEnc/dashboard/dashboards"
+
+        # Legacy: team-scoped endpoint (name-based) if GUID route fails
+        if ($teamNameEnc) {
+            $endpoints += "/$projEnc/$teamNameEnc/_apis/dashboard/dashboards"
+        }
     }
 
     # Project-scoped endpoint (fallback)
-    $endpoints += "/$([uri]::EscapeDataString($Project))/_apis/dashboard/dashboards"
+    $endpoints += "/$projEnc/_apis/dashboard/dashboards"
 
     return $endpoints
+}
+
+function Get-AdoDashboardContext {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Project,
+        [string]$Team
+    )
+
+    $projEnc = [uri]::EscapeDataString($Project)
+    $teamId = $null
+    $projectId = $null
+
+    if ($Team) {
+        try {
+            $teamContext = Invoke-AdoRest GET "/_apis/projects/$projEnc/teams/$([uri]::EscapeDataString($Team))"
+            if ($teamContext) {
+                if ($teamContext.PSObject.Properties['id']) { $teamId = $teamContext.id }
+                if ($teamContext.PSObject.Properties['projectId']) { $projectId = $teamContext.projectId }
+            }
+        }
+        catch {
+            Write-LogLevelVerbose "[Dashboards] Team context lookup failed for $Project/$Team: $_"
+        }
+    }
+
+    if (-not $projectId) {
+        try {
+            $projInfo = Invoke-AdoRest GET "/_apis/projects/$projEnc"
+            if ($projInfo -and $projInfo.PSObject.Properties['id']) { $projectId = $projInfo.id }
+        }
+        catch {
+            Write-LogLevelVerbose "[Dashboards] Project context lookup failed for $Project: $_"
+        }
+    }
+
+    return [pscustomobject]@{
+        TeamId    = $teamId
+        ProjectId = $projectId
+    }
 }
 
 
@@ -143,22 +195,17 @@ function Search-Adodashboard {
     
     Write-Host "[INFO] Creating team dashboard..." -ForegroundColor Cyan
     
-    # Get team context (optional for fallback)
-    $teamId = $null
-    try {
-        $teamContext = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))/teams/$([uri]::EscapeDataString($Team))"
-        $teamId = $teamContext.id
-    }
-    catch {
-        Write-LogLevelVerbose "[Search-Adodashboard] Team context not available; will attempt project-level dashboards as fallback. Error: $_"
-    }
+    # Resolve team/project context (optional for fallback)
+    $context = Get-AdoDashboardContext -Project $Project -Team $Team
+    $teamId = $context.TeamId
+    $projectId = $context.ProjectId
     
     # Check if dashboard already exists
     $dashboardName = "$Team - Overview"
     # Ensure dashboard name meets ADO max length
     $dashboardName = Truncate-DashboardName $dashboardName
     try {
-        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
 
         $existingDashboards = $null
         foreach ($ep in $endpoints) {
@@ -195,7 +242,7 @@ function Search-Adodashboard {
                     $sourceId = if ($source.id) { $source.id } elseif ($source.dashboardId) { $source.dashboardId } else { $null }
                     if ($overviewId -and $sourceId) {
                         # Get full source dashboard definition
-                        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId
+                        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
                         $sourceDetails = $null
                         foreach ($ep in $endpoints) {
                             try {
@@ -311,7 +358,7 @@ function Search-Adodashboard {
         }
         
         $dashboard = $null
-        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
         foreach ($ep in $endpoints) {
             try {
                 $dashboard = Invoke-AdoRest POST $ep -Body $dashboardBody -Preview
@@ -388,22 +435,17 @@ function Test-Adoqadashboard {
     
     Write-Host "[INFO] Creating QA dashboard..." -ForegroundColor Cyan
     
-    # Get team context (optional for fallback)
-    $teamId = $null
-    try {
-        $teamContext = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))/teams/$([uri]::EscapeDataString($Team))"
-        $teamId = $teamContext.id
-    }
-    catch {
-        Write-LogLevelVerbose "[Test-Adoqadashboard] Team context not available; will attempt project-level dashboards as fallback. Error: $_"
-    }
+    # Get team/project context (optional for fallback)
+    $context = Get-AdoDashboardContext -Project $Project -Team $Team
+    $teamId = $context.TeamId
+    $projectId = $context.ProjectId
     
     # Check if QA dashboard already exists
     $dashboardName = "$Team - QA Metrics"
     # Ensure dashboard name meets ADO max length
     $dashboardName = Truncate-DashboardName $dashboardName
     try {
-        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
 
         $existingDashboards = $null
         foreach ($ep in $endpoints) {
@@ -511,7 +553,7 @@ function Test-Adoqadashboard {
         }
         
         $dashboard = $null
-        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
         foreach ($ep in $endpoints) {
             try {
                     $dashboard = Invoke-AdoRest POST $ep -Body $dashboardBody -Preview
