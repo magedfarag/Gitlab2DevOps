@@ -9,21 +9,21 @@ This guide provides strategies and best practices for optimizing application per
 ### Key Performance Indicators (KPIs)
 
 **Response Time Metrics**
-- **Page Load Time**: < 3 seconds for 95th percentile
-- **API Response Time**: < 200ms for 90th percentile
-- **Time to First Byte (TTFB)**: < 600ms
-- **Time to Interactive (TTI)**: < 5 seconds
+- **Page Load Time** (default target): < 3 seconds for the 95th percentile; tune per product and user expectations
+- **API Response Time** (default target): < 200ms for the 90th percentile for typical read APIs; increase or relax based on use case
+- **Time to First Byte (TTFB)** (default target): < 600ms
+- **Time to Interactive (TTI)** (default target): < 5 seconds
 
 **Resource Metrics**
-- **CPU Utilization**: < 70% average
-- **Memory Usage**: < 80% of available
-- **Database Query Time**: < 100ms for simple queries
-- **Network Latency**: < 100ms regional, < 300ms global
+- **CPU Utilization** (default SLO): < 70% average under normal load
+- **Memory Usage** (default SLO): < 80% of available memory under normal load
+- **Database Query Time** (default target): < 100ms for simple queries
+- **Network Latency** (default target): < 100ms regional, < 300ms global
 
 **Throughput Metrics**
 - **Requests per Second (RPS)**: Track baseline and peaks
 - **Concurrent Users**: Define target capacity
-- **Error Rate**: < 0.1% of total requests
+- **Error Rate** (default target): < 0.1% of total requests
 
 ---
 
@@ -279,7 +279,7 @@ using (var operation = telemetry.StartOperation<RequestTelemetry>("ComplexOperat
 }
 ```
 
-**Performance Alerts**
+**Performance Alerts** (example starting thresholds; adjust using real production baselines and SLOs)
 - Alert when response time > 3 seconds for 5 consecutive minutes
 - Alert when error rate > 1% of requests
 - Alert when CPU > 80% for 10 minutes
@@ -331,7 +331,7 @@ artillery quick --count 10 --num 50 https://api.example.com/endpoint
 - [ ] First Contentful Paint < 1.5 seconds
 - [ ] Time to Interactive < 5 seconds
 - [ ] No memory leaks detected
-- [ ] CPU usage < 70% under normal load
+- [ ] CPU usage < 70% under normal load (default target)
 
 ---
 

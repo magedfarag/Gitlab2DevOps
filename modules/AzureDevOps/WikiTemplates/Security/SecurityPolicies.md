@@ -1,5 +1,7 @@
 # Security Policies
 
+**Scope.** This page defines the core security policies and engineering standards for this product, including identity, data protection, network security, application security, and cloud baseline controls.
+
 This page documents the security policies and standards for the project.
 
 ## Authentication & Authorization
@@ -255,3 +257,10 @@ See [Compliance Requirements](/Security/Compliance-Requirements) for detailed re
 - [NIST Cybersecurity Framework](https://www.nist.gov/cyberframework)
 - [CIS Controls](https://www.cisecurity.org/controls)
 - [Azure Security Best Practices](https://learn.microsoft.com/en-us/azure/security/fundamentals/best-practices-and-patterns)
+
+### Policy baselines and overrides
+
+- Password complexity, rotation periods, log-retention windows, and similar numeric values in this document are our **default security baselines**, chosen to align with common recommendations from standards such as NIST, CIS Controls, and OWASP. They are not universal rules for every system.
+- Where an external requirement (for example, a regulator, customer contract, or corporate policy) is stricter than this page, the stricter rule applies. Capture that as a documented exception with a link back here.
+- Any requested exception to these policies must follow the documented exception process and have a clear expiry date, owner, and compensating controls. Permanent exceptions require re-design of the affected system or a formal risk acceptance at the right level.
+- Engineering teams should treat this page as the baseline for design and implementation and reference it directly in architecture documents, threat models, and runbooks so that security assumptions stay aligned.

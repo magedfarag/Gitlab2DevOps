@@ -18,6 +18,11 @@ Comprehensive guide for implementing effective testing strategies across all app
      /------------\
 ```
 
+**Guideline**: This 70/20/10 split is an example. In practice, aim for roughly:
+- 60–80% Unit tests
+- 15–30% Integration tests
+- ≤10% UI/E2E tests
+
 **Principles**
 1. **Fast Feedback**: Unit tests run in milliseconds
 2. **Test Independence**: Each test should be isolated
@@ -451,6 +456,8 @@ public void CalculateTax_VariousAmounts_ReturnsCorrectTax(decimal amount, decima
 ## 📊 Test Coverage
 
 ### Coverage Targets
+
+> These coverage values are default team targets, not hard rules. Adjust them based on risk, criticality, and maintainability.
 
 | Layer | Target Coverage | Critical Path |
 |-------|----------------|---------------|

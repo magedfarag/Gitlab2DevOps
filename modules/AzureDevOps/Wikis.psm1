@@ -912,7 +912,21 @@ function New-AdoProjectSummaryWikiPage {
         }
 
     # dashboards/builds/policies (best-effort)
-    try { $dash = Invoke-AdoRest GET "/$projEnc/_apis/dashboard/dashboards" -Preview -ReturnNullOnNotFound } catch { $dash = $null }
+    try {
+        # Prefer team-specific dashboard endpoint when possible to avoid project-level 404s
+        $dash = $null
+        if (Get-Command -Name Get-AdoDashboardContext -ErrorAction SilentlyContinue) {
+            $ctx = Get-AdoDashboardContext -Project $Project -Team "$Project Team"
+            if ($ctx -and $ctx.TeamId) {
+                $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team "$Project Team" -TeamId $ctx.TeamId -ProjectId $ctx.ProjectId
+                foreach ($ep in $endpoints) {
+                    try { $dash = Invoke-AdoRest GET $ep -Preview -ReturnNullOnNotFound; break } catch { }
+                }
+            }
+        }
+        # Fallback to project-level listing if no team context found
+        if (-not $dash) { $dash = Invoke-AdoRest GET "/$projEnc/_apis/dashboard/dashboards" -Preview -ReturnNullOnNotFound }
+    } catch { $dash = $null }
     $dashboardCount = 0; if ($dash -and $dash.value) { $dashboardCount = $dash.value.Count }
     try { $builddefs = Invoke-AdoRest GET "/$projEnc/_apis/build/definitions" -ReturnNullOnNotFound } catch { $builddefs = $null }
     $buildCount = 0; if ($builddefs -and $builddefs.value) { $buildCount = $builddefs.value.Count }

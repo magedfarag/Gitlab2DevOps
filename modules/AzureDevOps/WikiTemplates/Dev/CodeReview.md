@@ -1,5 +1,7 @@
 # Code Review Checklist
 
+**Scope.** This checklist applies to all software projects in this repository that use Git-based workflows and pull requests in Azure DevOps or GitHub.
+
 Comprehensive checklist for both code authors and reviewers to ensure high-quality code reviews.
 
 ## For Authors: Before Creating PR
@@ -248,7 +250,7 @@ Why did you do it this way?
 Before human review, these should pass:
 - ✅ All tests passing
 - ✅ Build successful
-- ✅ Code coverage > 80%
+- ✅ Code coverage > 80% for new or high-risk code (default team target; adjust based on service criticality and legacy constraints)
 - ✅ No linting errors
 - ✅ Security scan passed
 - ✅ Work item linked
@@ -273,3 +275,5 @@ Before human review, these should pass:
 - [Google's Code Review Guidelines](https://google.github.io/eng-practices/review/)
 - [The Art of Code Review](https://www.oreilly.com/library/view/the-art-of/9781492072867/)
 - [Pull Request Best Practices](https://github.blog/2015-01-21-how-to-write-the-perfect-pull-request/)
+
+> **Note:** The review metrics in this section are target ranges for healthy software teams, not hard rules. Use them to spot trends and bottlenecks rather than as strict SLAs for individuals.

@@ -45,7 +45,7 @@ This guide provides comprehensive best practices for using Azure DevOps effectiv
 3. **Resolved** → Ready for review/testing
 4. **Closed** → Fully complete
 
-**Rule**: Max 2-3 Active items per person (Work-In-Progress limit)
+**Default rule**: Start with max 2–3 Active items per person (Work-In-Progress limit). Teams can tune this limit based on context and throughput.
 
 ---
 
@@ -112,16 +112,16 @@ Commitment = (Average Velocity × 0.8) + Buffer for bugs/tech debt
 
 ### Dashboard KPIs
 
-**Velocity Stability**: ±20% variance acceptable
+**Velocity Stability**: ±20% variance acceptable as a starting rule-of-thumb
 - 25 → 23 → 28 = **Stable** ✅
 - 25 → 15 → 35 = **Unstable** ❌ (investigate)
 
-**Lead Time**: New → Closed average
-- Target: <5 days for Stories
+**Lead Time**: New → Closed average (default team target)
+- Default target: <5 days for Stories
 - >10 days = bottleneck investigation needed
 
-**Cycle Time**: Active → Closed average
-- Target: <3 days
+**Cycle Time**: Active → Closed average (default team target)
+- Default target: <3 days
 - Measure actual work time (excludes waiting)
 
 ---
@@ -378,26 +378,31 @@ Every repository needs:
 **Every pipeline should**:
 - ✅ Run on every PR (gate quality)
 - ✅ Run all tests (unit, integration)
-- ✅ Enforce code coverage (70%+ recommended)
+- ✅ Enforce code coverage (default team target 70%+; adjust based on service risk and criticality)
 - ✅ Run linting/static analysis
 - ✅ Fail fast (don't waste CI time)
-- ✅ Complete in <10 minutes
+- ✅ Default target: pipeline completes in <10 minutes to keep feedback fast (adjust if the codebase is very large)
 
 ### Test Pyramid
 
 ````````````
        /\\
-      /  \\  E2E Tests (5%)
+      /  \\  E2E Tests
      /----\\
-    / UI Tests (15%)
+    / UI Tests
    /----------\\
-  / Integration (30%)
+  / Integration Tests
  /----------------\\
 /__________________\\
-   Unit Tests (50%)
+   Unit Tests
 ````````````
 
-**Golden Rule**: More unit tests, fewer E2E tests
+**Golden Rule**: Prioritise many fast unit tests and keep UI/E2E tests as a thin layer.
+
+**Recommended distribution (guideline, not a hard rule)**:
+- ~60–80% Unit tests
+- ~15–30% Integration tests
+- ≤10% UI/E2E tests
 
 ---
 
@@ -442,7 +447,7 @@ Every repository needs:
 | **Sprint Commitment %** | 85-100% | Points completed / Points committed |
 | **Escaped Defects** | <5% | Bugs found in prod / Total stories |
 | **PR Cycle Time** | <24 hours | Time from PR creation to merge |
-| **Lead Time** | <5 days | New → Closed for User Stories |
+| **Lead Time** | <5 days (default target) | New → Closed for User Stories |
 | **Code Review Coverage** | 100% | PRs reviewed / Total PRs |
 
 ### Individual Metrics (Private)

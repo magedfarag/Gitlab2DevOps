@@ -63,6 +63,8 @@ catch (Exception ex)
 }
 ```
 
+> Note: A generic `catch (Exception)` is appropriate only at application boundaries (for example, global exception middleware or the outer loop of a background service) where you must log and convert any unhandled exception to a safe response.
+
 **✅ DO: Use Finally for Cleanup**
 ```csharp
 FileStream fileStream = null;

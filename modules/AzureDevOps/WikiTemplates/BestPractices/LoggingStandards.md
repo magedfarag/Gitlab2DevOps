@@ -378,7 +378,7 @@ public class MetricsLogger
 
 ### Alert Rules
 
-**Example KQL Queries**
+**Example KQL Queries** (numeric thresholds are starting points; tune them per service SLOs and historical baselines)
 ```kusto
 // High error rate
 traces

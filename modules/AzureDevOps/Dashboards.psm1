@@ -122,23 +122,28 @@ function Resolve-AdoDashboardEndpoints {
 
     $endpoints = @()
     $projEnc = [uri]::EscapeDataString($Project)
+    $projIdEnc = if ($ProjectId) { [uri]::EscapeDataString($ProjectId) } else { $projEnc }
     $teamNameEnc = if ($Team) { [uri]::EscapeDataString($Team) } else { $null }
 
     if ($TeamId) {
         $teamIdEnc = [uri]::EscapeDataString($TeamId)
-        $projIdEnc = if ($ProjectId) { [uri]::EscapeDataString($ProjectId) } else { $projEnc }
 
         # Preferred: project/teams route using GUIDs (works even when names contain spaces)
+        # NOTE: Always prefer the GUID-based team endpoint to avoid name-based encoding issues
+        # and to align with APIs that reliably accept GUID identifiers.
         $endpoints += "/_apis/projects/$projIdEnc/teams/$teamIdEnc/dashboard/dashboards"
-
-        # Legacy: team-scoped endpoint (name-based) if GUID route fails
-        if ($teamNameEnc) {
-            $endpoints += "/$projEnc/$teamNameEnc/_apis/dashboard/dashboards"
-        }
+        return $endpoints
     }
 
-    # Project-scoped endpoint (fallback)
-    $endpoints += "/$projEnc/_apis/dashboard/dashboards"
+    # Legacy: team-scoped endpoint (name-based) if no TeamId is available
+    if ($teamNameEnc) {
+        $endpoints += "/$projEnc/$teamNameEnc/_apis/dashboard/dashboards"
+        return $endpoints
+    }
+
+    # No team context available - do not attempt project-scoped dashboard endpoints by default
+    # Returning an empty array will cause callers to skip dashboard creation and log guidance.
+    return $endpoints
 
     return $endpoints
 }
@@ -163,7 +168,7 @@ function Get-AdoDashboardContext {
             }
         }
         catch {
-            Write-LogLevelVerbose "[Dashboards] Team context lookup failed for $Project/$Team: $_"
+            Write-LogLevelVerbose "[Dashboards] Team context lookup failed for $($Project)/$($Team): $_"
         }
     }
 
@@ -173,7 +178,7 @@ function Get-AdoDashboardContext {
             if ($projInfo -and $projInfo.PSObject.Properties['id']) { $projectId = $projInfo.id }
         }
         catch {
-            Write-LogLevelVerbose "[Dashboards] Project context lookup failed for $Project: $_"
+            Write-LogLevelVerbose "[Dashboards] Project context lookup failed for $($Project): $_"
         }
     }
 
@@ -628,14 +633,22 @@ function New-Adodevdashboard {
         [string]$Project,
         
         [Parameter(Mandatory)]
-        [string]$WikiId
+        [string]$WikiId,
+
+        [string]$Team
     )
     
     Write-Host "[INFO] Creating development dashboard..." -ForegroundColor Cyan
+
+    if (-not $Team) { $Team = "$Project Team" }
+    
+    $context = Get-AdoDashboardContext -Project $Project -Team $Team
+    $teamId = $context.TeamId
+    $projectId = $context.ProjectId
     
     try {
         # Check if dashboard already exists
-        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $null -TeamId $null
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
         $dashboards = $null
         foreach ($ep in $endpoints) {
             try {
@@ -663,7 +676,8 @@ function New-Adodevdashboard {
         $dashboardConfig = @{
             name = Truncate-DashboardName "Development Metrics"
             description = "Track PR velocity, code quality, and team productivity"
-            dashboardScope = "project"
+            dashboardScope = if ($teamId) { "project_Team" } else { "project" }
+            groupId = if ($teamId) { $teamId } else { $null }
             widgets = @(
                 # Pull Request Overview
                 @{
@@ -709,7 +723,7 @@ function New-Adodevdashboard {
         }
         
         $dashboard = $null
-        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $null -TeamId $null
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
         foreach ($ep in $endpoints) {
             try {
                 $dashboard = Invoke-AdoRest POST $ep -Body $dashboardConfig -Preview
@@ -719,7 +733,10 @@ function New-Adodevdashboard {
                 Write-Verbose "[New-Adodevdashboard] Dashboard POST failed for endpoint $ep - trying next. Error: $_"
             }
         }
-        if ($dashboard) { Write-Host "  ✅ Development Metrics dashboard created" -ForegroundColor Gray }
+        if (-not $dashboard) {
+            throw "Failed to create Development Metrics dashboard for team '$Team'."
+        }
+        Write-Host "  ✅ Development Metrics dashboard created" -ForegroundColor Gray
         
         # Create component tags wiki page - load from template
         $templatePath = Join-Path $PSScriptRoot "..\templates\ComponentTags.md"
@@ -750,16 +767,25 @@ function New-Adodevdashboard {
 function New-AdoSecurityDashboard {
     param(
         [Parameter(Mandatory=$true)]
-        [string]$Project
+        [string]$Project,
+
+        [string]$Team
     )
     
     Write-Host "[INFO] Creating Security Metrics dashboard..." -ForegroundColor Cyan
+
+    if (-not $Team) { $Team = "$Project Team" }
+
+    $context = Get-AdoDashboardContext -Project $Project -Team $Team
+    $teamId = $context.TeamId
+    $projectId = $context.ProjectId
     
     try {
         $dashboardConfig = @{
             name = Truncate-DashboardName "Security Metrics"
             description = "Security vulnerability tracking, compliance status, and threat intelligence"
-            dashboardScope = "project"
+            dashboardScope = if ($teamId) { "project_Team" } else { "project" }
+            groupId = if ($teamId) { $teamId } else { $null }
             widgets = @(
                 @{
                     name = "Security Overview"
@@ -783,7 +809,7 @@ function New-AdoSecurityDashboard {
         }
 
         $dashboard = $null
-        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $null -TeamId $null
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
         foreach ($ep in $endpoints) {
             try {
                 $dashboard = Invoke-AdoRest POST $ep -Body $dashboardConfig -Preview
@@ -802,10 +828,11 @@ function New-AdoSecurityDashboard {
                         elseif ($existingDashboards -is [array]) { $entries = $existingDashboards }
                         else { $entries = @($existingDashboards) }
 
-                        $found = $entries | Where-Object { $_.name -eq $dashboardConfig.name }
+                        $found = $entries | Where-Object { $_.name -eq $dashboardConfig.name } | Select-Object -First 1
                         if ($found) {
                             Write-Host "[INFO] Found existing Security Metrics dashboard after duplicate error" -ForegroundColor Gray
-                            return $found
+                            $dashboard = $found
+                            break
                         }
                     }
                     catch {
@@ -817,7 +844,11 @@ function New-AdoSecurityDashboard {
             }
         }
 
-        if ($dashboard) { Write-Host "  ✅ Security Metrics dashboard created" -ForegroundColor Gray }
+        if (-not $dashboard) {
+            throw "Failed to create Security Metrics dashboard for team '$Team'."
+        }
+
+        Write-Host "  ✅ Security Metrics dashboard created" -ForegroundColor Gray
         Write-Host "[SUCCESS] Security dashboard created" -ForegroundColor Green
     }
     catch {
@@ -836,16 +867,25 @@ function New-AdoSecurityDashboard {
 function Test-Adomanagementdashboard {
     param(
         [Parameter(Mandatory=$true)]
-        [string]$Project
+        [string]$Project,
+
+        [string]$Team
     )
     
     Write-Host "[INFO] Creating Program Management dashboard..." -ForegroundColor Cyan
+
+    if (-not $Team) { $Team = "$Project Team" }
+
+    $context = Get-AdoDashboardContext -Project $Project -Team $Team
+    $teamId = $context.TeamId
+    $projectId = $context.ProjectId
     
     try {
         $dashboardConfig = @{
             name = Truncate-DashboardName "Program Management"
             description = "Executive overview with program health, sprint progress, risks, and KPIs"
-            dashboardScope = "project"
+            dashboardScope = if ($teamId) { "project_Team" } else { "project" }
+            groupId = if ($teamId) { $teamId } else { $null }
             widgets = @(
                 @{
                     name = "Program Health"
@@ -887,7 +927,7 @@ function Test-Adomanagementdashboard {
         }
         
         $dashboard = $null
-        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $null -TeamId $null
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
         foreach ($ep in $endpoints) {
             try {
                 $dashboard = Invoke-AdoRest POST $ep -Body $dashboardConfig -Preview
@@ -906,10 +946,11 @@ function Test-Adomanagementdashboard {
                         elseif ($existingDashboards -is [array]) { $entries = $existingDashboards }
                         else { $entries = @($existingDashboards) }
 
-                        $found = $entries | Where-Object { $_.name -eq $dashboardConfig.name }
+                        $found = $entries | Where-Object { $_.name -eq $dashboardConfig.name } | Select-Object -First 1
                         if ($found) {
                             Write-Host "[INFO] Found existing Program Management dashboard after duplicate error" -ForegroundColor Gray
-                            return $found
+                            $dashboard = $found
+                            break
                         }
                     }
                     catch {
@@ -921,7 +962,11 @@ function Test-Adomanagementdashboard {
             }
         }
 
-        if ($dashboard) { Write-Host "  ✅ Program Management dashboard created" -ForegroundColor Gray }
+        if (-not $dashboard) {
+            throw "Failed to create Program Management dashboard for team '$Team'."
+        }
+
+        Write-Host "  ✅ Program Management dashboard created" -ForegroundColor Gray
         Write-Host "[SUCCESS] Management dashboard created" -ForegroundColor Green
     }
     catch {

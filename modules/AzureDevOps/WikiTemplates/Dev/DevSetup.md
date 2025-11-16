@@ -1,5 +1,7 @@
 # Development Environment Setup
 
+**Scope.** This setup guide describes the local development environment for this codebase. Version numbers are the minimum tested versions; using the latest stable/LTS releases for each tool is recommended.
+
 Complete guide for setting up your local development environment.
 
 ## Prerequisites

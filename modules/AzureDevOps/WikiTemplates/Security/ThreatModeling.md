@@ -1,5 +1,7 @@
 # Threat Modeling Guide
 
+**Scope.** This guide explains how we run threat modeling for this product using STRIDE, DREAD-style scoring, and architecture diagrams so that security risks are identified and mitigated early in the design.
+
 Systematic approach to identifying and mitigating security threats.
 
 ## What is Threat Modeling?
@@ -327,3 +329,10 @@ For each data flow and component, apply STRIDE:
 - [OWASP Threat Modeling](https://owasp.org/www-community/Threat_Modeling)
 - [Threat Modeling Manifesto](https://www.threatmodelingmanifesto.org/)
 - [ATT&CK Framework](https://attack.mitre.org/)
+
+### Method selection and scoring
+
+- STRIDE categories and DREAD-style scoring are well-known approaches to threat modeling. They are **not the only valid methods**; teams may use alternatives (for example, attack trees or other risk models) if agreed with the security team.
+- Risk scores and thresholds in this guide (for example, treating 8–10 as critical) are relative scales to help prioritize work, not precise measurements. Calibrate them using your own defect history, incident data, and business impact.
+- Threat models must stay in sync with the system they describe. Update diagrams, STRIDE tables, and risk ratings after significant architecture changes, new integrations, or major incidents.
+- Use threat modeling outputs to drive concrete backlog items (controls, tests, monitoring) and to justify security requirements in design and architecture reviews.

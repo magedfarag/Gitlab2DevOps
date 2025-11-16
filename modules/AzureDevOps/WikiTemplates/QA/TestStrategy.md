@@ -1,5 +1,7 @@
 # Test Strategy & Planning
 
+**Scope.** This test strategy describes how we plan, design, execute, and report testing activities for this software product. It aligns with common testing standards such as IEEE 829 and ISTQB but is tailored to this program.
+
 Comprehensive test strategy framework for planning and executing effective testing initiatives.
 
 ---
@@ -447,3 +449,9 @@ Week 2: Testing & Release
 - [ISTQB Test Strategy Templates](https://www.istqb.org/)
 - [Azure DevOps Test Management](https://learn.microsoft.com/en-us/azure/devops/test/overview)
 - [Risk-Based Testing](https://www.softwaretestinghelp.com/risk-based-testing/)
+
+### Standards alignment and limits
+
+- The structure of this strategy (scope, approach, entry/exit criteria, environments, risks, resources) follows common testing standards such as IEEE 829 and ISTQB, adapted to our tooling and organisation.
+- Ratios in the testing types matrix (for example, 70% unit, 20% integration, 10% system) are indicative targets drawn from the test automation pyramid concept. Tune them based on service risk, test stability, and feedback cycles.
+- Entry and exit criteria, quality gates, and metric thresholds listed here are team defaults. Review them at least annually to ensure they still reflect realistic yet ambitious expectations for this product.

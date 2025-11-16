@@ -12,3 +12,7 @@
 - [Scrum Glossary](https://www.scrum.org/resources/scrum-glossary)
 - [Azure DevOps Glossary](https://learn.microsoft.com/en-us/azure/devops/project/navigation/glossary)
 - [PMBOK Glossary](https://www.pmi.org/pmbok-guide-standards/glossary)
+
+**Additional mapping**
+
+- GitLab Issue Boards → Azure Boards (Kanban or Sprint boards used for work item tracking).

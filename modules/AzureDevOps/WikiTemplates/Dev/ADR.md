@@ -1,5 +1,7 @@
 # Architecture Decision Records (ADRs)
 
+**Scope.** This page describes Architecture Decision Records (ADRs) for software architecture and platform decisions in this project. Each ADR captures a significant technical choice, the context, and its consequences.
+
 Architecture Decision Records document significant architectural decisions made during the project lifecycle.
 
 ## What is an ADR?
@@ -107,3 +109,10 @@ What is the problem we're trying to solve?]
 - [When to Use ADRs](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions)
 - [Y-Statements for ADRs](https://medium.com/olzzio/y-statements-10eb07b5a177)
 - [ADR Tools](https://github.com/npryce/adr-tools)
+
+### Storage and naming conventions
+
+- Store ADR files under `/Development/ADRs` in the same repository as the code.
+- Use a consistent naming convention, for example: `ADR-001-short-title.md`.
+- Keep an ADR index in the decision log and link each ADR back to the related work items.
+- When an ADR is superseded, update its status and add a link to the new ADR.

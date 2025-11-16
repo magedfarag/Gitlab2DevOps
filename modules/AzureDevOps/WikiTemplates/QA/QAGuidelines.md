@@ -1,5 +1,7 @@
 # QA Guidelines & Testing Standards
 
+**Scope.** These QA guidelines define testing standards, templates, and dashboards for this product, implemented with Azure DevOps Test Plans and Azure Boards.
+
 This guide provides comprehensive testing standards and QA practices for ensuring high-quality software delivery.
 
 ---
@@ -442,3 +444,8 @@ Navigate to **Dashboards → <Team> - QA Metrics**:
 - [ISTQB Testing Glossary](https://glossary.istqb.org/)
 - [Test Automation Best Practices](https://learn.microsoft.com/en-us/azure/devops/test/best-practices-test-automation)
 - [Quality Assurance vs Quality Control](https://asq.org/quality-resources/quality-assurance-vs-control)
+
+### Interpreting the pyramid and configurations
+
+- The 70% / 20% / 10% split between unit, integration, and system/UI tests reflects the classic test automation pyramid. It is a guideline, not a rule; adjust the mix for each service based on architecture, risk, and maintenance cost.
+- The 13 predefined test configurations listed above are the current baseline for this product. Review real usage analytics (for example, browser and device statistics) at least twice a year and update the configuration set instead of trying to run every test on every combination.

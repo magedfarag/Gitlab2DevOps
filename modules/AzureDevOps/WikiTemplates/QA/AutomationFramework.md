@@ -1,5 +1,7 @@
 # Automation Framework & Best Practices
 
+**Scope.** This guide describes how we design, implement, and operate test automation frameworks for this product's software systems. Examples use .NET, Selenium, and Azure Pipelines, but the principles apply to similar stacks.
+
 Guide for building and maintaining effective test automation frameworks.
 
 ---
@@ -453,3 +455,9 @@ steps:
 - [Cypress Best Practices](https://docs.cypress.io/guides/references/best-practices)
 - [Azure DevOps Test Automation](https://learn.microsoft.com/en-us/azure/devops/pipelines/test/)
 - [Test Automation Patterns](https://martinfowler.com/articles/practical-test-pyramid.html)
+
+### Assumptions and limits
+
+- The automation pyramid (for example, 60% unit, 30% API, 10% UI) is an approximate starting point inspired by industry guidance and must be tuned to each system's risk profile and architecture.
+- CI/CD snippets and configuration examples (such as Azure Pipelines YAML or specific browser options) are reference templates. Adapt them to your own toolchain (GitHub Actions, GitLab CI, Jenkins, etc.) and security policies.
+- Favour fast, reliable, deterministic tests. If a UI flow is brittle, push checks down to API or component level instead of adding more slow end-to-end tests that are hard to maintain.

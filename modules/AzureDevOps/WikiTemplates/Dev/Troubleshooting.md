@@ -1,5 +1,7 @@
 # Troubleshooting Guide
 
+**Scope.** This guide focuses on troubleshooting issues in this project's software development, build, deployment, and runtime environments.
+
 Common issues and solutions for development, deployment, and runtime problems.
 
 ## Table of Contents
@@ -484,3 +486,5 @@ Stack trace:
 - [Chrome DevTools](https://developer.chrome.com/docs/devtools/)
 - [Troubleshooting .NET Applications](https://learn.microsoft.com/en-us/dotnet/core/diagnostics/)
 - [SQL Server Troubleshooting](https://learn.microsoft.com/en-us/sql/relational-databases/performance/performance-monitoring-and-tuning-tools)
+
+When you find a new recurring issue and its fix, add it to this guide and link to relevant logs, dashboards, or ADRs. This keeps troubleshooting knowledge close to the code and helps new engineers ramp up faster.

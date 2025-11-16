@@ -1,5 +1,7 @@
 # Security Testing Checklist
 
+**Scope.** This checklist defines how we plan and execute security testing for this product across the SDLC, including SAST, DAST, dependency and container scanning, IaC checks, penetration testing, and manual verification.
+
 Comprehensive checklist for security testing throughout SDLC.
 
 ## Testing Types
@@ -345,3 +347,10 @@ Before production deployment, verify:
 - [Burp Suite](https://portswigger.net/burp)
 - [Azure Security Testing](https://learn.microsoft.com/en-us/azure/security/develop/secure-dev-overview)
 - [NIST Penetration Testing](https://csrc.nist.gov/glossary/term/penetration_testing)
+
+### Alignment with security testing standards
+
+- The testing types and checklists in this document are based on widely used guidance (for example, OWASP Testing Guide and DevSecOps practices). They describe **how we implement those ideas for this product**, not an exhaustive catalog of all possible tests.
+- SAST, DAST, dependency scanning, and IaC scanning each cover different parts of the attack surface. Relying on only one of them is not sufficient for modern applications.
+- Thresholds such as “no critical findings before release” and SLAs for fixing vulnerabilities are **release gates and team targets**. If they cannot be met, the decision to proceed must go through the formal risk-acceptance process.
+- Link security testing results back to threat models and security requirements. When tests repeatedly find the same issue type, feed that information into design reviews, training, and coding standards instead of only fixing individual bugs.

@@ -1,5 +1,7 @@
 # Program Overview
 
+**Scope.** This overview describes the software development program for this product, including mission, scope, governance, and how multiple agile teams are organized to deliver value.
+
 ## Executive Summary
 
 This page provides a high-level overview of the program, its objectives, scope, and organizational structure. Use this as the central hub for program-level information.
@@ -284,3 +286,11 @@ View current sprint progress: [Sprint Planning](/Sprint-Planning)
 ### Best Practices
 - [Agile at Scale Best Practices](https://www.atlassian.com/agile/agile-at-scale)
 - [Program Governance Models](https://www.pmi.org/learning/library/effective-governance-program-management-6496)
+
+### Links to key delivery artefacts
+
+- 📊 Metrics and KPIs: see [Metrics Dashboard](/Metrics-Dashboard)
+- 👥 Team capacity and availability: see [Capacity Planning](/Capacity-Planning)
+- 🗺️ Product direction and major epics: see [Product Roadmap](/Roadmap)
+- 📅 Iteration-level plans: see [Sprint Planning](/Sprint-Planning)
+- ⚠️ Risks, assumptions, issues, dependencies: see [RAID Log](/RAID)

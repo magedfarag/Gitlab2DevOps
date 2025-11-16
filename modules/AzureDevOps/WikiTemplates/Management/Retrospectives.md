@@ -1,5 +1,7 @@
 # Retrospective Insights
 
+**Scope.** This page captures sprint retrospective outcomes for the software development teams in this program, focusing on how we work rather than on re-estimating scope.
+
 ## Overview
 
 This page captures learnings, action items, and continuous improvement initiatives from sprint retrospectives. We use retrospectives to reflect on our processes, celebrate successes, and identify opportunities for improvement.
@@ -414,3 +416,10 @@ Discuss each metaphor and identify actions.
 - [Project Aristotle (Google)](https://rework.withgoogle.com/guides/understanding-team-effectiveness/)
 - [DORA Metrics](https://www.devops-research.com/research.html)
 - [Team Topologies](https://teamtopologies.com/)
+
+### Retrospective working agreement
+
+- Start each retrospective by reviewing **previous action items** and their outcomes before adding new ones.
+- Limit the number of new actions so that each sprint includes **a small, realistic set of improvements** that can actually be completed.
+- Ensure psychological safety: focus on systems, policies, and workflows rather than blaming individuals.
+- Make at least one improvement item visible in the next sprint backlog so that changes are implemented, not just discussed.

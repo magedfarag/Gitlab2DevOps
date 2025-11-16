@@ -1,5 +1,7 @@
 # Git Workflow & Branching Strategy
 
+**Scope.** This GitHub Flow–style branching model is used with Azure Repos for this project. It defines how we create branches, commit, and raise pull requests for software changes.
+
 Comprehensive guide to Git workflow, branching conventions, and commit best practices.
 
 ## Branching Strategy
@@ -368,3 +370,5 @@ git config --global alias.unstage 'reset HEAD --'
 - [Gitflow Workflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow)
 - [Conventional Commits](https://www.conventionalcommits.org/)
 - [Semantic Versioning](https://semver.org/)
+
+> **Branch lifetime.** Keeping feature branches short-lived (ideally under 3 working days) is a guideline, not a strict rule. The goal is to reduce merge conflicts and keep pull requests small and reviewable.

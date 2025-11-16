@@ -1,5 +1,7 @@
 # Communication Templates
 
+**Context.** Use these templates when you communicate software releases, platform changes, and Azure DevOps cutovers. They are not general corporate email templates.
+
 ## Announcement (Draft)
 Why: Value, timeline, what changes. Links to wiki and support.
 

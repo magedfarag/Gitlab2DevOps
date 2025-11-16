@@ -1,5 +1,7 @@
 # Welcome – Business Overview
 
+**Scope.** This page describes the software development and delivery project that runs on Azure DevOps Server. All examples refer to work items, boards, pipelines, and releases in that environment.
+
 This project is now hosted on Azure DevOps Server. Here’s what you need to know to get started.
 
 ## What’s happening

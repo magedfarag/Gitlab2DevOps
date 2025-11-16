@@ -1,10 +1,12 @@
 # Incident Response Plan
 
+**Scope.** This plan defines how we detect, classify, respond to, and learn from security incidents that affect this product and its supporting infrastructure. It follows the NIST incident response lifecycle and is tailored to our organization and tooling.
+
 Procedures for detecting, responding to, and recovering from security incidents.
 
 ## Incident Severity Levels
 
-| Severity | Definition | Examples | Response Time |
+| Severity | Definition | Examples | Response Time (team target) |
 |----------|-----------|----------|---------------|
 | **Critical** | Data breach, ransomware, full system compromise | Customer data leaked, production down | 15 minutes |
 | **High** | Attempted breach, malware detected, DDoS | Failed intrusion attempt, malware quarantined | 1 hour |
@@ -378,3 +380,10 @@ ETA to Resolution: [estimate]
 - [Azure Security Incident Response](https://learn.microsoft.com/en-us/security/operations/incident-response-overview)
 - [SANS Incident Response Steps](https://www.sans.org/white-papers/33901/)
 - [CIS Incident Response Best Practices](https://www.cisecurity.org/)
+
+### Alignment with NIST and internal targets
+
+- The phases in this plan (preparation, detection and analysis, containment, eradication, recovery, and post-incident activity) align with the NIST incident response lifecycle, adapted into more granular stages for engineering use.
+- Severity levels and response times in the table are **team targets**, not industry mandates. Review them regularly against actual performance and business risk, and adjust through the risk management process when needed.
+- Where regulations such as GDPR or HIPAA impose specific breach-notification timelines, those legal deadlines **override** any internal communication targets in this plan.
+- After each real incident or major exercise, update this document, the runbooks, and the playbooks so that they reflect what actually worked in production instead of staying theoretical.

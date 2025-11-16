@@ -323,7 +323,7 @@ If restore fails, revert connection strings to original database.
 - [ ] Troubleshooting section
 
 ### Regular Maintenance
-- [ ] Review docs quarterly
+- [ ] Default: review docs at least quarterly (review more frequently for fast‑changing systems)
 - [ ] Remove outdated information
 - [ ] Fix broken links
 - [ ] Update screenshots if UI changed

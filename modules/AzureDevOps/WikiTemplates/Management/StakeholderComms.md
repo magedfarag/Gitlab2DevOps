@@ -1,5 +1,7 @@
 # Stakeholder Communications
 
+**Scope.** This communication plan supports stakeholders of this software development program, combining agile ceremonies with structured status reporting and self-service dashboards.
+
 ## Communication Strategy
 
 ### Purpose
@@ -490,3 +492,10 @@ View full sprint details: [Link to Sprint Planning page]
 ### Effective Communication
 - [The Five C's of Effective Communication](https://www.indeed.com/career-advice/career-development/effective-communication)
 - [Executive Communication Strategies](https://hbr.org/2021/03/how-to-communicate-effectively-with-your-boss)
+
+### Applying the communication strategy
+
+- Match **frequency and channel** to stakeholder needs: executives prefer concise dashboards and decision-focused reviews; delivery teams need detailed, frequent updates.
+- Use **asynchronous updates** (dashboards, status emails, wiki pages) to reduce meeting load while keeping stakeholders informed.
+- Keep messaging consistent across channels by using a single source of truth for metrics and roadmap status.
+- Regularly review this plan after major releases or organizational changes and adjust attendees, cadences, and templates as needed.

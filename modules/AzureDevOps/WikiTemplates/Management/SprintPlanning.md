@@ -1,5 +1,7 @@
 # Sprint Planning
 
+**Scope.** This page describes how the software development teams in this program run sprint planning, combining empirical velocity with capacity-based planning to set realistic sprint commitments.
+
 ## Current Sprint Overview
 
 ### Sprint Information
@@ -314,3 +316,10 @@ Based on current velocity and capacity planning:
 ### Tools
 - [Azure Boards Sprint Features](https://learn.microsoft.com/en-us/azure/devops/boards/sprints/)
 - [Burndown Charts](https://learn.microsoft.com/en-us/azure/devops/report/dashboards/configure-sprint-burndown)
+
+### Planning approach
+
+- Use **capacity** (available hours) to understand the upper bound of possible work, then use **historical velocity** to sanity-check how many story points to pull from the backlog.
+- Reserve a consistent percentage of capacity for **unplanned work, bugs, and technical debt** so that quality does not degrade over time.
+- A sprint goal should describe a **user-facing outcome or validated learning**, not just a list of tickets.
+- During planning, stop adding work when either the forecasted capacity is reached or the sprint goal is fully supported—whichever comes first.

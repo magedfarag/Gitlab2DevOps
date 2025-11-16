@@ -206,6 +206,7 @@ function Initialize-CoreRest {
     Write-Verbose "[Core.Rest] SkipCertificateCheck: $($script:SkipCertificateCheck)"
     Write-Verbose "[Core.Rest] Retry: $($script:RetryAttempts) attempts, $($script:RetryDelaySeconds)s delay"
     Write-Host "[INFO] Core.Rest initialized - SkipCertificateCheck = $($script:SkipCertificateCheck)" -ForegroundColor Cyan
+    Write-Host "[INFO] REST API logging: $($script:LogRestCalls ? 'ENABLED' : 'DISABLED')" -ForegroundColor Cyan
 
     # Create a reusable HttpClient instance for all module HTTP operations.
     # This centralizes TLS/handler behavior and avoids creating many short-lived
@@ -1491,7 +1492,8 @@ function Invoke-RestWithRetry {
             if ($script:LogRestCalls) {
                 Write-Host " (attempt $attempt/$effectiveMaxAttempts)" -ForegroundColor Gray
                 if ($Body -and $Method -in @('POST', 'PUT', 'PATCH')) {
-                    Write-Verbose "[REST] Request body: $($Body.Substring(0, [Math]::Min(500, $Body.Length)))..."
+                    $maskedBody = Hide-Secret -Text $Body
+                    Write-Host "[$Side] Request Body: $($maskedBody.Substring(0, [Math]::Min(500, $maskedBody.Length)))..." -ForegroundColor Gray
                 }
             } else {
                 Write-Host ""
@@ -1545,6 +1547,10 @@ function Invoke-RestWithRetry {
 
                 # Read response content and try to parse JSON, otherwise return raw string
                 $content = $response.Content.ReadAsStringAsync().Result
+                if ($script:LogRestCalls -and $content) {
+                    $maskedContent = Hide-Secret -Text $content
+                    Write-Host "[$Side] Response Body: $($maskedContent.Substring(0, [Math]::Min(1000, $maskedContent.Length)))..." -ForegroundColor Gray
+                }
                 if ($null -ne $content -and $content.ToString().Trim().Length -gt 0) {
                     try {
                         return ($content | ConvertFrom-Json -ErrorAction Stop)
@@ -1566,6 +1572,11 @@ function Invoke-RestWithRetry {
 
             $statusColor = if ($status -in @(429, 500, 502, 503, 504)) { 'Yellow' } elseif ($status -eq 404 -and $Method -eq 'GET') { 'DarkYellow' } else { 'Red' }
             Write-Host "[$Side] ← $status ($errorPreview)" -ForegroundColor $statusColor
+            
+            if ($script:LogRestCalls -and $errorContent) {
+                $maskedErrorContent = Hide-Secret -Text $errorContent
+                Write-Host "[$Side] Error Response Body: $($maskedErrorContent.Substring(0, [Math]::Min(1000, $maskedErrorContent.Length)))..." -ForegroundColor Red
+            }
 
             if ($status -eq 404 -and $ReturnNullOnNotFound) {
                 Write-Verbose "[$Side] ReturnNullOnNotFound: returning `$null for 404 response on $Uri"

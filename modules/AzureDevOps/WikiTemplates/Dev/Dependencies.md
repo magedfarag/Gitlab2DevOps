@@ -1,5 +1,7 @@
 # Dependencies & Third-Party Libraries
 
+**Scope.** This guide covers third-party software dependencies and runtime libraries used by this project across .NET, Node.js, and Python services.
+
 Comprehensive guide to managing project dependencies and third-party libraries.
 
 ## Overview
@@ -370,3 +372,7 @@ pip install --force-reinstall package-name
 ---
 
 **Next Steps**: Keep dependencies updated monthly and check security advisories weekly.
+
+> **Update cadence.** The monthly update cadence and the 48-hour window for high/critical security fixes are default team SLOs. Adjust them if your service has stricter regulatory requirements or different risk appetite, but always keep security patches prioritized.
+
+When you evaluate new dependencies, record the decision in an ADR if it affects architecture, security posture, or long-term maintenance.

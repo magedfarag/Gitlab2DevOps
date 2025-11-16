@@ -1,5 +1,7 @@
 # RAID Log (Risks, Assumptions, Issues, Dependencies)
 
+**Scope.** This RAID log tracks key risks, assumptions, issues, and dependencies for this software delivery program. It complements team-level boards and incident records by providing a single view across the program.
+
 ## Overview
 
 The RAID log is a project management tool for tracking Risks, Assumptions, Issues, and Dependencies. This living document is updated weekly and reviewed in program sync meetings.
@@ -322,3 +324,10 @@ graph TD
 ### Dependency Management
 - [Managing Dependencies at Scale](https://www.scaledagileframework.com/program-increment/)
 - [Cross-Team Coordination](https://www.scruminc.com/scaling-scrum-managing-dependencies/)
+
+### How to use this RAID log
+
+- Review and update RAID items in **weekly program syncs** and before major release or steering-committee decisions.
+- Keep risk descriptions **specific and testable**; vague risks are hard to mitigate.
+- For each assumption, record how and when it will be validated. If an assumption proves wrong, raise a risk or issue and adjust scope or plans.
+- Track major **decisions** and **actions** in linked decision records or work items, and reference their IDs here so this log stays focused on RAID while remaining connected to the wider decision history.

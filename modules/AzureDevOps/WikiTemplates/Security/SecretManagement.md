@@ -1,5 +1,7 @@
 # Secret Management
 
+**Scope.** This guide defines how we store, distribute, rotate, and monitor secrets (passwords, keys, tokens, certificates) for this product across development, CI/CD, and production environments.
+
 Best practices for storing, accessing, and rotating secrets (passwords, API keys, certificates).
 
 ## What Are Secrets?
@@ -521,3 +523,10 @@ git commit -m "Add API key from Key Vault"
 - [OWASP Secrets Management](https://owasp.org/www-community/vulnerabilities/Use_of_hard-coded_password)
 - [GitHub Secrets Scanning](https://docs.github.com/en/code-security/secret-scanning)
 - [Azure DevOps Variable Groups](https://learn.microsoft.com/en-us/azure/devops/pipelines/library/variable-groups)
+
+### Standards and guardrails
+
+- Guidance in this document is based on widely accepted secrets-management practice (for example, never hardcode secrets, never store them unencrypted, and centralize them in dedicated vaults). These are **mandatory rules** for production systems.
+- Azure Key Vault is our primary secrets store for this product. Equivalent controls (encryption, strong access control, audit logging, and rotation) are required if any alternative vault or cloud provider is used.
+- Rotation intervals in this guide (for example, 90 days for database passwords or personal access tokens) are our **default security baselines**. Higher-risk systems, privileged accounts, or regulatory requirements may require faster rotation.
+- Secret-scanning in Git, CI/CD, and registries is a safety net, not a substitute for correct design. If a secret leaks into code or logs, rotate it immediately and treat the event as a security incident with root-cause analysis.

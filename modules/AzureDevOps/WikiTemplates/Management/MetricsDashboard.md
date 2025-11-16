@@ -1,5 +1,7 @@
 # Metrics Dashboard
 
+**Scope.** This dashboard summarizes delivery, quality, performance, and business metrics for this software product. Metric definitions align with common software engineering and DevOps practices (for example, DORA metrics and agile delivery KPIs).
+
 ## Executive Summary
 
 This page provides a centralized view of program health metrics, KPIs, and performance indicators. Dashboards are updated in real-time and reviewed weekly with leadership.
@@ -531,3 +533,10 @@ Budget spent divided by timeline elapsed. <1.0 means under budget, >1.0 means ov
 ### Benchmarking
 - [State of DevOps Report](https://www.devops-research.com/research.html)
 - [Accelerate (Book)](https://www.amazon.com/Accelerate-Software-Performing-Technology-Organizations/dp/1942788339)
+
+### Metric interpretation guidelines
+
+- All **targets** in this dashboard (for example, coverage %, defect density, response-time thresholds) are **program-level guardrails**, not industry-wide standards. Adjust them to match regulatory requirements and the criticality of each service.
+- Use **trends over time** (for example, velocity stability, change-failure rate, MTTR) as primary signals. A single data point is less useful than a stable pattern across several sprints.
+- DORA classifications such as “elite” are based on current research ranges, but the exact numeric boundaries may change over time. Keep the underlying four key metrics (deployment frequency, lead time, change-failure rate, MTTR) as the source of truth.
+- Prefer a small set of high-signal metrics over a large dashboard that nobody acts on. If a metric does not drive decisions, retire it.

@@ -1,5 +1,7 @@
 # Security Champions Program
 
+**Scope.** This program description explains how we nominate, onboard, and support Security Champions inside software engineering teams so that security expertise scales with the product.
+
 Empower developers to become security advocates within their teams.
 
 ## What Is a Security Champion?
@@ -374,3 +376,10 @@ A **Security Champion** is a developer who:
 - [Microsoft Security Champions Program](https://learn.microsoft.com/en-us/security/operations/security-operations-videos-and-decks)
 - [Building a Security Champions Program](https://safecode.org/wp-content/uploads/2019/02/Security-Champions-2019-.pdf)
 - [DevSecOps Best Practices](https://learn.microsoft.com/en-us/azure/architecture/solution-ideas/articles/devsecops-in-azure)
+
+### Program expectations and limits
+
+- Security Champions extend the reach of the security team into each squad but **do not replace** dedicated security engineers, penetration testers, or compliance specialists.
+- Time commitments, SLAs for vulnerability remediation, and metric targets in this program are **planning baselines**. Engineering managers and the security team must ensure that Champions have enough time in their capacity plans to meet them.
+- Use Champion activities (threat modeling, security code reviews, training) to feed into measurable improvements such as faster remediation times, fewer recurring issues, and higher-quality designs—not just to generate documentation.
+- Review this program at least annually with engineering leadership and Champions, and adjust incentives, metrics, and activities to keep the program effective and sustainable.

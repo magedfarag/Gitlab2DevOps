@@ -1,5 +1,7 @@
 # Compliance Requirements
 
+**Scope.** This page summarizes external regulatory and security standards that apply to this product and explains how they relate to our software systems, cloud platforms, and data flows. It is an engineering-facing guide, not legal advice, and must be read together with the original regulations and contracts.
+
 Regulatory and compliance obligations for our systems and data.
 
 ## Applicable Standards
@@ -356,3 +358,10 @@ Regulatory and compliance obligations for our systems and data.
 - [SOC 2 Compliance](https://us.aicpa.org/interestareas/frc/assuranceadvisoryservices/aicpasoc2report)
 - [ISO 27001 Standard](https://www.iso.org/isoiec-27001-information-security.html)
 - [Azure Compliance Offerings](https://learn.microsoft.com/en-us/azure/compliance/)
+
+### Using these requirements safely
+
+- Treat all checklists and tables in this page as **implementation guidance for our systems**, not as complete statements of GDPR, SOC 2, ISO 27001, PCI DSS, HIPAA, or Azure obligations. Always consult the original standard or our legal team for authoritative wording.
+- Map each project or service explicitly to the standards that apply to it (for example, GDPR only when we process EU personal data; PCI DSS only for in-scope payment flows) instead of assuming everything applies everywhere.
+- When this page lists specific numbers (for example, log retention periods, patch timelines, or vendor review cadences), treat them as **our default engineering policies**. Adjust them only through a documented risk assessment and approval workflow.
+- Keep this document and the underlying controls in sync with upstream standards by reviewing it at least annually, or whenever a major version of a referenced framework or regulation changes.

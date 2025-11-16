@@ -1,5 +1,7 @@
 # Capacity Planning
 
+**Scope.** This page describes sprint capacity planning for cross-functional software development teams in this program. Capacity numbers are examples based on agile practice and must be calibrated with each team's historical data and context.
+
 ## Team Capacity Overview
 
 This page helps teams plan their sprint capacity based on availability, holidays, and other commitments. Accurate capacity planning ensures realistic sprint commitments and sustainable pace.
@@ -332,3 +334,10 @@ $expectedSP = 416 × 0.06 = ~25 story points
 ### Team Health & Sustainability
 - [Sustainable Pace in Agile](https://www.scaledagileframework.com/sustainable-pace/)
 - [Avoiding Burnout in Software Teams](https://hbr.org/2021/04/how-to-avoid-burnout-on-your-software-development-team)
+
+### Using these numbers safely
+
+- Treat the productive-development percentage (for example, 80%) and time allocations for meetings, reviews, learning, and support as **starting heuristics**, not universal standards.
+- Use **capacity** (available hours considering holidays, meetings, and on-call) to shape the sprint commitment, and **velocity** (average completed story points from past sprints) to validate that commitment.
+- Recompute the story-points-per-hour ratio from your own history at least once per quarter; do not reuse the values in this example if your team composition or workflow has changed.
+- When utilization is consistently close to 100%, reduce committed scope rather than increasing nominal capacity to keep a sustainable pace.

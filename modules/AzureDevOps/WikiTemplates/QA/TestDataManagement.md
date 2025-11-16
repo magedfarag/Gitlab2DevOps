@@ -1,5 +1,7 @@
 # Test Data Management
 
+**Scope.** This guide defines how we design, secure, and operate test data for this product's software systems, with a strict rule that real production personal data is not copied into non-production environments.
+
 Best practices for creating, managing, and maintaining test data across all testing phases.
 
 ---
@@ -432,3 +434,9 @@ public class TestDataVersionManager
 - [GDPR and Test Data](https://gdpr.eu/test-data/)
 - [Anonymization vs Pseudonymization](https://www.nist.gov/privacy-framework)
 - [Synthetic Data Generation](https://en.wikipedia.org/wiki/Synthetic_data)
+
+### Compliance and privacy notes
+
+- External privacy regulations (such as GDPR and similar frameworks) expect controllers to minimise the use of personal data in development and test environments and to apply appropriate security controls when any personal data is processed.
+- Our default policy is stricter: we do not use live production personal data in non-production. Instead we rely on synthetic, masked, or anonymised data generated using the patterns described in this guide.
+- If an exception is ever required, it must go through a documented risk assessment and data-protection review before any copy of live data is created, and the same technical and organisational controls as production must apply.

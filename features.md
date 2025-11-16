@@ -1,185 +1,228 @@
-# Features
+# GitLab to Azure DevOps Migration Tool - Features
 
-## Migration Automation
+## Overview
 
-### Single Project Migration (`modules/Migration/Workflows/SingleMigration.psm1`)
-- Pre-migration validation via `New-MigrationPreReport`, producing `pre-migration-report.json` and blocking on missing prerequisites.
-- Automatic removal of the Azure DevOps default repository (when present) before provisioning a clean target via `Remove-AdoDefaultRepository`.
-- Repository provisioning/push flow: create or reuse the repo, clone cached GitLab mirror, push all refs/tags with PAT-authenticated remotes, and clean credentials on completion.
-- Branch governance: applies minimum-reviewer, work-item-link, and comment-resolution policies plus optional build/status checks on the default branch.
-- Observability per run: structured log file (`logs/migration-*.log`), success/error JSON summaries, HTML project report, refreshed `migrations/index.html`, and optional init summary metrics.
+The GitLab to Azure DevOps Migration Tool is an enterprise-grade solution for migrating GitLab projects to Azure DevOps Server (on-premises) or Azure DevOps Cloud. The tool provides comprehensive migration capabilities with full project initialization, governance, and team collaboration features.
 
-### Bulk Preparation & Execution (`Prepare-MigrationsFromConfig.ps1`, `modules/Migration/Workflows/BulkMigration.psm1`)
-- Option 8 triggers unattended preparation from `projects.json`, resolves config paths automatically, and forces refreshes for every listed GitLab path.
-- Bulk preparation stores per-project metadata, cached repos, and a consolidated `bulk-migration-config.json` with size, LFS, branch, and status data.
-- Bulk execution reuses `Invoke-SingleMigration` per repository, captures execution logs, appends `migration_results`, and writes an `execution_summary` plus `bulk-execution-init-summary.json`.
-- Per-project HTML status pages are regenerated after each successful bulk migration alongside the portfolio dashboard.
+## Core Migration Capabilities
 
-### Unattended Migration Run (Interactive Option 9, `modules/Migration/Menu/Menu.psm1`)
-- Discovers all prepared single and bulk entries via `Get-PreparedProjects`, skipping anything already marked as migrated.
-- Temporarily suppresses confirmation prompts/WhatIf to enable headless execution.
-- Handles single and bulk preparations in the same batch, recording success/failure counts and printing a run summary.
-- When the prepared item is **single-project**, Option 9 simply invokes `Invoke-SingleMigration`, so every capability listed in *Single Project Migration* (repo cleanup, policy enforcement, observability assets, etc.) is executed automatically with no functional differences from a manual run.
-- When the prepared item is **bulk**, Option 9 routes through `Invoke-BulkMigrationWorkflow`, which itself drives `Invoke-SingleMigration` for every repo during execution; as a result, the behaviors described in both the *Single Project Migration* and *Bulk Preparation & Execution* sections occur for each target Azure DevOps project.
-- After each successful migration (single or bulk), Option 9 now automatically applies **all** initialization packs (Business, Development, Security, Management) so every Azure DevOps project gets the full set of wikis, queries, dashboards, repo files, and readiness reports without any additional prompts.
-- Option 9 also auto-detects `migrations/{AdoProject}/requirements.xlsx` (or a custom override) and runs `Import-AdoWorkItemsFromExcel` so requirements captured in Excel are imported in the same unattended pass.
+### Single Project Migration
+- **Pre-migration validation** via `New-MigrationPreReport` - analyzes GitLab project compatibility and generates blocking issue reports
+- **Repository migration** with full Git history preservation (commits, branches, tags)
+- **Automatic cleanup** of Azure DevOps default repositories using `Remove-AdoDefaultRepository`
+- **Branch governance** enforcement with minimum reviewer policies, work item linking, and comment resolution requirements
+- **Build validation** integration with optional external status checks (SonarQube, etc.)
+- **Comprehensive observability** with structured logging, JSON summaries, HTML reports, and portfolio dashboards
 
-## Identity Management Options (`docs/USER_EXPORT_IMPORT.md`)
+### Bulk Migration Workflow
+- **Bulk preparation** from `projects.json` configuration files with automatic path resolution
+- **Parallel processing** of multiple GitLab projects with consolidated metadata storage
+- **Bulk execution** reusing single-project migration logic for consistency
+- **Portfolio reporting** with per-project HTML status pages and consolidated dashboards
+- **Error resilience** with individual project failure handling and summary reporting
 
-- **Option 5 – Export User Information**
-  - Profiles: Minimal (users/groups), Standard (+projects), Complete (+all memberships).
-  - Outputs timestamped folders containing `users.json`, `groups.json`, `projects.json`, `group-memberships.json`, `project-memberships.json`, `metadata.json`, and `export.log`.
-- **Option 6 – Import User Information**
-  - Modes: Dry Run (preview) or Execute (apply changes).
-  - Validates source files, creates Azure DevOps groups, and maps memberships based on earlier exports.
+### Unattended Batch Migration (Option 9)
+- **Automated discovery** of all prepared migration projects via `Get-PreparedProjects`
+- **Headless execution** with suppressed interactive prompts for CI/CD integration
+- **Complete project enhancement** - automatically applies all four team initialization packs (Business, Development, Security, Management) after successful migration
+- **Excel work item import** - auto-detects `requirements.xlsx` files and populates backlogs using `Import-AdoWorkItemsFromExcel`
+- **Progress tracking** with success/failure counts and detailed execution summaries
 
-## Initialization & Team Packs (`modules/Migration/TeamPacks/TeamPacks.psm1`)
+## Command Line Interface (CLI) Operations
 
-### Business Pack
-- **Wiki pages**
-  - [x] Business-Welcome
-  - [x] Decision-Log
-  - [x] Risks-Issues
-  - [x] Glossary
-  - [x] Ways-of-Working
-  - [x] KPIs-and-Success
-  - [x] Training-Quick-Start
-  - [x] Communication-Templates
-  - [x] Post-Cutover-Summary
-- **Shared queries**
-  - [x] My Active Work
-  - [x] Team Backlog
-  - [x] Active Bugs
-  - [x] Ready for Review
-  - [x] Blocked Items
-  - [x] Current Sprint Commitment
-  - [x] Unestimated Stories
-  - [x] Epics by Target Date
-- Seeds three 2-week iterations, provisions a stakeholder dashboard, updates the project summary wiki, and saves `business-init-summary.json` plus `business-init-metrics.json`.
+The tool supports comprehensive CLI operations for automation and scripting scenarios:
 
-### Development Pack
-- **Wiki pages**
-  - [x] Architecture-Decision-Records
-  - [x] Development-Setup
-  - [x] API-Documentation
-  - [x] Git-Workflow
-  - [x] Code-Review-Checklist
-  - [x] Troubleshooting
-  - [x] Dependencies
-- **Queries**
-  - [x] My PRs Awaiting Review
-  - [x] PRs I Need to Review
-  - [x] Technical Debt
-  - [x] Recently Completed
-  - [x] Code Review Feedback
-- **Repository files**
-  - [x] `.gitignore` (project-type aware)
-  - [x] `.editorconfig`
-  - [x] `CONTRIBUTING.md`
-  - [x] `CODEOWNERS`
-- Generates a development dashboard, updates the summary wiki, and writes `dev-init-summary.json` plus `dev-init-metrics.json`.
+### CLI Mode Operations
+- **Preflight**: `.\Gitlab2DevOps.ps1 -Mode Preflight -Source "group/project"` - Pre-migration analysis without execution
+- **Initialize**: `.\Gitlab2DevOps.ps1 -Mode Initialize -Source "group/project" -Project "MyProject"` - Project setup with governance
+- **Migrate**: `.\Gitlab2DevOps.ps1 -Mode Migrate -Source "group/project" -Project "MyProject"` - Complete single project migration
+- **BulkPrepare**: `.\Gitlab2DevOps.ps1 -Mode BulkPrepare` - Interactive bulk preparation workflow
+- **BulkMigrate**: `.\Gitlab2DevOps.ps1 -Mode BulkMigrate` - Execute bulk migration from prepared configuration
 
-### Security Pack
-- **Wiki pages**
-  - [x] Security-Policies
-  - [x] Threat-Modeling-Guide
-  - [x] Security-Testing-Checklist
-  - [x] Incident-Response-Plan
-  - [x] Compliance-Requirements
-  - [x] Secret-Management
-  - [x] Security-Champions-Program
-- **Queries**
-  - [x] Security Bugs (Priority 0-1)
-  - [x] Vulnerability Backlog
-  - [x] Security Review Required
-  - [x] Compliance Items
-  - [x] Security Debt
-- **Repository files**
-  - [x] `SECURITY.md`
-  - [x] `security-scan-config.yml`
-  - [x] `.trivyignore`
-  - [x] `.snyk`
-- Adds a security dashboard, updates the summary wiki, and captures `security-init-summary.json` plus `security-init-metrics.json`.
+### Team Initialization Modes
+- **BusinessInit**: `.\Gitlab2DevOps.ps1 -Mode BusinessInit -Project "MyProject"` - Business team resources and processes
+- **DevInit**: `.\Gitlab2DevOps.ps1 -Mode DevInit -Project "MyProject"` - Development team tools and workflows
+- **SecurityInit**: `.\Gitlab2DevOps.ps1 -Mode SecurityInit -Project "MyProject"` - Security policies and scanning
+- **ManagementInit**: `.\Gitlab2DevOps.ps1 -Mode ManagementInit -Project "MyProject"` - PMO and executive reporting
 
-### Management Pack
-- **Wiki pages**
-  - [x] Program-Overview
-  - [x] Sprint-Planning
-  - [x] Capacity-Planning
-  - [x] Roadmap
-  - [x] RAID-Log
-  - [x] Stakeholder-Communications
-  - [x] Retrospectives
-  - [x] Metrics-Dashboard
-- **Queries**
-  - [x] Program Status
-  - [x] Sprint Progress
-  - [x] Active Risks
-  - [x] Open Issues
-  - [x] Cross-Team Dependencies
-  - [x] Milestone Tracker
-- Produces a leadership dashboard, updates the summary wiki, and emits `management-init-summary.json` plus `management-init-metrics.json`.
+### CLI Control Flags
+- **`-Force`**: Override preflight validation and blocking issues
+- **`-Replace`**: Destructive repository recreation (removes existing repository)
+- **`-AllowSync`**: Enable synchronization of existing repositories
+- **`-WhatIf`**: Preview mode without executing changes
 
-## Work Item Templates (`docs/WORK_ITEM_TEMPLATES.md`)
-- [x] **User Story – DoR/DoD:** includes Definition of Ready/Done checklists, acceptance criteria blocks, and Gherkin-ready sections.
-- [x] **Task – Implementation:** prescribes implementation checklist, remaining work tracking, and dependency notes.
-- [x] **Bug – Triaging & Resolution:** enforces structured repro steps, severity/priority fields, and environment capture.
-- [x] **Epic – Strategic Initiative:** captures success metrics, scope breakdown, and risk assessment.
-- [x] **Feature – Product Capability:** standardizes requirement decomposition and user value articulation.
-- [x] **Test Case – Quality Validation:** prepopulates test steps, prerequisites, and validation criteria.
+### Authentication & Configuration
+- **GitLab**: `-GitLabToken` parameter or `$env:GITLAB_PAT` environment variable
+- **Azure DevOps**: `-AdoPat` parameter or `$env:ADO_PAT` environment variable
+- **Base URLs**: `-GitLabBaseUrl` and `-AdoBaseUrl` for custom endpoints
+- **SSL Handling**: Automatic fallback to `curl -k` for on-premise servers with certificate issues
+
+## Identity Management (Options 5 & 6)
+
+### Export User Information (Option 5)
+- **Export profiles**: Minimal (users/groups), Standard (+projects), Complete (+memberships)
+- **Output formats**: Timestamped JSON files with metadata and operation logs
+- **Offline operation**: GitLab-only connectivity, no Azure DevOps dependency
+- **Incremental exports**: Multiple export runs supported for data updates
+
+### Import User Information (Option 6)
+- **Preview mode**: Dry-run capability to validate import operations
+- **Azure DevOps integration**: Creates groups and manages memberships
+- **User resolution**: Requires users to exist in Active Directory/Azure AD
+- **Validation**: Pre-import file existence and format checking
+
+## Team Initialization Packs
+
+### Business Team Pack
+**Wiki Pages** (9 total):
+- Business-Welcome, Decision-Log, Risks-Issues, Glossary
+- Ways-of-Working, KPIs-and-Success, Training-Quick-Start
+- Communication-Templates, Post-Cutover-Summary
+
+**Shared Queries** (8 total):
+- My Active Work, Team Backlog, Active Bugs, Ready for Review
+- Blocked Items, Current Sprint Commitment, Unestimated Stories, Epics by Target Date
+
+**Additional Features**:
+- 3-week iteration seeding, stakeholder dashboard creation
+- Project summary wiki updates with `business-init-summary.json` and metrics reporting
+
+### Development Team Pack
+**Wiki Pages** (7 total):
+- Architecture-Decision-Records, Development-Setup, API-Documentation
+- Git-Workflow, Code-Review-Checklist, Troubleshooting, Dependencies
+
+**Shared Queries** (5 total):
+- My PRs Awaiting Review, PRs I Need to Review, Technical Debt
+- Recently Completed, Code Review Feedback
+
+**Repository Files** (4 total):
+- `.gitignore` (project-type aware), `.editorconfig`, `CONTRIBUTING.md`, `CODEOWNERS`
+
+**Additional Features**:
+- Development dashboard creation, project summary updates
+- Project type detection for appropriate `.gitignore` templates
+
+### Security Team Pack
+**Wiki Pages** (7 total):
+- Security-Policies, Threat-Modeling-Guide, Security-Testing-Checklist
+- Incident-Response-Plan, Compliance-Requirements, Secret-Management, Security-Champions-Program
+
+**Shared Queries** (5 total):
+- Security Bugs (Priority 0-1), Vulnerability Backlog, Security Review Required
+- Compliance Items, Security Debt
+
+**Repository Files** (4 total):
+- `SECURITY.md`, `security-scan-config.yml`, `.trivyignore`, `.snyk`
+
+**Additional Features**:
+- Security dashboard creation, compliance artifact scaffolding
+- Shift-left security practices integration
+
+### Management Team Pack
+**Wiki Pages** (8 total):
+- Program-Overview, Sprint-Planning, Capacity-Planning, Roadmap
+- RAID-Log, Stakeholder-Communications, Retrospectives, Metrics-Dashboard
+
+**Shared Queries** (6 total):
+- Program Status, Sprint Progress, Active Risks, Open Issues
+- Cross-Team Dependencies, Milestone Tracker
+
+**Additional Features**:
+- Executive dashboard creation, PMO infrastructure setup
+- Program management and stakeholder reporting capabilities
+
+### Team Pack Enhancement (Option 7)
+- **Existing project discovery**: Lists all available Azure DevOps projects
+- **Individual pack selection**: Choose specific packs or install all simultaneously
+- **Idempotent operations**: Safe re-application to existing projects
+- **Project validation**: Verifies project existence before enhancement
+
+## Work Item Management
+
+### Work Item Templates
+Comprehensive templates for all Agile process work item types:
+- **User Story**: Definition of Ready/Done checklists, acceptance criteria, Gherkin-ready sections
+- **Task**: Implementation checklists, work tracking, dependency management
+- **Bug**: Structured reproduction steps, severity/priority fields, environment capture
+- **Epic**: Success metrics, scope breakdown, risk assessment
+- **Feature**: Requirement decomposition, user value articulation
+- **Test Case**: Test steps, prerequisites, validation criteria
+
+### Excel Work Item Import
+- **Spreadsheet processing**: Reads `.xlsx`/`.xls` files with custom worksheet support
+- **Hierarchical relationships**: Epic → Feature → User Story → Test Case parent-child linking
+- **Work item type mapping**: Automatic mapping to Azure DevOps process templates (Agile, Scrum, CMMI, Basic)
+- **Field mapping**: Core fields (Title, Description, State, Priority, Assigned To)
+- **Agile fields**: Story Points, Business Value, Value Area, Risk
+- **Scheduling fields**: Start/Finish/Target/Due dates, Original/Remaining/Completed work
+- **Test case fields**: Excel format test steps with expected results
+- **Project integration**: Automatic area/iteration setup and current sprint assignment
+- **Safety features**: Idempotent operations, cycle detection, validation, progress tracking
 
 ## Repository Governance & Security
-- Default repository cleanup for new projects ensures migrations always target an empty Git repo.
-- Consistent enforcement of required reviewer, work-item-link, and comment-resolution policies, plus optional build validation and external status checks.
-- Security-specific repo scaffolding (scan configs, Trivy, Snyk) keeps compliance artifacts in source control.
+
+### Repository Lifecycle Management
+- **Default repository cleanup**: Automatic removal of auto-created repositories in new projects
+- **Branch policy enforcement**: Minimum reviewers, work item linking, comment resolution
+- **Build validation**: Optional CI/CD integration with status checks
+- **Security scanning**: Repository-level security configuration and compliance artifacts
+
+### Security-First Repository Setup
+- **Compliance artifacts**: SECURITY.md, scan configurations, ignore files
+- **Vulnerability management**: Trivy and Snyk integration setup
+- **Security champions**: Program documentation and team structure
+- **Threat modeling**: Integrated security assessment frameworks
 
 ## Reporting & Observability
-- Per-migration assets: `preflight-report.json`, `migration-summary.json`, `migration-error.json`, HTML status pages, `migration-init-summary.json`, and structured logs.
-- Portfolio-level assets: auto-refreshed `migrations/index.html`, bulk execution summaries, and init metrics for each team pack.
-- User export/import logs and metadata capture traceability for identity migrations.
 
-## Excel Work Item Import (`modules/AzureDevOps/WorkItems.psm1`)
+### Per-Migration Artifacts
+- **Structured logging**: `logs/migration-*.log` with execution timelines
+- **JSON summaries**: `migration-summary.json`, `migration-error.json`
+- **HTML status pages**: Individual project migration reports
+- **Initialization metrics**: `*-init-summary.json` and `*-init-metrics.json` files
 
-### Requirements.xlsx Processing
-- **Excel File Reading**: Reads work items from Excel spreadsheets (.xlsx/.xls format) with support for custom worksheet names (defaults to "Requirements")
-- **Hierarchical Work Item Creation**: Supports parent-child relationships using LocalId/ParentLocalId columns for Epic → Feature → User Story → Test Case hierarchies
-- **Work Item Type Resolution**: Automatically maps Excel work item types to Azure DevOps project-available types (Agile, Scrum, CMMI, Basic process templates)
-- **Field Mapping**: Comprehensive field support including:
-  - Core fields: Title, Description, State, Priority, Assigned To
-  - Agile fields: Story Points, Business Value, Value Area, Risk
-  - Scheduling: Start Date, Finish Date, Target Date, Due Date, Original Estimate, Remaining Work, Completed Work
-  - Test Case fields: Test Steps (Excel format: "step1|expected1;;step2|expected2")
-  - Custom fields: Tags, Effort tracking, Business-specific fields
+### Portfolio-Level Reporting
+- **Overview dashboard**: Auto-refreshed `migrations/index.html` with project status
+- **Bulk execution summaries**: Consolidated results across multiple projects
+- **Team pack metrics**: Initialization success tracking and feature adoption
+- **User export/import logs**: Identity migration traceability
 
-### Azure DevOps Integration
-- **Project Context Detection**: Automatically determines project areas, iterations, and team settings
-- **Classification Node Management**: Creates default Area and Iteration structures if missing (with fallback to project root)
-- **Current Iteration Assignment**: Attempts to assign work items to current team sprint when available
-- **Work Item Relationships**: Establishes parent-child links between imported work items
-- **Idempotent Operations**: Safely handles re-imports without creating duplicates
-- **Error Handling**: Comprehensive error reporting with debug logs for failed imports
-- [x] Option 9 automatically triggers Excel import (worksheet `Requirements`) for each migrated project when `migrations/{Project}/requirements.xlsx` exists, so unattended runs populate the backlog without manual intervention.
+## Technical Architecture
 
-### Validation & Safety Features
-- **Excel File Validation**: Validates file existence and format before processing
-- **Field Validation**: Checks allowed values for State, Priority, and custom fields against Azure DevOps project rules
-- **Cycle Detection**: Prevents circular parent-child relationships
-- **Progress Tracking**: Real-time progress reporting with success/error counts
-- **Debug Diagnostics**: Detailed failure logs with JSON payloads for troubleshooting
+### Module Organization
+- **Core modules**: REST API foundation with SSL/TLS fallback, logging framework
+- **GitLab integration**: Clean API client with no Azure DevOps dependencies
+- **Azure DevOps operations**: Focused modules for projects, repositories, work items, wikis
+- **Migration workflows**: Orchestration logic coordinating GitLab → Azure DevOps transformations
+- **Team packs**: Specialized initialization modules for different team types
 
-### Usage Examples
-```powershell
-# Basic import with default settings
-Import-AdoWorkItemsFromExcel -Project "MyProject" -ExcelPath "C:\requirements.xlsx"
+### Error Handling & Resilience
+- **SSL/TLS compatibility**: Automatic curl fallback for on-premise certificate issues
+- **Idempotent operations**: Safe re-execution without duplicate creation
+- **Graceful degradation**: Best-effort mode for testing and partial environments
+- **Comprehensive validation**: Pre-flight checks and blocking issue detection
 
-# Advanced import with custom worksheet and API version
-Import-AdoWorkItemsFromExcel -Project "MyProject" -ExcelPath "C:\reqs.xlsx" -WorksheetName "Sprint1" -ApiVersion "6.0"
-```
+### Security & Compliance
+- **Credential masking**: Secure token handling with `Hide-Secret` functionality
+- **Audit trails**: Complete operation logging with timestamps
+- **Access control**: PAT-based authentication with minimal required permissions
+- **Data protection**: Local processing with no external data transmission
 
-### Expected Excel Format
-| LocalId | WorkItemType | Title | ParentLocalId | State | Priority | Description | StoryPoints | Tags |
-|---------|--------------|-------|---------------|-------|----------|-------------|-------------|------|
-| E1 | Epic | User Management | | New | 1 | Epic for user features | | epic |
-| F1 | Feature | Authentication | E1 | New | 2 | Login/logout features | | feature |
-| US1 | User Story | User Login | F1 | Active | 3 | As a user I can log in | 5 | frontend |
-| TC1 | Test Case | Login Test | US1 | Design | 2 | Test login functionality | | test |
+## Integration & Automation
+
+### CI/CD Pipeline Integration
+- **Headless execution**: Full automation support via CLI modes
+- **Exit codes**: Success/failure status for pipeline integration
+- **Log aggregation**: Structured output for monitoring systems
+- **Configuration management**: Environment variable and parameter-based setup
+
+### Enterprise Deployment
+- **On-premise compatibility**: Azure DevOps Server support with SSL handling
+- **Active Directory integration**: User identity mapping and group management
+- **Scalability**: Bulk operations for large-scale migrations
+- **Monitoring**: Comprehensive reporting for enterprise governance
+
+---
+
+*This tool focuses on Git repository migration with full history preservation. Issues, merge requests, CI/CD pipelines, and project settings require separate handling as they involve different data models and manual recreation.*

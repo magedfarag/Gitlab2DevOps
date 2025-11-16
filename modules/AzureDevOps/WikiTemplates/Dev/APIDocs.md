@@ -1,5 +1,7 @@
 # API Documentation
 
+**Scope.** This page is the canonical reference for this product's HTTP APIs. It complements the OpenAPI/Swagger specification and focuses on how clients should integrate with the service.
+
 Comprehensive guide to the project's APIs and integration contracts.
 
 ## API Overview
@@ -234,3 +236,9 @@ GET /api/users?sort=name:asc,createdAt:desc
 - [REST API Tutorial](https://restfulapi.net/)
 - [Swagger/OpenAPI Tools](https://swagger.io/tools/)
 - [API Documentation Best Practices](https://swagger.io/blog/api-documentation/best-practices-in-api-documentation/)
+
+### Conventions and defaults
+
+- Endpoints follow common RESTful design practices: resource-oriented URLs, plural nouns, and standard HTTP verbs and status codes.
+- Rate limits, header names, and deprecation windows shown here are default team values. Adjust them per product SLOs and regulatory requirements.
+- Keep this document in sync with the generated OpenAPI specification. When you change an API, update both the implementation and the OpenAPI contract in the same pull request.

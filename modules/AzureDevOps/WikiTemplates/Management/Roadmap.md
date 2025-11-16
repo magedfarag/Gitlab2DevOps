@@ -1,5 +1,7 @@
 # Product Roadmap
 
+**Scope.** This roadmap outlines the planned evolution of this software product using themed epics, time horizons (Now / Next / Later / Future), and a RICE-based prioritization model.
+
 ## Vision & Strategy
 
 ### Product Vision
@@ -350,3 +352,10 @@ We re-evaluate the roadmap:
 ### Strategy & Vision
 - [Product Strategy Guide](https://www.svpg.com/product-strategy-overview/)
 - [Customer Development](https://steveblank.com/2014/06/28/customer-development-manifesto/)
+
+### Roadmap conventions
+
+- Items in **Now** represent committed or in-flight work for the current or next quarter. **Next** and **Later** indicate intent and direction rather than fixed delivery dates.
+- The **RICE** scores in this document are comparative tools to support discussion, not absolute truth. When new information appears, re-score and re-prioritize.
+- Treat the roadmap as a **communication artefact** for stakeholders: it should explain why priorities are chosen, not just list features.
+- Keep roadmap and backlog in sync. When a roadmap item moves or changes meaningfully, ensure the underlying epics and user stories in the backlog are updated as well.

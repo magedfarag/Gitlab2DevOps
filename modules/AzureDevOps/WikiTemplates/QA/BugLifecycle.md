@@ -1,5 +1,7 @@
 # Bug Lifecycle & Quality Metrics
 
+**Scope.** This guide defines the defect lifecycle, severity and priority scheme, and quality metrics for this product's software. States and metric formulas follow common testing practice; all SLAs and numeric targets here are default team policies, not industry standards.
+
 Comprehensive guide for managing defects and tracking quality metrics throughout the development lifecycle.
 
 ---
@@ -119,22 +121,22 @@ Fix Approach:
 **P0 - Blocker**
 - Must fix before release
 - Blocks testing or development
-**SLA**: Fix within 4 hours
+**SLA (team default)**: Fix within 4 hours
 
 **P1 - High**
 - Should fix before release
 - Significant impact
-**SLA**: Fix within 24 hours
+**SLA (team default)**: Fix within 24 hours
 
 **P2 - Medium**
 - Can be fixed in next sprint
 - Moderate impact
-**SLA**: Fix within 1 week
+**SLA (team default)**: Fix within 1 week
 
 **P3 - Low**
 - Nice to fix eventually
 - Minimal impact
-**SLA**: Fix when capacity allows
+**SLA (team default)**: Fix when capacity allows
 
 ### Severity vs Priority Matrix
 
@@ -169,7 +171,7 @@ Example:
 - 5 defects found in production
 - DRE = 40/(40+5) × 100% = 88.9%
 
-Target: > 90%
+Target (team default): > 90%
 ```
 
 **Defect Leakage**
@@ -181,7 +183,7 @@ Example:
 - 45 total defects
 - Leakage = 5/45 × 100% = 11.1%
 
-Target: < 5%
+Target (team default): < 5%
 ```
 
 ### Testing Metrics
@@ -191,7 +193,7 @@ Target: < 5%
 Code Coverage = (Lines Executed / Total Lines) × 100%
 Requirements Coverage = (Requirements Tested / Total Requirements) × 100%
 
-Targets:
+Targets (team defaults):
 - Unit Test Coverage: > 80%
 - Requirements Coverage: 100% for P0/P1
 ```
@@ -380,3 +382,9 @@ Action Items:
 - [Bug Life Cycle (ISTQB)](https://www.istqb.org/)
 - [Root Cause Analysis Techniques](https://asq.org/quality-resources/root-cause-analysis)
 - [IEEE Severity vs Priority](https://ieeexplore.ieee.org/)
+
+### Notes on metrics and targets
+
+- Definitions for defect density, defect removal efficiency (DRE), defect leakage, coverage, and MTTR follow common software-testing practice (for example, defects per KLOC or story point).
+- The thresholds in this document (for example, DRE ≥ 90%, leakage < 5%, coverage ≥ 80%, MTTR < 4 hours) are starting targets for this team. Calibrate them using historical baselines, system criticality, contractual SLAs, and regulatory obligations.
+- Use these metrics to reveal trends and weak spots in the delivery process, not to rank individual engineers.
