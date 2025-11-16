@@ -586,10 +586,53 @@ function Initialize-ManagementInit {
     New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wikiId
 }
 
+# Helper: apply every team pack sequentially (Business, Dev, Security, Management)
+function Invoke-AllTeamPacks {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ProjectName
+    )
+
+    Write-Host ""
+    Write-Host "[INFO] Provisioning complete feature set for '$ProjectName'..." -ForegroundColor Cyan
+
+    $packs = @(
+        @{
+            Name   = "Business"
+            Action = { Initialize-BusinessInit -DestProject $ProjectName }
+        },
+        @{
+            Name   = "Development"
+            Action = { Initialize-DevInit -DestProject $ProjectName -ProjectType 'all' }
+        },
+        @{
+            Name   = "Security"
+            Action = { Initialize-SecurityInit -DestProject $ProjectName }
+        },
+        @{
+            Name   = "Management"
+            Action = { Initialize-ManagementInit -DestProject $ProjectName }
+        }
+    )
+
+    foreach ($pack in $packs) {
+        try {
+            Write-Host "[INFO] Applying $($pack.Name) pack..." -ForegroundColor Cyan
+            & $pack.Action
+            Write-Host "[SUCCESS] $($pack.Name) pack completed." -ForegroundColor Green
+        }
+        catch {
+            Write-Host "[WARN] $($pack.Name) pack failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+}
+
 # Export public functions
 Export-ModuleMember -Function @(
     'Initialize-BusinessInit',
     'Initialize-DevInit',
     'Initialize-SecurityInit',
-    'Initialize-ManagementInit'
+    'Initialize-ManagementInit',
+    'Invoke-AllTeamPacks'
 )

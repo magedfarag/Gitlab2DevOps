@@ -211,7 +211,20 @@ function Search-Adodashboard {
                 break
             }
             catch {
+                $statusMessage = $null
+                try {
+                    if ($_.Exception -and $_.Exception.Response) {
+                        $statusMessage = "$([int]$_.Exception.Response.StatusCode) $($_.Exception.Response.StatusDescription)"
+                    }
+                }
+                catch { $statusMessage = $null }
                 Write-LogLevelVerbose "[Search-Adodashboard] Dashboard GET failed for endpoint $ep - trying next. Error: $_"
+                if ($statusMessage) {
+                    Write-Warning "[Search-Adodashboard] GET $ep failed ($statusMessage)."
+                }
+                else {
+                    Write-Warning "[Search-Adodashboard] GET $ep failed: $($_.Exception.Message)"
+                }
             }
         }
 
@@ -386,7 +399,20 @@ function Search-Adodashboard {
                     }
                 }
 
+                $statusMessage = $null
+                try {
+                    if ($_.Exception -and $_.Exception.Response) {
+                        $statusMessage = "$([int]$_.Exception.Response.StatusCode) $($_.Exception.Response.StatusDescription)"
+                    }
+                }
+                catch { $statusMessage = $null }
                 Write-LogLevelVerbose "[Search-Adodashboard] Dashboard POST failed for endpoint $ep - trying next. Error: $_"
+                if ($statusMessage) {
+                    Write-Warning "[Search-Adodashboard] POST $ep failed while creating dashboard '$dashboardName' ($statusMessage)."
+                }
+                else {
+                    Write-Warning "[Search-Adodashboard] POST $ep failed while creating dashboard '$dashboardName': $($_.Exception.Message)"
+                }
             }
         }
         

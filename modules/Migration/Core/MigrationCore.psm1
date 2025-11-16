@@ -195,6 +195,102 @@ function Get-PreparedProjects {
 
 <#
 .SYNOPSIS
+    Generates a pre-migration validation report and saves it to disk.
+
+.DESCRIPTION
+    Collects GitLab project details and Azure DevOps repository state so that
+    subsequent migration runs can operate without reconnecting to GitLab.
+
+.PARAMETER GitLabPath
+    GitLab project path (group/project).
+
+.PARAMETER AdoProject
+    Azure DevOps project name.
+
+.PARAMETER AdoRepoName
+    Azure DevOps repository name.
+
+.PARAMETER OutputPath
+    Destination path for the generated report.
+
+.PARAMETER AllowSync
+    Indicates whether repository sync (updating an existing repo) is allowed.
+#>
+function New-MigrationPreReport {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$GitLabPath,
+        [Parameter(Mandatory)] [string]$AdoProject,
+        [Parameter(Mandatory)]
+        [ValidateScript({
+            Test-AdoRepositoryName $_ -ThrowOnError
+            $true
+        })]
+        [string]$AdoRepoName,
+        [string]$OutputPath = (Join-Path (Get-Location) "migration-precheck-$((Get-Date).ToString('yyyyMMdd-HHmmss')).json"),
+        [switch]$AllowSync
+    )
+
+    Write-Host "[INFO] Generating pre-migration report..." -ForegroundColor Cyan
+
+    $gl = Get-GitLabProject $GitLabPath
+
+    $adoProjects = Invoke-AdoRest GET "/_apis/projects?`$top=5000"
+    $adoProj = $adoProjects.value | Where-Object { $_.name -eq $AdoProject }
+
+    $repoExists = $false
+    if ($adoProj) {
+        $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($AdoProject))/_apis/git/repositories"
+        $repoExists = $repos.value | Where-Object { $_.name -eq $AdoRepoName }
+    }
+
+    $report = [pscustomobject]@{
+        timestamp              = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        gitlab_path            = $GitLabPath
+        gitlab_size_mb         = if ($gl -and $gl.statistics) { [math]::Round(($gl.statistics.repository_size / 1MB), 2) } else { 0 }
+        gitlab_lfs_enabled     = if ($gl -and ($gl.PSObject.Properties.Name -contains 'lfs_enabled')) { $gl.lfs_enabled } else { $false }
+        gitlab_visibility      = if ($gl -and $gl.visibility) { $gl.visibility } else { 'private' }
+        gitlab_default_branch  = if ($gl -and $gl.default_branch) { $gl.default_branch } else { '' }
+        ado_project            = $AdoProject
+        ado_project_exists     = [bool]$adoProj
+        ado_repo_name          = $AdoRepoName
+        ado_repo_exists        = [bool]$repoExists
+        sync_mode              = $AllowSync
+        ready_to_migrate       = if ($AllowSync) { [bool]$adoProj } else { ($adoProj -and -not $repoExists) }
+        blocking_issues        = @()
+    }
+
+    if (-not $adoProj) {
+        $report.blocking_issues += "Azure DevOps project '$AdoProject' does not exist"
+    }
+    if ($repoExists -and -not $AllowSync) {
+        $report.blocking_issues += "Repository '$AdoRepoName' already exists in project '$AdoProject'. Use -AllowSync to update existing repository."
+    }
+    elseif ($repoExists -and $AllowSync) {
+        Write-Host "[INFO] Sync mode enabled: Repository '$AdoRepoName' will be updated with latest changes from GitLab" -ForegroundColor Yellow
+    }
+
+    $report | ConvertTo-Json -Depth 5 | Set-Content -Path $OutputPath -Encoding UTF8
+    Write-Host "[INFO] Pre-migration report written to $OutputPath"
+
+    Write-Host "[INFO] Pre-migration Summary:"
+    Write-Host "       GitLab: $GitLabPath ($($report.gitlab_size_mb) MB)"
+    Write-Host "       Azure DevOps: $AdoProject -> $AdoRepoName"
+    Write-Host "       Ready to migrate: $($report.ready_to_migrate)"
+
+    if ($report.blocking_issues.Count -gt 0) {
+        Write-Host "[ERROR] Blocking issues found:" -ForegroundColor Red
+        foreach ($issue in $report.blocking_issues) {
+            Write-Host "        - $issue" -ForegroundColor Red
+        }
+        throw "Precheck failed - resolve blocking issues before proceeding with migration."
+    }
+
+    return $report
+}
+
+<#
+.SYNOPSIS
     Loads wiki template content with fallback support.
 
 .DESCRIPTION
@@ -336,5 +432,6 @@ Tag work items by component for better tracking.
 # Export public functions
 Export-ModuleMember -Function @(
     'Get-PreparedProjects',
-    'Get-WikiTemplateContent'
+    'Get-WikiTemplateContent',
+    'New-MigrationPreReport'
 )

@@ -2048,15 +2048,18 @@ function Import-AdoWorkItemsFromExcel {
     # CollectionUrl logic removed; now .env-driven via Core.Rest
 
     Write-Host "[INFO] Importing work items from Excel: $ExcelPath" -ForegroundColor Cyan
+    Write-Warning "[DEBUG] Starting Import-AdoWorkItemsFromExcel function with Project: '$Project', ExcelPath: '$ExcelPath', WorksheetName: '$WorksheetName'"
 
     # Precompute escaped project token to avoid evaluating $Project in nested expressions
     $projEnc = if ($Project) { [uri]::EscapeDataString([string]$Project) } else { $null }
+    Write-Warning "[DEBUG] Precomputed projEnc: '$projEnc'"
 
     # Ensure function/local placeholders exist to avoid StrictMode terminating errors
     # when code paths reference these variables before they've been set (common in tests/mocks)
     if (-not (Get-Variable -Name orderedRows -Scope Local -ErrorAction SilentlyContinue)) { $orderedRows = @() }
     if (-not (Test-Path variable:script:relationshipsCreated)) { $script:relationshipsCreated = 0 }
     if (-not (Get-Variable -Name fieldCache -Scope Local -ErrorAction SilentlyContinue)) { $fieldCache = @{} }
+    Write-Warning "[DEBUG] Initialized local variables: orderedRows, relationshipsCreated, fieldCache"
 
     # Import Excel data. Do not proactively Import-Module -WarningAction SilentlyContinue here so that tests can mock Import-Excel freely.
     # Small wrapper to call Import-Excel via an indirection so Pester can mock Import-Excel reliably
@@ -2070,6 +2073,7 @@ function Import-AdoWorkItemsFromExcel {
 
     try {
         Write-LogLevelVerbose "Reading Excel file: $ExcelPath"
+        Write-Warning "[DEBUG] Attempting to read Excel file: '$ExcelPath' with worksheet: '$WorksheetName'"
         $rows = Invoke-ImportExcel -Path $ExcelPath -WorksheetName $WorksheetName
 
         # Normalize to array to handle single-row returns from Import-Excel
@@ -2081,13 +2085,16 @@ function Import-AdoWorkItemsFromExcel {
         }
 
         Write-Host "[INFO] Found $(@($rows).Count) rows in Excel" -ForegroundColor Cyan
+        Write-Warning "[DEBUG] Successfully read $(@($rows).Count) rows from Excel"
     }
     catch {
         Write-Host "[ERROR] Failed to read Excel file: $_" -ForegroundColor Red
+        Write-Warning "[DEBUG] Exception during Excel read: $($_.Exception.Message)"
         throw
     }
 
     # Clean Excel data to remove empty column names (resilient to blank columns in Excel)
+    Write-Warning "[DEBUG] Starting to clean Excel data rows"
     $cleanedRows = @()
     foreach ($row in $rows) {
         $clean = @{}
@@ -2098,6 +2105,7 @@ function Import-AdoWorkItemsFromExcel {
         $cleanedRows += [pscustomobject]$clean
     }
     $rows = $cleanedRows
+    Write-Warning "[DEBUG] Cleaned Excel data: $(@($rows).Count) rows after removing empty columns"
 
     $getLegacyActionIncludeName = {
         param([psobject]$ExcelRow)
@@ -2127,21 +2135,28 @@ function Import-AdoWorkItemsFromExcel {
 
     if ($legacyIncludeHits -gt 0) {
         Write-Host "[INFO] Legacy Action/Include column detected; importer now ignores this column and will import every row." -ForegroundColor Yellow
+        Write-Warning "[DEBUG] Removed $legacyIncludeHits legacy Action/Include columns"
     }
 
     # Parse LocalId and ParentLocalId prefixes according to mapping rules
+    Write-Warning "[DEBUG] Parsing LocalId and ParentLocalId for $(@($rows).Count) rows"
     foreach ($row in $rows) {
         if ($row.PSObject.Properties['LocalId'] -and $row.LocalId) {
-            $parsedLocalId = Convert-ExcelLocalId -LocalId $row.LocalId.ToString()
+            $originalLocalId = $row.LocalId.ToString()
+            $parsedLocalId = Convert-ExcelLocalId -LocalId $originalLocalId
             $row.LocalId = $parsedLocalId
+            Write-Warning "[DEBUG] Parsed LocalId: '$originalLocalId' -> $parsedLocalId"
         }
         if ($row.PSObject.Properties['ParentLocalId'] -and $row.ParentLocalId) {
-            $parsedParentLocalId = Convert-ExcelLocalId -LocalId $row.ParentLocalId.ToString()
+            $originalParentLocalId = $row.ParentLocalId.ToString()
+            $parsedParentLocalId = Convert-ExcelLocalId -LocalId $originalParentLocalId
             $row.ParentLocalId = $parsedParentLocalId
+            Write-Warning "[DEBUG] Parsed ParentLocalId: '$originalParentLocalId' -> $parsedParentLocalId"
         }
     }
     
     # Resolve and normalize WorkItemType values from Excel to ADO project types.
+    Write-Warning "[DEBUG] Resolving WorkItemType for $(@($rows).Count) rows"
     $resolvedRows = @()
     $skippedRows = @()
     $importErrors = @()
@@ -2161,11 +2176,14 @@ function Import-AdoWorkItemsFromExcel {
 
     foreach ($r in $rows) {
         $excelType = if ($r.WorkItemType) { $r.WorkItemType.ToString() } else { $null }
+        Write-Warning "[DEBUG] Resolving WorkItemType for row: Title='$($r.Title)', ExcelType='$excelType'"
         $resolved = Resolve-AdoWorkItemType -Project $Project -ExcelType $excelType
+        Write-Warning "[DEBUG] Resolved type: '$resolved' for ExcelType='$excelType'"
         if ($resolved) {
             # attach resolved type to row for later use
             $r | Add-Member -NotePropertyName ResolvedWorkItemType -NotePropertyValue $resolved -Force
             $resolvedRows += $r
+            Write-Warning "[DEBUG] Added resolved row to processing list: Title='$($r.Title)', ResolvedType='$resolved'"
         }
         else {
             $msg = "[SKIP] Row skipped: Title='$($r.Title)', WorkItemType='$excelType' (could not resolve to ADO type)"
@@ -2341,34 +2359,34 @@ function Import-AdoWorkItemsFromExcel {
 
             # Step 1: Create root area node named after the project (skip if disabled)
             try {
-                Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Creating root area node for project: $displayProject (disableAreaCreation=$disableAreaCreation)"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Creating root area node for project: $displayProject (disableAreaCreation=$disableAreaCreation)"
                 if (-not $disableAreaCreation) {
                     Invoke-AdoRest POST "/$projEnc/_apis/wit/classificationnodes/areas?api-version=7.1" -Body @{ name = $callProjectName } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
                 }
-                Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Root area creation attempted"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Root area creation attempted"
             }
             catch {
-                Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Root area creation failed: $($_.Exception.Message)"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Root area creation failed: $($_.Exception.Message)"
                 throw
             }
 
             # Step 2: Create root iteration node named after the project using idempotent helper
             try {
-                Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Ensuring project root iteration: $Project"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Ensuring project root iteration: $Project"
                 $rootIter = Ensure-AdoIteration -Project $displayProject -Name $displayProject
-                Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Ensure-AdoIteration returned: $([string]($rootIter | ConvertTo-Json -Depth 3))"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Ensure-AdoIteration returned: $([string]($rootIter | ConvertTo-Json -Depth 3))"
             }
             catch {
-                Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Ensure-AdoIteration for project root failed: $($_.Exception.Message)"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Ensure-AdoIteration for project root failed: $($_.Exception.Message)"
                 throw
             }
 
             # Step 3: Ensure a default Sprint 1 exists under the project for child work items
             try {
                 $sprintName = 'Sprint 1'
-                Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Ensuring sprint iteration: $sprintName"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Ensuring sprint iteration: $sprintName"
                 $sprintResult = Ensure-AdoIteration -Project $Project -Name $sprintName
-                Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Sprint ensure returned: $([string]($sprintResult | ConvertTo-Json -Depth 3))"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Sprint ensure returned: $([string]($sprintResult | ConvertTo-Json -Depth 3))"
                 if ($sprintResult -and $sprintResult.Node) {
                     $sprintIterationPath = "$displayProject\\$sprintName"
                     Write-Host "[SUCCESS] Default iteration '$sprintIterationPath' ensured" -ForegroundColor Green
@@ -2377,7 +2395,7 @@ function Import-AdoWorkItemsFromExcel {
             catch {
                 # If creation failed, attempt to use fallback path (project\Sprint 1) regardless
                 $sprintIterationPath = "$Project\\Sprint 1"
-                Write-LogLevelVerbose "Could not create Sprint 1 iteration (may already exist): $_"
+                Write-Warning "Could not create Sprint 1 iteration (may already exist): $_"
             }
 
             # Assign created values as defaults
@@ -2391,17 +2409,17 @@ function Import-AdoWorkItemsFromExcel {
                 try {
                     $err = $_
                     Write-Warning "Could not create default area/iteration automatically: $($err.Exception.Message)"
-                    Write-Verbose "[Import-AdoWorkItemsFromExcel] Exception type: $($err.GetType().FullName)"
-                    try { Write-Verbose "[Import-AdoWorkItemsFromExcel] StackTrace: $($err.Exception.StackTrace)" } catch { }
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Exception type: $($err.GetType().FullName)"
+                    try { Write-Warning "[Import-AdoWorkItemsFromExcel] StackTrace: $($err.Exception.StackTrace)" } catch { }
                     try {
                         if ($err.InvocationInfo) {
-                            Write-Verbose "[Import-AdoWorkItemsFromExcel] Invocation script: $($err.InvocationInfo.ScriptName)"
-                            Write-Verbose "[Import-AdoWorkItemsFromExcel] Invocation line: $($err.InvocationInfo.ScriptLineNumber)"
-                            Write-Verbose "[Import-AdoWorkItemsFromExcel] Invocation position: $($err.InvocationInfo.PositionMessage)"
-                            Write-Verbose "[Import-AdoWorkItemsFromExcel] Invocation command: $($err.InvocationInfo.MyCommand)"
+                            Write-Warning "[Import-AdoWorkItemsFromExcel] Invocation script: $($err.InvocationInfo.ScriptName)"
+                            Write-Warning "[Import-AdoWorkItemsFromExcel] Invocation line: $($err.InvocationInfo.ScriptLineNumber)"
+                            Write-Warning "[Import-AdoWorkItemsFromExcel] Invocation position: $($err.InvocationInfo.PositionMessage)"
+                            Write-Warning "[Import-AdoWorkItemsFromExcel] Invocation command: $($err.InvocationInfo.MyCommand)"
                         }
                     } catch { }
-                } catch { Write-Verbose "[Import-AdoWorkItemsFromExcel] Failed to emit rich diagnostics: $_" }
+                } catch { Write-Warning "[Import-AdoWorkItemsFromExcel] Failed to emit rich diagnostics: $_" }
             # If the failure was due to the project not existing on the server (common in test mocks),
             # avoid trying to call ADO to create classification nodes and instead fall back to sensible defaults.
             try {
@@ -2410,7 +2428,7 @@ function Import-AdoWorkItemsFromExcel {
             catch { $msg = $_ | Out-String }
 
             if ($msg -match 'Project does not exist|ProjectDoesNotExistWithNameException|TF237018|TF200016') {
-                Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Project appears to be missing on server - skipping classification node creation and using fallback defaults"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Project appears to be missing on server - skipping classification node creation and using fallback defaults"
                 $firstAreaPath = $Project
                 $firstIterationPath = "$Project"
             }
@@ -2428,14 +2446,14 @@ function Import-AdoWorkItemsFromExcel {
                 }
                 $fname = Join-Path $logsDir ("debug-default-area-iteration-" + [guid]::NewGuid().ToString() + ".json")
                 $diag | ConvertTo-Json -Depth 10 | Out-File -FilePath $fname -Encoding UTF8 -Force
-                Write-LogLevelVerbose "Wrote default area/iteration diagnostic file: $fname"
+                Write-Warning "Wrote default area/iteration diagnostic file: $fname"
             }
             catch {
-                Write-LogLevelVerbose "Failed to write default area/iteration diagnostic file: $_"
+                Write-Warning "Failed to write default area/iteration diagnostic file: $_"
             }
         }
         else {
-            Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Skipped creation of classification nodes due to missing project. Using fallback defaults: Area=$firstAreaPath, Iteration=$firstIterationPath"
+            Write-Warning "[Import-AdoWorkItemsFromExcel] Skipped creation of classification nodes due to missing project. Using fallback defaults: Area=$firstAreaPath, Iteration=$firstIterationPath"
         }
     }
     
@@ -2492,7 +2510,7 @@ function Import-AdoWorkItemsFromExcel {
                     path  = "/fields/System.AreaPath"
                     value = $firstAreaPath
                 }
-                Write-LogLevelVerbose "Assigned area path '$firstAreaPath' to work item '$($row.Title)'"
+                Write-Warning "Assigned area path '$firstAreaPath' to work item '$($row.Title)'"
             }
             
             # Decide iteration assignment. Prefer the current team iteration if available,
@@ -2508,7 +2526,7 @@ function Import-AdoWorkItemsFromExcel {
                     path  = "/fields/System.IterationPath"
                     value = $iterationToAssign
                 }
-                Write-LogLevelVerbose "Assigned iteration path '$iterationToAssign' to work item '$($row.Title)' (type: $wit)"
+                Write-Warning "Assigned iteration path '$iterationToAssign' to work item '$($row.Title)' (type: $wit)"
             }
             
             # IterationPath is intentionally ignored during Excel import to use default project area
@@ -2568,7 +2586,7 @@ function Import-AdoWorkItemsFromExcel {
                         if (-not $newIsAllowed -and $allowedStates.Count -gt 0) {
                             # "New" not allowed, use first state in the workflow
                             $stateVal = $allowedStates[0]
-                            Write-LogLevelVerbose "Mapping 'New' state to first allowed state: '$stateVal' (allowed: $($allowedStates -join ', '))"
+                            Write-Warning "Mapping 'New' state to first allowed state: '$stateVal' (allowed: $($allowedStates -join ', '))"
                         }
                     }
                 }
@@ -2747,7 +2765,7 @@ function Import-AdoWorkItemsFromExcel {
                     }
                 }
                 else {
-                    Write-LogLevelVerbose "Parent LocalId $($row.ParentLocalId) not yet created for work item '$($row.Title)'"
+                    Write-Warning "Parent LocalId $($row.ParentLocalId) not yet created for work item '$($row.Title)'"
                 }
             }
             
@@ -2774,7 +2792,7 @@ function Import-AdoWorkItemsFromExcel {
                 }
             }
             catch {
-                Write-LogLevelVerbose "Could not set default Area/Iteration on import for row LocalId=$($row.LocalId): $_"
+                Write-Warning "Could not set default Area/Iteration on import for row LocalId=$($row.LocalId): $_"
             }
 
             # De-duplicate field operations to avoid sending multiple updates for the same field
@@ -2796,7 +2814,7 @@ function Import-AdoWorkItemsFromExcel {
                             $seenFieldPaths[$normPath] = $true
                         }
                         else {
-                            Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Deduplicated duplicate field operation for path: $path (skipped)"
+                            Write-Warning "[Import-AdoWorkItemsFromExcel] Deduplicated duplicate field operation for path: $path (skipped)"
                         }
                     }
                     else {
@@ -2807,7 +2825,7 @@ function Import-AdoWorkItemsFromExcel {
                 $operations = $filteredOperations
             }
             catch {
-                Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Field de-duplication failed - proceeding with original operations: $_"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Field de-duplication failed - proceeding with original operations: $_"
             }
 
             # Ensure $operations is JSON-serializable by ConvertTo-Json
@@ -2822,10 +2840,10 @@ function Import-AdoWorkItemsFromExcel {
             }
 
             $endpointPath = "/$projEnc/_apis/wit/workitems/`$$witEncoded"
-            Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Preparing POST to: $endpointPath"
-            if ($coreCfg -and $coreCfg.CollectionUrl) { Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] CollectionUrl: $($coreCfg.CollectionUrl)" }
-            Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Content-Type: application/json-patch+json"
-            Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Work item operations (count=$($operations.Count)): $($operations | ConvertTo-Json -Depth 5)"
+            Write-Warning "[Import-AdoWorkItemsFromExcel] Preparing POST to: $endpointPath"
+            if ($coreCfg -and $coreCfg.CollectionUrl) { Write-Warning "[Import-AdoWorkItemsFromExcel] CollectionUrl: $($coreCfg.CollectionUrl)" }
+            Write-Warning "[Import-AdoWorkItemsFromExcel] Content-Type: application/json-patch+json"
+            Write-Warning "[Import-AdoWorkItemsFromExcel] Work item operations (count=$($operations.Count)): $($operations | ConvertTo-Json -Depth 5)"
 
             try {
                 $workItem = Invoke-AdoRest POST $endpointPath `
@@ -2838,7 +2856,7 @@ function Import-AdoWorkItemsFromExcel {
                 }
 
                 Write-Host "  ✅ Created $wit #$($workItem.id): $($row.Title)" -ForegroundColor Gray
-                Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Created work item id=$($workItem.id) for LocalId=$($row.LocalId)"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Created work item id=$($workItem.id) for LocalId=$($row.LocalId)"
                 $successCount++
             }
             catch {
@@ -2846,15 +2864,14 @@ function Import-AdoWorkItemsFromExcel {
                 try {
                         # Additional diagnostic: log the type and summary of the operations object to help trace op_Addition errors
                         try {
-                            if ($operations -eq $null) { Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] operations is $null" } else { Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] operations type: $($operations.GetType().FullName); count: $($operations.Count)" }
+                            if ($operations -eq $null) { Write-Warning "[Import-AdoWorkItemsFromExcel] operations is $null" } else { Write-Warning "[Import-AdoWorkItemsFromExcel] operations type: $($operations.GetType().FullName); count: $($operations.Count)" }
                         }
                         catch {
-                            Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Failed to introspect operations variable: $_"
+                            Write-Warning "[Import-AdoWorkItemsFromExcel] Failed to introspect operations variable: $_"
                         }
 
                         # Log exception stack trace for deeper debugging
-                        try { Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Exception stack: $($_.Exception.StackTrace)" } catch { }
-
+                        try { Write-Warning "[Import-AdoWorkItemsFromExcel] Exception stack: $($_.Exception.StackTrace)" } catch { }
                     $logsDir = Join-Path (Get-Location) 'logs'
                     if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
 

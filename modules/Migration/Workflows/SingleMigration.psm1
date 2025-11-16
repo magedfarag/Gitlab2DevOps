@@ -20,118 +20,6 @@ $migrationRoot = Split-Path $PSScriptRoot -Parent
 Import-Module -WarningAction SilentlyContinue (Join-Path $migrationRoot "Core\MigrationCore.psm1") -Force -Global
 
 <#
-.SYNOPSIS
-    Generates a pre-migration validation report.
-
-.DESCRIPTION
-    Validates GitLab project exists, checks Azure DevOps project/repo status,
-    and identifies blocking issues before migration.
-
-.PARAMETER GitLabPath
-    GitLab project path.
-
-.PARAMETER AdoProject
-    Azure DevOps project name.
-
-.PARAMETER AdoRepoName
-    Azure DevOps repository name.
-
-.PARAMETER OutputPath
-    Optional output path for report.
-
-.PARAMETER AllowSync
-    Allow repository synchronization.
-
-.OUTPUTS
-    Pre-migration report object.
-
-.EXAMPLE
-    New-MigrationPreReport "group/project" "MyProject" "my-repo"
-#>
-function New-MigrationPreReport {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$GitLabPath,
-        
-        [Parameter(Mandatory)]
-        [string]$AdoProject,
-        
-        [Parameter(Mandatory)]
-        [ValidateScript({
-            Test-AdoRepositoryName $_ -ThrowOnError
-            $true
-        })]
-        [string]$AdoRepoName,
-        
-        [string]$OutputPath = (Join-Path (Get-Location) "migration-precheck-$((Get-Date).ToString('yyyyMMdd-HHmmss')).json"),
-        
-        [switch]$AllowSync
-    )
-    
-    Write-Host "[INFO] Generating pre-migration report..." -ForegroundColor Cyan
-    
-    # 1. GitLab project facts
-    $gl = Get-GitLabProject $GitLabPath
-    
-    # 2. Azure DevOps project existence
-    $adoProjects = Invoke-AdoRest GET "/_apis/projects?`$top=5000"
-    $adoProj = $adoProjects.value | Where-Object { $_.name -eq $AdoProject }
-    
-    # 3. Repo name collision
-    $repoExists = $false
-    if ($adoProj) {
-        $repos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($AdoProject))/_apis/git/repositories"
-        $repoExists = $repos.value | Where-Object { $_.name -eq $AdoRepoName }
-    }
-    
-    $report = [pscustomobject]@{
-        timestamp              = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-        gitlab_path            = $GitLabPath
-        gitlab_size_mb         = [math]::Round(($gl.statistics.repository_size / 1MB), 2)
-        gitlab_lfs_enabled     = $gl.lfs_enabled
-        gitlab_visibility      = $gl.visibility
-        gitlab_default_branch  = $gl.default_branch
-        ado_project            = $AdoProject
-        ado_project_exists     = [bool]$adoProj
-        ado_repo_name          = $AdoRepoName
-        ado_repo_exists        = [bool]$repoExists
-        sync_mode              = $AllowSync
-        ready_to_migrate       = if ($AllowSync) { [bool]$adoProj } else { ($adoProj -and -not $repoExists) }
-        blocking_issues        = @()
-    }
-    
-    # Add blocking issues
-    if (-not $adoProj) {
-        $report.blocking_issues += "Azure DevOps project '$AdoProject' does not exist"
-    }
-    if ($repoExists -and -not $AllowSync) {
-        $report.blocking_issues += "Repository '$AdoRepoName' already exists in project '$AdoProject'. Use -AllowSync to update existing repository."
-    }
-    elseif ($repoExists -and $AllowSync) {
-        Write-Host "[INFO] Sync mode enabled: Repository '$AdoRepoName' will be updated with latest changes from GitLab" -ForegroundColor Yellow
-    }
-    
-    $report | ConvertTo-Json -Depth 5 | Set-Content -Path $OutputPath -Encoding UTF8
-    Write-Host "[INFO] Pre-migration report written to $OutputPath"
-    
-    # Display summary
-    Write-Host "[INFO] Pre-migration Summary:"
-    Write-Host "       GitLab: $GitLabPath ($($report.gitlab_size_mb) MB)"
-    Write-Host "       Azure DevOps: $AdoProject -> $AdoRepoName"
-    Write-Host "       Ready to migrate: $($report.ready_to_migrate)"
-    
-    if ($report.blocking_issues.Count -gt 0) {
-        Write-Host "[ERROR] Blocking issues found:" -ForegroundColor Red
-        foreach ($issue in $report.blocking_issues) {
-            Write-Host "        - $issue" -ForegroundColor Red
-        }
-        throw "Precheck failed – resolve blocking issues before proceeding with migration."
-    }
-    
-    return $report
-}
-
 <#
 .SYNOPSIS
     Migrates a single GitLab project to Azure DevOps.
@@ -297,18 +185,22 @@ function Invoke-SingleMigration {
     
     $preflightMetadata = if ($preflightMetadata) { $preflightMetadata } else { $null }
 
-    # Generate pre-migration report for validation only when required
-    $forcePreReport = $false
-    if ($env:GITLAB2DEVOPS_REQUIRE_PREREPORT -and $env:GITLAB2DEVOPS_REQUIRE_PREREPORT -match '^(1|true|yes|on)$') {
-        $forcePreReport = $true
-    }
-    $shouldRunPreReport = $forcePreReport -or (-not (Test-Path $preflightFile))
+    $preReportPath = Join-Path $paths.gitlabDir "reports\pre-migration-report.json"
     $preReport = $null
-    if ($shouldRunPreReport) {
-        $preReport = New-MigrationPreReport -GitLabPath $SrcPath -AdoProject $DestProject -AdoRepoName $repoName -AllowSync:$AllowSync -OutputPath (Join-Path $reportsDir "pre-migration-report.json")
+    if (Test-Path $preReportPath) {
+        try {
+            $preReport = Get-Content $preReportPath -Raw | ConvertFrom-Json
+            Write-LogLevelVerbose "[Invoke-SingleMigration] Loaded cached pre-migration report from $preReportPath"
+        }
+        catch {
+            Write-Warning "[Invoke-SingleMigration] Failed to parse pre-migration report at $($preReportPath): $_"
+        }
     }
     else {
-        Write-LogLevelVerbose "[Invoke-SingleMigration] Skipping New-MigrationPreReport (using cached preflight data). Set GITLAB2DEVOPS_REQUIRE_PREREPORT=1 to force regeneration."
+        Write-Warning "[Invoke-SingleMigration] Pre-migration report not found at $preReportPath. Run preparation (Option 1/2/8) to regenerate it."
+    }
+    if (-not $preReport) {
+        throw "Pre-migration report is missing. Re-run the preparation step so prechecks can execute before migration."
     }
     
     # Ensure Azure DevOps project exists
@@ -381,17 +273,7 @@ function Invoke-SingleMigration {
             $sourceRepo = $repoDir
         }
         else {
-            Write-Host "[INFO] Downloading repository..."
-            $gitUrl = $gl.http_url_to_repo -replace '^https://', "https://oauth2:$($coreRestConfig.GitLabToken)@"
-            $sourceRepo = Join-Path $env:TEMP ("migration-" + [Guid]::NewGuid() + ".git")
-            # Respect invalid certificate for GitLab
-            try { $skipCert = (Get-SkipCertificateCheck) } catch { $skipCert = $false }
-            if ($skipCert) {
-                git -c http.sslVerify=false clone --mirror $gitUrl $sourceRepo
-            }
-            else {
-                git clone --mirror $gitUrl $sourceRepo
-            }
+            throw "Prepared repository not found for '$SrcPath'. Re-run the preparation step (Option 1/2/8) to download GitLab content."
         }
         $stepTiming['Repository Download'] = ((Get-Date) - $stepStart).TotalSeconds
         
@@ -578,7 +460,6 @@ function Invoke-SingleMigration {
 
 # Export public functions
 Export-ModuleMember -Function @(
-    'New-MigrationPreReport',
     'Invoke-SingleMigration'
 )
 

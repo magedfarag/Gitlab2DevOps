@@ -174,6 +174,19 @@ foreach ($entry in $config) {
                 Invoke-BulkPrepareGitLab -ProjectPaths $projectPaths -DestProjectName $adoProject
             }
 
+            foreach ($pp in $projectPaths) {
+                $repoName = ($pp -split '/')[-1]
+                try {
+                    $pathsForReport = Get-BulkProjectPaths -AdoProject $adoProject -GitLabProject $repoName
+                    $preReportPath = Join-Path $pathsForReport.gitlabDir "reports\pre-migration-report.json"
+                    New-MigrationPreReport -GitLabPath $pp -AdoProject $adoProject -AdoRepoName $repoName -OutputPath $preReportPath | Out-Null
+                    Write-Host "[INFO] Cached pre-migration report: $preReportPath" -ForegroundColor Gray
+                }
+                catch {
+                    Write-Warning "[WARN] Failed to create pre-migration report for '$pp': $_"
+                }
+            }
+
             # After preparing migration folders, perform unattended project initialization
             # to mirror the outputs of Option 3 (Create DevOps Project). This will create
             # project-level artifacts (wiki, iterations, queries, dashboards) in bulk mode.
@@ -195,15 +208,12 @@ foreach ($entry in $config) {
                 }
 
                 # Apply all team packs to provision dashboards, queries, and wiki pages
-                if (Get-Command -Name Initialize-BusinessInit -ErrorAction SilentlyContinue) {
+                if (Get-Command -Name Invoke-AllTeamPacks -ErrorAction SilentlyContinue) {
                     Write-Host "[INFO] Applying Team Packs (Business, Dev, Security, Management) for '$adoProject'..." -ForegroundColor Cyan
-                    try { Initialize-BusinessInit -DestProject $adoProject } catch { Write-Warning "Business pack failed: $_" }
-                    try { Initialize-DevInit -DestProject $adoProject } catch { Write-Warning "Dev pack failed: $_" }
-                    try { Initialize-SecurityInit -DestProject $adoProject } catch { Write-Warning "Security pack failed: $_" }
-                    try { Initialize-ManagementInit -DestProject $adoProject } catch { Write-Warning "Management pack failed: $_" }
+                    Invoke-AllTeamPacks -ProjectName $adoProject
                 }
                 else {
-                    Write-Host "[WARN] TeamPack initialization functions not available - skipping team packs" -ForegroundColor Yellow
+                    Write-Host "[WARN] Invoke-AllTeamPacks not available - skipping team packs" -ForegroundColor Yellow
                 }
             }
             catch {

@@ -20,6 +20,12 @@ Import-Module -WarningAction SilentlyContinue (Join-Path $migrationRoot "Core\Mi
 $azureDevOpsModulePath = Join-Path (Split-Path $migrationRoot -Parent) "AzureDevOps\AzureDevOps.psm1"
 Import-Module -WarningAction SilentlyContinue $azureDevOpsModulePath -Force -Global
 
+# Import Team Packs so resource provisioning helpers are available outside initialization flows
+$teamPacksModulePath = Join-Path $migrationRoot "TeamPacks\TeamPacks.psm1"
+if (Test-Path $teamPacksModulePath) {
+    Import-Module -WarningAction SilentlyContinue $teamPacksModulePath -Force -Global
+}
+
 # Module-level variables for menu context
 $script:CollectionUrl = $null
 $script:AdoPat = $null
@@ -221,6 +227,30 @@ function Show-MigrationMenu {
             }
             catch {
                 Write-Warning "Failed to generate HTML reports: $_"
+            }
+
+            # Generate and cache the Azure DevOps pre-migration report during preparation
+            try {
+                $preReportPath = Join-Path $paths.gitlabDir "reports\pre-migration-report.json"
+                New-MigrationPreReport -GitLabPath $SourceProjectPath -AdoProject $DestProjectName -AdoRepoName $gitlabProjectName -OutputPath $preReportPath | Out-Null
+                Write-Host "[INFO] Pre-migration report cached: $preReportPath" -ForegroundColor Gray
+            }
+            catch {
+                Write-Warning "[WARN] Failed to generate pre-migration report for '$SourceProjectPath': $_"
+            }
+
+            # Provision team resources once during preparation instead of after every migration run
+            if (Get-Command -Name Invoke-AllTeamPacks -ErrorAction SilentlyContinue) {
+                try {
+                    Write-Host "[INFO] Provisioning project resources (wikis, queries, dashboards) for '$DestProjectName'..." -ForegroundColor Cyan
+                    Invoke-AllTeamPacks -ProjectName $DestProjectName
+                }
+                catch {
+                    Write-Warning "[WARN] Project resource provisioning failed for '$DestProjectName': $_"
+                }
+            }
+            else {
+                Write-Verbose "[Menu] Invoke-AllTeamPacks not available in this session; team resources were not provisioned during preparation."
             }
         }
         '2' {
@@ -790,7 +820,6 @@ function Show-MigrationMenu {
                             Invoke-SingleMigration -SrcPath $item.GitLabPath -DestProject $item.ProjectName -Force
                             $successCount++
                             Write-Host "[SUCCESS] Migrated: $($item.GitLabPath)" -ForegroundColor Green
-                            Invoke-AllTeamPacks -ProjectName $item.ProjectName
                             if (-not $excelImportTracker.ContainsKey($item.ProjectName)) {
                                 Invoke-ExcelRequirementsImport -ProjectName $item.ProjectName | Out-Null
                                 $excelImportTracker[$item.ProjectName] = $true
@@ -810,7 +839,6 @@ function Show-MigrationMenu {
                             Invoke-BulkMigrationWorkflow -AdoProject $item.ProjectName -Force
                             $successCount++
                             Write-Host "[SUCCESS] Bulk migration completed for: $($item.ProjectName)" -ForegroundColor Green
-                            Invoke-AllTeamPacks -ProjectName $item.ProjectName
                             if (-not $excelImportTracker.ContainsKey($item.ProjectName)) {
                                 Invoke-ExcelRequirementsImport -ProjectName $item.ProjectName | Out-Null
                                 $excelImportTracker[$item.ProjectName] = $true
@@ -1016,47 +1044,6 @@ function Invoke-TeamPackMenu {
 .PARAMETER ProjectName
     Azure DevOps project that should receive all packs.
 #>
-function Invoke-AllTeamPacks {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$ProjectName
-    )
-
-    Write-Host ""
-    Write-Host "[INFO] Provisioning complete feature set for '$ProjectName'..." -ForegroundColor Cyan
-
-    $packs = @(
-        @{
-            Name   = "Business"
-            Action = { Initialize-BusinessInit -DestProject $ProjectName }
-        },
-        @{
-            Name   = "Development"
-            Action = { Initialize-DevInit -DestProject $ProjectName -ProjectType 'all' }
-        },
-        @{
-            Name   = "Security"
-            Action = { Initialize-SecurityInit -DestProject $ProjectName }
-        },
-        @{
-            Name   = "Management"
-            Action = { Initialize-ManagementInit -DestProject $ProjectName }
-        }
-    )
-
-    foreach ($pack in $packs) {
-        try {
-            Write-Host "[INFO] Applying $($pack.Name) pack..." -ForegroundColor Cyan
-            & $pack.Action
-            Write-Host "[SUCCESS] $($pack.Name) pack completed." -ForegroundColor Green
-        }
-        catch {
-            Write-Host "[WARN] $($pack.Name) pack failed: $($_.Exception.Message)" -ForegroundColor Yellow
-        }
-    }
-}
-
 <#
 .SYNOPSIS
     Imports work items from requirements.xlsx for the specified project when available.
@@ -1139,6 +1126,9 @@ function Invoke-ExcelRequirementsImport {
 
         if ($result) {
             Write-Host "[SUCCESS] Imported $($result.SuccessCount) work items (errors: $($result.ErrorCount))" -ForegroundColor Green
+            if ($result.ErrorCount -gt 0 -and $result.Errors) {
+                Write-Host "[INFO] First error: $($result.Errors[0])" -ForegroundColor Yellow
+            }
         }
         else {
             Write-Host "[SUCCESS] Excel import completed." -ForegroundColor Green

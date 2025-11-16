@@ -153,6 +153,16 @@ function Invoke-BulkPreparationWorkflow {
             
             $preflightData | ConvertTo-Json -Depth 5 | Set-Content -Path $preflightFile -Encoding UTF8
             Write-Host "[SUCCESS] Project prepared: $gitlabPath" -ForegroundColor Green
+
+            # Generate pre-migration report so execution phase can run offline
+            try {
+                $preReportPath = Join-Path $specificProjectPaths.gitlabDir "reports\pre-migration-report.json"
+                New-MigrationPreReport -GitLabPath $gitlabPath -AdoProject $DestProject -AdoRepoName $repoName -OutputPath $preReportPath | Out-Null
+                Write-Host "[INFO] Cached pre-migration report: $preReportPath" -ForegroundColor Gray
+            }
+            catch {
+                Write-Warning "[WARN] Failed to generate pre-migration report for '$gitlabPath': $_"
+            }
             
             $preparationResults += [pscustomobject]@{
                 gitlab_path = $gitlabPath
@@ -287,6 +297,20 @@ function Invoke-BulkPreparationWorkflow {
     if ($failureCount -gt 0) {
         Write-Host "[WARN] Some projects failed preparation. Review logs for details." -ForegroundColor Yellow
         Write-Host "       Failed projects can be retried individually or skipped during execution."
+    }
+
+    # Provision wikis, queries, and dashboards once during preparation to avoid repeated work in execution
+    if (Get-Command -Name Invoke-AllTeamPacks -ErrorAction SilentlyContinue) {
+        try {
+            Write-Host "[INFO] Provisioning team resources for '$DestProject'..." -ForegroundColor Cyan
+            Invoke-AllTeamPacks -ProjectName $DestProject
+        }
+        catch {
+            Write-Warning "[WARN] Team resource provisioning failed for '$DestProject': $_"
+        }
+    }
+    else {
+        Write-Verbose "[BulkPreparation] Invoke-AllTeamPacks not available; skipping resource provisioning."
     }
     
     return $bulkConfig
