@@ -125,27 +125,19 @@ function Resolve-AdoDashboardEndpoints {
     $projIdEnc = if ($ProjectId) { [uri]::EscapeDataString($ProjectId) } else { $projEnc }
     $teamNameEnc = if ($Team) { [uri]::EscapeDataString($Team) } else { $null }
 
-    if ($TeamId) {
-        $teamIdEnc = [uri]::EscapeDataString($TeamId)
-
-        # Preferred: project/teams route using GUIDs (works even when names contain spaces)
-        # NOTE: Always prefer the GUID-based team endpoint to avoid name-based encoding issues
-        # and to align with APIs that reliably accept GUID identifiers.
-        $endpoints += "/_apis/projects/$projIdEnc/teams/$teamIdEnc/dashboard/dashboards"
-        return $endpoints
-    }
-
-    # Legacy: team-scoped endpoint (name-based) if no TeamId is available
+    # Prefer the supported name-based endpoint first so Azure DevOps resolves the team identity without
+    # hitting the legacy classification descriptor route that returns TF10158 for some on-prem servers.
     if ($teamNameEnc) {
         $endpoints += "/$projEnc/$teamNameEnc/_apis/dashboard/dashboards"
-        return $endpoints
     }
 
-    # No team context available - do not attempt project-scoped dashboard endpoints by default
-    # Returning an empty array will cause callers to skip dashboard creation and log guidance.
-    return $endpoints
+    if ($TeamId) {
+        $teamIdEnc = [uri]::EscapeDataString($TeamId)
+        $endpoints += "/_apis/projects/$projIdEnc/teams/$teamIdEnc/dashboard/dashboards"
+    }
 
-    return $endpoints
+    # No team context available - do not attempt project-scoped dashboard endpoints by default.
+    return $endpoints | Select-Object -Unique
 }
 
 function Get-AdoDashboardContext {

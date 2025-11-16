@@ -759,12 +759,17 @@ function Show-MigrationMenu {
             # Run migrations non-interactively where possible
             $oldConfirm = $ConfirmPreference
             $oldWhatIf = $WhatIfPreference
-            try {
-                $ConfirmPreference = 'None'
-                $WhatIfPreference = $false
+        try {
+            $ConfirmPreference = 'None'
+            $WhatIfPreference = $false
+            $runPreparePhase = $false
+            if ($env:GITLAB2DEVOPS_IMPORT_PREPARE_MODE -and $env:GITLAB2DEVOPS_IMPORT_PREPARE_MODE -match '^(1|true|yes|on)$') {
+                $runPreparePhase = $true
+                Write-Host "[INFO] Preparation mode enabled (GITLAB2DEVOPS_IMPORT_PREPARE_MODE=1). Projects will re-run the GitLab prepare phase before migration." -ForegroundColor Yellow
+            }
 
-                $total = $prepared.Count
-                $successCount = 0
+            $total = $prepared.Count
+            $successCount = 0
                 $failureCount = 0
                 $excelImportTracker = @{}
 
@@ -775,6 +780,9 @@ function Show-MigrationMenu {
                             if ($item.RepoMigrated) {
                                 Write-Host "[INFO] Skipping already-migrated repo: $($item.ProjectName) / $($item.GitLabRepoName)" -ForegroundColor Gray
                                 continue
+                            }
+                            if ($runPreparePhase) {
+                                Invoke-Option9PreparationRefresh -PreparedItem $item | Out-Null
                             }
 
                             Write-Host "[INFO] Migrating single project: $($item.GitLabPath) → $($item.ProjectName)" -ForegroundColor Cyan
@@ -793,6 +801,9 @@ function Show-MigrationMenu {
                             if ($item.MigratedCount -ge $item.ProjectCount) {
                                 Write-Host "[INFO] Skipping bulk project (already migrated): $($item.ProjectName)" -ForegroundColor Gray
                                 continue
+                            }
+                            if ($runPreparePhase) {
+                                Invoke-Option9PreparationRefresh -PreparedItem $item | Out-Null
                             }
 
                             Write-Host "[INFO] Executing bulk migration for: $($item.ProjectName)" -ForegroundColor Cyan
@@ -1138,6 +1149,102 @@ function Invoke-ExcelRequirementsImport {
         Write-Host "[WARN] Excel import failed for '$ProjectName': $_" -ForegroundColor Yellow
         return $false
     }
+}
+
+<#
+.SYNOPSIS
+    Re-runs the GitLab preparation phase for a prepared project.
+
+.DESCRIPTION
+    Option 9 normally skips preparation and only migrates/imports. When preparation
+    refresh mode is enabled, this helper can re-download repositories and regenerate
+    preflight assets before the migration runs.
+
+.PARAMETER PreparedItem
+    Entry returned by Get-PreparedProjects (Type = Single or Bulk).
+#>
+function Invoke-Option9PreparationRefresh {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$PreparedItem
+    )
+
+    if (-not $PreparedItem) { return $false }
+
+    if ($PreparedItem.Type -eq 'Single') {
+        if ($PreparedItem.Structure -and $PreparedItem.Structure -eq 'legacy') {
+            Write-Host "[WARN] Legacy preparations are not refreshable automatically. Skipping '$($PreparedItem.ProjectName)'." -ForegroundColor Yellow
+            return $false
+        }
+
+        $gitLabPath = $PreparedItem.GitLabPath
+        if ([string]::IsNullOrWhiteSpace($gitLabPath)) {
+            Write-Host "[WARN] Prepared entry '$($PreparedItem.ProjectName)' is missing GitLab path. Skipping refresh." -ForegroundColor Yellow
+            return $false
+        }
+
+        $repoName = ($gitLabPath -split '/')[-1]
+        try {
+            $paths = Get-ProjectPaths -AdoProject $PreparedItem.ProjectName -GitLabProject $repoName -ErrorAction Stop
+            Write-Host "[INFO] Refreshing preparation for '$($PreparedItem.ProjectName)' from $gitLabPath ..." -ForegroundColor Cyan
+            Initialize-GitLab -ProjectPath $gitLabPath -CustomBaseDir $paths.projectDir -CustomProjectName $repoName | Out-Null
+            try { Export-GitLabDocumentation -AdoProject $PreparedItem.ProjectName | Out-Null } catch { Write-Verbose "[Option9Prep] Documentation export failed: $_" }
+            try {
+                if ($paths.configFile) {
+                    $container = Split-Path $paths.configFile -Parent
+                    New-MigrationHtmlReport -ProjectPath $container | Out-Null
+                }
+                New-MigrationsOverviewReport | Out-Null
+            }
+            catch {
+                Write-Verbose "[Option9Prep] Report regeneration failed: $_"
+            }
+            return $true
+        }
+        catch {
+            Write-Host "[WARN] Preparation refresh failed for '$($PreparedItem.ProjectName)': $($_.Exception.Message)" -ForegroundColor Yellow
+            return $false
+        }
+    }
+    elseif ($PreparedItem.Type -eq 'Bulk') {
+        $configPath = $PreparedItem.ConfigFile
+        if (-not (Test-Path $configPath)) {
+            Write-Host "[WARN] Bulk configuration not found for '$($PreparedItem.ProjectName)'. Skipping refresh." -ForegroundColor Yellow
+            return $false
+        }
+
+        try {
+            $config = Get-Content $configPath | ConvertFrom-Json
+            $projectPaths = @()
+            if ($config.projects) {
+                foreach ($proj in $config.projects) {
+                    if ($proj.PSObject.Properties['gitlab_path'] -and $proj.gitlab_path) {
+                        $projectPaths += [string]$proj.gitlab_path
+                    }
+                    elseif ($proj.PSObject.Properties['project'] -and $proj.project) {
+                        $projectPaths += [string]$proj.project
+                    }
+                }
+            }
+
+            if ($projectPaths.Count -eq 0) {
+                Write-Host "[WARN] No GitLab paths found in $configPath. Skipping bulk refresh for '$($PreparedItem.ProjectName)'." -ForegroundColor Yellow
+                return $false
+            }
+
+            Write-Host "[INFO] Refreshing bulk preparation for '$($PreparedItem.ProjectName)' ($($projectPaths.Count) repositories)..." -ForegroundColor Cyan
+            Invoke-BulkPreparationWorkflow -ProjectPaths $projectPaths -DestProject $PreparedItem.ProjectName | Out-Null
+            return $true
+        }
+        catch {
+            Write-Host "[WARN] Bulk preparation refresh failed for '$($PreparedItem.ProjectName)': $($_.Exception.Message)" -ForegroundColor Yellow
+            return $false
+        }
+    }
+
+    Write-Verbose "[Option9Prep] Unknown prepared item type '$($PreparedItem.Type)' - no refresh performed."
+    return $false
 }
 
 # Export public functions

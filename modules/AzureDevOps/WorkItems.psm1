@@ -247,7 +247,7 @@ function Ensure-AdoQuery {
         $errMsg = $_.Exception.Message
         Write-LogLevelVerbose "[Ensure-AdoQuery] Create failed for '$Name': $errMsg"
 
-        if ($errMsg -match 'already exists|409|Conflict|exists') {
+        if ($errMsg -match 'already exists|409|Conflict|exists|TF237018|600290') {
             # locate the existing query by enumerating children
             try {
                 $resp = Invoke-AdoRest GET "/$projEnc/_apis/wit/queries/$parentEnc?`$depth=1" -ReturnNullOnNotFound
@@ -260,8 +260,21 @@ function Ensure-AdoQuery {
                 $matches = $children | Where-Object { $_.name -eq $Name -and ($_.isFolder -ne $true) }
                 if (-not $matches -or $matches.Count -eq 0) { throw "Query '$Name' reported as existing but not found in folder listing" }
 
-                if ($matches.Count -gt 1) { Write-Warning "Multiple queries named '$Name' found under '$ParentPath'. Updating the first and leaving others in place." }
-
+                if ($matches.Count -gt 1) {
+                    Write-Warning "Multiple queries named '$Name' found under '$ParentPath'. Removing duplicates and keeping the first entry."
+                    $duplicates = $matches | Select-Object -Skip 1
+                    foreach ($dup in $duplicates) {
+                        if ($dup -and $dup.id) {
+                            try {
+                                Invoke-AdoRest DELETE "/$projEnc/_apis/wit/queries/$($dup.id)" | Out-Null
+                                Write-LogLevelVerbose "[Ensure-AdoQuery] Removed duplicate query id=$($dup.id) ('$($dup.name)') under '$ParentPath'"
+                            }
+                            catch {
+                                Write-Warning "[Ensure-AdoQuery] Failed to remove duplicate query '$($dup.name)' under '$ParentPath': $_"
+                            }
+                        }
+                    }
+                }
                 $existing = $matches[0]
                 # Build query path using string interpolation to avoid implicit addition on PSObject wrappers
                 $queryPathForEscaping = "${ParentPath}/${Name}"
@@ -2085,6 +2098,36 @@ function Import-AdoWorkItemsFromExcel {
         $cleanedRows += [pscustomobject]$clean
     }
     $rows = $cleanedRows
+
+    $getLegacyActionIncludeName = {
+        param([psobject]$ExcelRow)
+
+        foreach ($prop in $ExcelRow.PSObject.Properties) {
+            $normalized = ($prop.Name -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+            if ($normalized -in @('actioninclude','includeaction','include','includeitem','actionincl','actionincludeflag')) {
+                return $prop.Name
+            }
+        }
+
+        return $null
+    }
+
+    $legacyIncludeHits = 0
+    foreach ($row in $rows) {
+        $legacyColumn = & $getLegacyActionIncludeName $row
+        if ($legacyColumn) {
+            $legacyIncludeHits++
+            $value = $row.$legacyColumn
+            if ($null -ne $value -and -not [string]::IsNullOrWhiteSpace($value.ToString())) {
+                Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Ignoring legacy Action/Include value '$value' for '$($row.Title)'"
+            }
+            $row.PSObject.Properties.Remove($legacyColumn) | Out-Null
+        }
+    }
+
+    if ($legacyIncludeHits -gt 0) {
+        Write-Host "[INFO] Legacy Action/Include column detected; importer now ignores this column and will import every row." -ForegroundColor Yellow
+    }
 
     # Parse LocalId and ParentLocalId prefixes according to mapping rules
     foreach ($row in $rows) {

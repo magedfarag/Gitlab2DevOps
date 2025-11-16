@@ -245,6 +245,7 @@ function Invoke-SingleMigration {
     if (Test-Path $preflightFile) {
         Write-Host "[INFO] Using preflight report: $preflightFile"
         $preflightData = Get-Content $preflightFile | ConvertFrom-Json
+        $preflightMetadata = $preflightData
         
         # Validate repository size
         if ($preflightData.repo_size_MB -gt 100) {
@@ -294,8 +295,21 @@ function Invoke-SingleMigration {
         throw "Pre-migration validation required. Run preparation first (Option 1 or 4)."
     }
     
-    # Generate pre-migration report for validation
-    $preReport = New-MigrationPreReport -GitLabPath $SrcPath -AdoProject $DestProject -AdoRepoName $repoName -AllowSync:$AllowSync -OutputPath (Join-Path $reportsDir "pre-migration-report.json")
+    $preflightMetadata = if ($preflightMetadata) { $preflightMetadata } else { $null }
+
+    # Generate pre-migration report for validation only when required
+    $forcePreReport = $false
+    if ($env:GITLAB2DEVOPS_REQUIRE_PREREPORT -and $env:GITLAB2DEVOPS_REQUIRE_PREREPORT -match '^(1|true|yes|on)$') {
+        $forcePreReport = $true
+    }
+    $shouldRunPreReport = $forcePreReport -or (-not (Test-Path $preflightFile))
+    $preReport = $null
+    if ($shouldRunPreReport) {
+        $preReport = New-MigrationPreReport -GitLabPath $SrcPath -AdoProject $DestProject -AdoRepoName $repoName -AllowSync:$AllowSync -OutputPath (Join-Path $reportsDir "pre-migration-report.json")
+    }
+    else {
+        Write-LogLevelVerbose "[Invoke-SingleMigration] Skipping New-MigrationPreReport (using cached preflight data). Set GITLAB2DEVOPS_REQUIRE_PREREPORT=1 to force regeneration."
+    }
     
     # Ensure Azure DevOps project exists
     $proj = Measure-Adoproject $DestProject
@@ -333,7 +347,21 @@ function Invoke-SingleMigration {
     }
     
     $defaultRef = Get-AdoRepoDefaultBranch $DestProject $repo.id
-    $isSync = $AllowSync -and $preReport.ado_repo_exists
+    $repoExistsInAdo = $false
+    try {
+        $existingRepos = Get-AdoProjectRepositories -ProjectName $DestProject
+        if ($existingRepos) {
+            $repoExistsInAdo = $existingRepos | Where-Object { $_.name -eq $repoName } | ForEach-Object { $true } | Select-Object -First 1
+            if (-not $repoExistsInAdo) { $repoExistsInAdo = $false }
+        }
+    }
+    catch {
+        Write-LogLevelVerbose "[Invoke-SingleMigration] Unable to determine existing repository state: $_"
+        $repoExistsInAdo = $false
+    }
+
+    $repoExistsInAdo = [bool]$repoExistsInAdo
+    $isSync = $AllowSync -and $repoExistsInAdo
     if ($isSync) {
         Write-Host "[INFO] Sync mode: Updating existing repository" -ForegroundColor Yellow
         Write-MigrationLog $logFile "=== SYNC MODE: Updating existing repository ==="
@@ -442,7 +470,7 @@ function Invoke-SingleMigration {
             -EndTime $endTime `
             -AdditionalData @{
             migration_type = if ($isSync) { "SYNC" } else { "INITIAL" }
-            repository_size_mb = $preReport.gitlab_size_mb
+            repository_size_mb = if ($preReport -and $preReport.PSObject.Properties['gitlab_size_mb']) { $preReport.gitlab_size_mb } elseif ($preflightMetadata) { $preflightMetadata.repo_size_MB } else { 0 }
         }
         
         # Write summary
