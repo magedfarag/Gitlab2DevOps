@@ -62,6 +62,15 @@ function Set-CoreRestConfigFromEnvironment {
     $script:MaskSecrets = ([Environment]::GetEnvironmentVariable('MASK_SECRETS') -eq 'true')
     $script:LogRestCalls = ([Environment]::GetEnvironmentVariable('LOG_REST_CALLS') -eq 'true')
 
+    $coreRestClientEnv = $env:CORE_REST_CLIENT
+    if ([string]::IsNullOrWhiteSpace($coreRestClientEnv)) {
+        $coreRestClientEnv = [Environment]::GetEnvironmentVariable('CORE_REST_CLIENT')
+    }
+    if ([string]::IsNullOrWhiteSpace($coreRestClientEnv)) {
+        $coreRestClientEnv = 'HttpClient'
+    }
+    $script:CoreRestClient = $coreRestClientEnv
+
     $script:coreRestConfig = @{
         CollectionUrl        = $script:CollectionUrl
         AdoPat               = $script:AdoPat
@@ -73,6 +82,7 @@ function Set-CoreRestConfigFromEnvironment {
         RetryDelaySeconds    = $script:RetryDelaySeconds
         MaskSecrets          = $script:MaskSecrets
         LogRestCalls         = $script:LogRestCalls
+        CoreRestClient       = $script:CoreRestClient
     }
 }
 
@@ -184,6 +194,15 @@ function Initialize-CoreRest {
             throw "ADO_COLLECTION_URL environment variable is not set"
         }
     }
+    try {
+        # Enforce TLS 1.2 for all outbound requests to avoid handshake renegotiation issues
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+        Write-Verbose "[Core.Rest] SecurityProtocol set to TLS 1.2"
+    }
+    catch {
+        Write-Verbose "[Core.Rest] Could not enforce TLS 1.2 security protocol: $_"
+    }
+
     # Projects cache (used by Invoke-AdoRest) - ensure consistent naming
     $script:ProjectCache = @{}
     $script:ProjectsCache = $null
@@ -298,14 +317,48 @@ function Get-CoreRestHttpClient {
     if ($null -eq $script:HttpClient) {
         try {
             $handler = New-Object System.Net.Http.HttpClientHandler
+            $handler.AutomaticDecompression = [System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate
+            $handler.UseCookies = $false
+            $handler.AllowAutoRedirect = $true
+
             if ($script:SkipCertificateCheck -eq $true) {
                 # Accept all certificates when SkipCertificateCheck is requested (on-premise servers)
                 $handler.ServerCertificateCustomValidationCallback = { param($sender, $cert, $chain, $errors) return $true }
                 Write-Verbose "[Core.Rest] HttpClient handler configured to skip certificate validation checks"
             }
 
+            # Configure proxy support from standard environment variables if present
+            $proxyUrl = $env:HTTPS_PROXY
+            if (-not $proxyUrl) { $proxyUrl = $env:HTTPS_PROXY_URL }
+            if (-not $proxyUrl) { $proxyUrl = $env:HTTP_PROXY }
+            if ($proxyUrl) {
+                try {
+                    $proxy = New-Object System.Net.WebProxy($proxyUrl, $true)
+                    $noProxy = $env:NO_PROXY
+                    if ($noProxy) {
+                        $proxy.BypassList = $noProxy.Split(',', [System.StringSplitOptions]::RemoveEmptyEntries).Trim()
+                    }
+                    $proxy.UseDefaultCredentials = $true
+                    $handler.Proxy = $proxy
+                    $handler.UseProxy = $true
+                    Write-Verbose "[Core.Rest] HttpClient handler configured to use proxy $proxyUrl"
+                }
+                catch {
+                    Write-Warning "[Core.Rest] Failed to configure proxy '$proxyUrl': $_"
+                }
+            }
+
+            # Prefer SocketsHttpHandler keep-alive defaults; ensure pooled connections stay open
+            if ($handler.PSObject.Properties['MaxConnectionsPerServer']) {
+                $handler.MaxConnectionsPerServer = 64
+            }
+
             $client = [System.Net.Http.HttpClient]::new($handler)
             $client.Timeout = [System.TimeSpan]::FromSeconds(120)
+            $client.DefaultRequestHeaders.ConnectionClose = $false
+            $client.DefaultRequestHeaders.AcceptEncoding.Clear()
+            $client.DefaultRequestHeaders.AcceptEncoding.Add([System.Net.Http.Headers.StringWithQualityHeaderValue]::new("gzip"))
+            $client.DefaultRequestHeaders.AcceptEncoding.Add([System.Net.Http.Headers.StringWithQualityHeaderValue]::new("deflate"))
 
             $script:HttpClientHandler = $handler
             $script:HttpClient = $client
@@ -1546,20 +1599,27 @@ function Invoke-RestWithRetry {
         [switch]$ReturnNullOnNotFound
     )
     
-    $client = Get-CoreRestHttpClient
-    if (-not $client) {
-        try {
-            if (Get-Command -Name 'Initialize-CoreRest' -ErrorAction SilentlyContinue) {
-                Initialize-CoreRest
-            }
-        }
-        catch {
-            Write-Verbose "[Core.Rest] Initialize-CoreRest attempt failed while ensuring HttpClient: $_"
-        }
+    $config = Get-CoreRestConfig
+    $restClient = if ($config.CoreRestClient) { $config.CoreRestClient } else { 'HttpClient' }
+    $useHttpClient = ($restClient -eq 'HttpClient')
+    $usePowerShell = ($restClient -eq 'PowerShell')
 
+    if ($useHttpClient) {
         $client = Get-CoreRestHttpClient
         if (-not $client) {
-            throw "HttpClient not initialized. Call Initialize-CoreRest first."
+            try {
+                if (Get-Command -Name 'Initialize-CoreRest' -ErrorAction SilentlyContinue) {
+                    Initialize-CoreRest
+                }
+            }
+            catch {
+                Write-Verbose "[Core.Rest] Initialize-CoreRest attempt failed while ensuring HttpClient: $_"
+            }
+
+            $client = Get-CoreRestHttpClient
+            if (-not $client) {
+                throw "HttpClient not initialized. Call Initialize-CoreRest first."
+            }
         }
     }
     
@@ -1569,7 +1629,7 @@ function Invoke-RestWithRetry {
     
     while ($attempt -lt $effectiveMaxAttempts) {
         $attempt++
-        
+
         try {
             # Log request
             $maskedUri = Hide-Secret -Text $Uri
@@ -1581,8 +1641,8 @@ function Invoke-RestWithRetry {
                 'DELETE' { 'Red' }
                 default { 'White' }
             }
-            
-            Write-Host "[$Side]  $Method $maskedUri" -ForegroundColor $methodColor -NoNewline
+
+            Write-Host "[$Side]  ��� $Method $maskedUri" -ForegroundColor $methodColor -NoNewline
             if ($script:LogRestCalls) {
                 Write-Host " (attempt $attempt/$effectiveMaxAttempts)" -ForegroundColor Gray
                 if ($Body -and $Method -in @('POST', 'PUT', 'PATCH')) {
@@ -1592,33 +1652,55 @@ function Invoke-RestWithRetry {
             } else {
                 Write-Host ""
             }
-            
-            # Send request using HttpClient helper. If HttpClient fails in this hosting
-            # environment (some PowerShell runtimes/platforms may not support it fully),
-            # fall back to Invoke-RestMethod for compatibility.
+
             $response = $null
             $responseBody = $null
             $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-            try {
-                $requestResult = Invoke-CoreRestHttpClientRequest -Method $Method -Uri $Uri -Headers $Headers -Body $Body -Side $Side
-                if ($requestResult) {
-                    $response = $requestResult.Response
-                    $responseBody = $requestResult.RawContent
+
+            if ($useHttpClient) {
+                try {
+                    $requestResult = Invoke-CoreRestHttpClientRequest -Method $Method -Uri $Uri -Headers $Headers -Body $Body -Side $Side
+                    if ($requestResult) {
+                        $response = $requestResult.Response
+                        $responseBody = $requestResult.RawContent
+                    }
+                    if ($null -eq $response) { throw "HttpClient returned null response" }
+                    $stopwatch.Stop()
                 }
-                if ($null -eq $response) { throw "HttpClient returned null response" }
+                catch {
+                    $stopwatch.Stop()
+                    Write-Verbose "[Core.Rest] HttpClient.SendAsync failed: $_ - falling back to Invoke-RestMethod"
+                    # Build parameters for Invoke-RestMethod
+                    $irmParams = @{ Uri = $Uri; Method = $Method; ErrorAction = 'Stop' }
+                    if ($Headers -and $Headers.Count -gt 0) { $irmParams['Headers'] = $Headers }
+                    if ($Body) { $irmParams['Body'] = $Body }
+                    if ($script:SkipCertificateCheck) { $irmParams['SkipCertificateCheck'] = $true }
+                    try {
+                        $rawResult = Invoke-RestMethod @irmParams
+                        return $rawResult
+                    }
+                    catch {
+                        if ($ReturnNullOnNotFound -and $_.Exception -and $_.Exception.Response) {
+                            try {
+                                $respStatus = [int]$_.Exception.Response.StatusCode
+                                if ($respStatus -eq 404) {
+                                    Write-Verbose "[Core.Rest] ReturnNullOnNotFound: Invoke-RestMethod fallback received 404 for $Uri"
+                                    return $null
+                                }
+                            }
+                            catch { }
+                        }
+                        throw
+                    }
+                }
+            } elseif ($usePowerShell) {
                 $stopwatch.Stop()
-            }
-            catch {
-                $stopwatch.Stop()
-                Write-Verbose "[Core.Rest] HttpClient.SendAsync failed: $_ - falling back to Invoke-RestMethod"
-                # Build parameters for Invoke-RestMethod
                 $irmParams = @{ Uri = $Uri; Method = $Method; ErrorAction = 'Stop' }
                 if ($Headers -and $Headers.Count -gt 0) { $irmParams['Headers'] = $Headers }
                 if ($Body) { $irmParams['Body'] = $Body }
                 if ($script:SkipCertificateCheck) { $irmParams['SkipCertificateCheck'] = $true }
                 try {
                     $rawResult = Invoke-RestMethod @irmParams
-                    # Return raw result (Invoke-RestMethod already parses JSON into objects)
                     return $rawResult
                 }
                 catch {
@@ -1632,20 +1714,17 @@ function Invoke-RestWithRetry {
                         }
                         catch { }
                     }
-                    # Rethrow the original exception if fallback also fails
                     throw
                 }
             }
-            
+
             # Log response
             $durationMs = [int]$stopwatch.ElapsedMilliseconds
             if ($response) {
                 try {
-                    # Success path
                     if ($response.IsSuccessStatusCode) {
-                        Write-Host "[$Side]  $($response.StatusCode) ($durationMs ms)" -ForegroundColor Green
+                        Write-Host "[$Side]  ��� $($response.StatusCode) ($durationMs ms)" -ForegroundColor Green
 
-                        # Use cached response body and try to parse JSON, otherwise return raw string
                         $content = $responseBody
                         if ($script:LogRestCalls -and $content) {
                             $maskedContent = Hide-Secret -Text $content
@@ -1664,15 +1743,14 @@ function Invoke-RestWithRetry {
                         }
                     }
 
-                    # Non-success path: extract status and body
                     $status = 0
                     try { $status = [int]$response.StatusCode } catch { $status = 0 }
                     $errorContent = $responseBody
                     $errorPreview = if ($errorContent) { $errorContent.Substring(0, [Math]::Min(80, $errorContent.Length)) } else { '<no response body>' }
 
                     $statusColor = if ($status -in @(429, 500, 502, 503, 504)) { 'Yellow' } elseif ($status -eq 404 -and $Method -eq 'GET') { 'DarkYellow' } else { 'Red' }
-                    Write-Host "[$Side]  $status ($errorPreview)" -ForegroundColor $statusColor
-                    
+                    Write-Host "[$Side]  ��� $status ($errorPreview)" -ForegroundColor $statusColor
+
                     if ($script:LogRestCalls -and $errorContent) {
                         $maskedErrorContent = Hide-Secret -Text $errorContent
                         Write-Host "[$Side] Error Response Body: $($maskedErrorContent.Substring(0, [Math]::Min(1000, $maskedErrorContent.Length)))..." -ForegroundColor Red
@@ -1683,7 +1761,6 @@ function Invoke-RestWithRetry {
                         return $null
                     }
 
-                    # Determine if we should retry on transient failures
                     $shouldRetry = $status -in @(429, 500, 502, 503, 504) -and $attempt -lt $effectiveMaxAttempts
                     if ($shouldRetry) {
                         $delayBase = $baseDelay * [Math]::Pow(2, $attempt - 1)
@@ -1691,7 +1768,6 @@ function Invoke-RestWithRetry {
                         $delay = [int]$delayBase + $jitter
                         Write-Host "[$Side] ? Retry in ${delay}s (attempt $attempt/$effectiveMaxAttempts)" -ForegroundColor Yellow
                         if ($delay -gt 0) { Start-Sleep -Seconds $delay }
-                        # Loop will continue for retry
                     }
                     else {
                         throw "HTTP $status : $errorContent"
@@ -1704,7 +1780,6 @@ function Invoke-RestWithRetry {
         }
         catch {
             $errMessage = if ($_.Exception) { $_.Exception.Message } else { $_.ToString() }
-            # Emit richer diagnostics to help trace op_Addition errors originating inside HttpClient or header handling
             try {
                 Write-Verbose "[Core.Rest] Exception details: $($_ | Out-String)"
                 if ($_.Exception -and $_.Exception.StackTrace) { Write-Verbose "[Core.Rest] StackTrace: $($_.Exception.StackTrace)" }

@@ -2230,8 +2230,16 @@ function Import-AdoWorkItemsFromExcel {
     # Sort by hierarchy to ensure parents are created before children
     # Sort by the configured hierarchy order. Unknown types go to the end.
     $orderedRows = $resolvedRows | Sort-Object {
-        if ($null -ne $_.ResolvedWorkItemType -and $hierarchyOrder.ContainsKey($_.ResolvedWorkItemType)) {
-            $hierarchyOrder[$_.ResolvedWorkItemType]
+        $typeName = $null
+        if ($_.ResolvedWorkItemType -is [string]) {
+            $typeName = $_.ResolvedWorkItemType
+        }
+        elseif ($_.ResolvedWorkItemType -and ($_.ResolvedWorkItemType.PSObject.Properties['Name'])) {
+            $typeName = $_.ResolvedWorkItemType.Name
+        }
+
+        if ($typeName -and $hierarchyOrder.ContainsKey($typeName)) {
+            $hierarchyOrder[$typeName]
         }
         else { 999 }
     }
@@ -2503,18 +2511,117 @@ function Import-AdoWorkItemsFromExcel {
         $script:relationshipsCreated = 0
         Write-Warning "[Import-AdoWorkItemsFromExcel] Initialized script:relationshipsCreated to 0"
     }
+
+    # Batch parent-child relation creation after all work items are created
+    $batchedParentLinks = @{}
+
+    # After all work items are created, build a map of childId => array of parentIds
+    foreach ($row in $orderedRows) {
+        if ($row.PSObject.Properties['ParentLocalId'] -and $row.ParentLocalId) {
+            $parentKey = $null
+            if ($row.PSObject.Properties['ParentLocalIdKey'] -and $row.ParentLocalIdKey) {
+                $parentKey = $row.ParentLocalIdKey
+            }
+            $parentLookupCandidates = @()
+            if ($parentKey) { $parentLookupCandidates += $parentKey }
+            $parentLookupCandidates += "$($row.ParentLocalId)"
+            $parentLookupCandidates = $parentLookupCandidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+            $parentAdoId = $null
+            foreach ($candidate in $parentLookupCandidates) {
+                if ($localToAdoMap.ContainsKey($candidate)) {
+                    $parentAdoId = $localToAdoMap[$candidate]
+                    break
+                }
+            }
+            if ($parentAdoId -and $row.PSObject.Properties['LocalIdKey'] -and $row.LocalIdKey -and $localToAdoMap.ContainsKey($row.LocalIdKey)) {
+                $childAdoId = $localToAdoMap[$row.LocalIdKey]
+                if (-not $batchedParentLinks.ContainsKey($childAdoId)) { $batchedParentLinks[$childAdoId] = @() }
+                $batchedParentLinks[$childAdoId] += $parentAdoId
+            }
+        }
+    }
+
+    # Now batch PATCH each child with all its parent relations (single PATCH per child)
+    $coreCfg = $null
+    try { $coreCfg = Get-CoreRestConfig } catch { $coreCfg = $null }
+    $collectionUrl = $null
+    if ($coreCfg -and $coreCfg.CollectionUrl) { $collectionUrl = $coreCfg.CollectionUrl.TrimEnd('/') }
+
+    foreach ($childAdoId in $batchedParentLinks.Keys) {
+        $parentIds = $batchedParentLinks[$childAdoId] | Select-Object -Unique
+        $relationOps = @()
+        foreach ($parentId in $parentIds) {
+            # No GET for parent validation; rely on cached IDs and sort order
+            $parentUrl = if ($collectionUrl) {
+                "$collectionUrl/$projEnc/_apis/wit/workItems/$parentId"
+            } else {
+                "/$projEnc/_apis/wit/workItems/$parentId"
+            }
+            $relationOps += [ordered]@{
+                op   = "add"
+                path = "/relations/-"
+                value = [ordered]@{
+                    rel        = "System.LinkTypes.Hierarchy-Reverse"
+                    url        = $parentUrl
+                    attributes = [ordered]@{ comment = "Imported from Excel (batched parent link)" }
+                }
+            }
+        }
+        if ($relationOps.Count -gt 0) {
+            try {
+                $patchBody = $relationOps | ConvertTo-Json -Depth 10
+                Invoke-AdoRest PATCH "/$projEnc/_apis/wit/workitems/$childAdoId" -Body $patchBody -ContentType "application/json-patch+json" | Out-Null
+                $script:relationshipsCreated += $relationOps.Count
+                Write-Host "[SUCCESS] Batched parent relations created for child #$childAdoId (parents: $($parentIds -join ', '))" -ForegroundColor Green
+            } catch {
+                Write-Warning "[ERROR] Batched parent relation PATCH failed for child #$($childAdoId): $($_.Exception.Message)"
+            }
+        }
+    }
+    if ($batchedParentLinks.Keys.Count -eq 0) {
+        Write-Host "[INFO] No parent-child relations to batch-create." -ForegroundColor Yellow
+    }
     
     Write-Warning "[Import-AdoWorkItemsFromExcel] Starting to process $($orderedRows.Count) ordered rows"
     $processedCount = 0
+    $layerTransitionOrder = @{
+        "Epic"       = 1
+        "Feature"    = 2
+        "User Story" = 3
+        "Product Backlog Item" = 3
+        "Requirement"= 3
+        "Task"       = 4
+        "Bug"        = 4
+        "Test Case"  = 5
+        "Issue"      = 5
+    }
+    $layerPauseSeconds = 3
+    $currentLayerName = $null
+    $currentLayerIndex = 0
+
     foreach ($row in $orderedRows) {
         $processedCount++
         Write-Warning "[Import-AdoWorkItemsFromExcel] Processing row $processedCount/$($orderedRows.Count): Title='$($row.Title)', LocalId='$($row.LocalId)', WorkItemType='$($row.WorkItemType)', ResolvedWorkItemType='$($row.ResolvedWorkItemType)'"
         # Use resolved work item type (from Resolve-AdoWorkItemType)
         $wit = $row.ResolvedWorkItemType
-        
-        Write-Warning "[INFO] Processing work item: Title='$($row.Title)', Type='$($wit.Name)', LocalId='$($row.LocalId)'"
+        $witName = $null
+        if ($wit -is [string]) { $witName = $wit }
+        elseif ($wit -and $wit.PSObject.Properties['Name']) { $witName = $wit.Name }
+        else { $witName = [string]$wit }
+
+        $incomingLayerIndex = if ($layerTransitionOrder.ContainsKey($witName)) { $layerTransitionOrder[$witName] } else { 999 }
+        if ($currentLayerName -and $incomingLayerIndex -gt $currentLayerIndex) {
+            Write-Host "[INFO] Completed $currentLayerName layer. Waiting $layerPauseSeconds seconds before processing $witName items..." -ForegroundColor Yellow
+            Start-Sleep -Seconds $layerPauseSeconds
+        }
+        if (-not $currentLayerName -or $incomingLayerIndex -ne $currentLayerIndex) {
+            $currentLayerName = $witName
+            $currentLayerIndex = $incomingLayerIndex
+        }
+
+        Write-Warning "[INFO] Processing work item: Title='$($row.Title)', Type='$witName', LocalId='$($row.LocalId)'"
         # Skip bugs that are not linked to a parent
-        if ($wit.Name -eq "Bug" -and (-not $row.PSObject.Properties['ParentLocalId'] -or [string]::IsNullOrWhiteSpace($row.ParentLocalId))) {
+        if ($witName -eq "Bug" -and (-not $row.PSObject.Properties['ParentLocalId'] -or [string]::IsNullOrWhiteSpace($row.ParentLocalId))) {
             Write-Warning "Skipping Bug work item '$($row.Title)' - bugs must be linked to a parent work item"
             continue
         }
@@ -2540,7 +2647,7 @@ function Import-AdoWorkItemsFromExcel {
         try {
             # Build JSON Patch operations array (use PSCustomObject to ensure ConvertTo-Json serializes cleanly)
             $operations = @()
-            write-Warning "[DEBUG] Building JSON Patch operations for work item: Title='$($row.Title)', Type='$($wit.Name)'"
+            write-Warning "[DEBUG] Building JSON Patch operations for work item: Title='$($row.Title)', Type='$witName'"
             # Required: Title
             if ([string]::IsNullOrWhiteSpace($row.Title)) {
                 Write-Warning "Skipping row with missing title (LocalId: $($row.LocalId))"
@@ -2576,7 +2683,7 @@ function Import-AdoWorkItemsFromExcel {
                     path  = "/fields/System.IterationPath"
                     value = $iterationToAssign
                 }
-                Write-Warning "Assigned iteration path '$iterationToAssign' to work item '$($row.Title)' (type: $($wit.Name))"
+                Write-Warning "Assigned iteration path '$iterationToAssign' to work item '$($row.Title)' (type: $witName)"
             }
             
             # IterationPath is intentionally ignored during Excel import to use default project area
@@ -2614,18 +2721,18 @@ function Import-AdoWorkItemsFromExcel {
 
                 # Special handling for "New" state - map to appropriate initial state based on work item type
                 if ($originalStateVal -eq "New") {
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Detected 'New' state for work item type '$($wit.Name)', checking if mapping is needed"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Detected 'New' state for work item type '$witName', checking if mapping is needed"
                     # Test Cases use "Design" as their initial state, not "New"
-                    if ($wit.Name -eq "Test Case") {
+                    if ($witName -eq "Test Case") {
                         $stateVal = "Design"
                         Write-Warning "[Import-AdoWorkItemsFromExcel] Mapped 'New' state to 'Design' for Test Case work item type"
                     }
                     else {
-                        Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieving allowed states for work item type '$($wit.Name)' to check 'New' availability"
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieving allowed states for work item type '$witName' to check 'New' availability"
                         # For other work item types, try to map to first allowed state if "New" not allowed
-                        $allowedStates = Get-FieldAllowedValues -WorkItemType $wit.Name -FieldName "System.State"
+                        $allowedStates = Get-FieldAllowedValues -WorkItemType $witName -FieldName "System.State"
                         if (-not $allowedStates) { $allowedStates = @() }
-                        Write-Warning "[Import-AdoWorkItemsFromExcel] Allowed states for $($wit.Name).System.State: $($allowedStates -join ', ')"
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Allowed states for $($witName).System.State: $($allowedStates -join ', ')"
 
                         # Check if "New" is directly allowed
                         $newIsAllowed = $false
@@ -2637,7 +2744,7 @@ function Import-AdoWorkItemsFromExcel {
                                 }
                             }
                         }
-                        Write-Warning "[Import-AdoWorkItemsFromExcel] Is 'New' state allowed for $($wit.Name)? $newIsAllowed"
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Is 'New' state allowed for $($witName)? $newIsAllowed"
 
                         if (-not $newIsAllowed -and $allowedStates.Count -gt 0) {
                             # "New" not allowed, use first state in the workflow
@@ -2652,16 +2759,16 @@ function Import-AdoWorkItemsFromExcel {
                 }
 
                 # Validate the final state value
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Validating final state value '$stateVal' for work item type '$($wit.Name)'"
-                $allowed = Get-FieldAllowedValues -WorkItemType $wit.Name -FieldName "System.State"
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieved allowed states for $($wit.Name).System.State: $($allowed -join ', ')"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Validating final state value '$stateVal' for work item type '$witName'"
+                $allowed = Get-FieldAllowedValues -WorkItemType $witName -FieldName "System.State"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieved allowed states for $($witName).System.State: $($allowed -join ', ')"
                 if (-not $allowed) { $allowed = @() }
 
                 $isAllowed = $false
                 if ($allowed -and $allowed.Count -gt 0) {
                     foreach ($av in $allowed) { if ($av -ieq $stateVal) { $isAllowed = $true; break } }
                 }
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Checking if state '$stateVal' is allowed for $($wit.Name): $isAllowed"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Checking if state '$stateVal' is allowed for $($witName): $isAllowed"
 
                 # If API calls failed (empty allowed values), skip validation and allow the state
                 # This prevents false warnings when Azure DevOps API is not available
@@ -2675,7 +2782,7 @@ function Import-AdoWorkItemsFromExcel {
                     Write-Warning "[Import-AdoWorkItemsFromExcel] Added System.State operation: '$stateVal' for work item '$($row.Title)'"
                 }
                 else {
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Skipping setting State='$originalStateVal' (mapped to '$stateVal' but not in allowed values for $($wit.Name).System.State - will use default state)"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Skipping setting State='$originalStateVal' (mapped to '$stateVal' but not in allowed values for $($witName).System.State - will use default state)"
                 }
             }
             if ($row.PSObject.Properties['Description'] -and $row.Description) {
@@ -2688,7 +2795,7 @@ function Import-AdoWorkItemsFromExcel {
             }
             
             # Work item type specific fields
-            if ($row.PSObject.Properties['StoryPoints'] -and $row.StoryPoints -and $wit.Name -eq "User Story") {
+            if ($row.PSObject.Properties['StoryPoints'] -and $row.StoryPoints -and $witName -eq "User Story") {
                 $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StoryPoints"; value=[double]$row.StoryPoints }
                 Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.Scheduling.StoryPoints operation: '$($row.StoryPoints)' for User Story '$($row.Title)'"
             }
@@ -2730,8 +2837,8 @@ function Import-AdoWorkItemsFromExcel {
                 Write-Warning "[Import-AdoWorkItemsFromExcel] Mapped Risk from '$originalRiskVal' to '$riskVal' for work item '$($row.Title)'"
 
                 # Try to validate Risk allowed values; if not available, add cautiously
-                $riskAllowed = Get-FieldAllowedValues -WorkItemType $wit.Name -FieldName "Microsoft.VSTS.Common.Risk"
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieved allowed risk values for $($wit.Name): $($riskAllowed -join ', ')"
+                $riskAllowed = Get-FieldAllowedValues -WorkItemType $witName -FieldName "Microsoft.VSTS.Common.Risk"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieved allowed risk values for $($witName): $($riskAllowed -join ', ')"
                 if (-not $riskAllowed) { $riskAllowed = @() }
 
                 $riskOk = $false
@@ -2795,7 +2902,7 @@ function Import-AdoWorkItemsFromExcel {
             }
             
             # Test Case specific: Test Steps
-            if ($wit.Name -eq "Test Case" -and $row.PSObject.Properties['TestSteps'] -and $row.TestSteps) {
+            if ($witName -eq "Test Case" -and $row.PSObject.Properties['TestSteps'] -and $row.TestSteps) {
                 Write-Warning "[Import-AdoWorkItemsFromExcel] Processing TestSteps for Test Case '$($row.Title)': value '$($row.TestSteps)'"
                 $stepsXml = ConvertTo-AdoTestStepsXml -StepsText $row.TestSteps
                 if ($stepsXml) {
@@ -2818,6 +2925,7 @@ function Import-AdoWorkItemsFromExcel {
             }
             
             # Parent relationship (if parent was already created)
+            $pendingParentLink = $null
             if ($row.PSObject.Properties['ParentLocalId'] -and $row.ParentLocalId) {
                 $parentKey = $null
                 if ($row.PSObject.Properties['ParentLocalIdKey'] -and $row.ParentLocalIdKey) {
@@ -2841,56 +2949,99 @@ function Import-AdoWorkItemsFromExcel {
                 if (-not $parentAdoId) {
                     Write-Warning "[Import-AdoWorkItemsFromExcel] Parent ADO ID not found in map for ParentLocalId: $($row.ParentLocalId)"
                 }
-                if ($parentAdoId) {
-                    $projEnc = [uri]::EscapeDataString($Project)
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Building relation URL for parent ID: $parentAdoId"
-                    # Build absolute URL for parent work item relation. Azure DevOps expects a full
-                    # absolute URL for relation targets (not a relative path). Try to get the
-                    # configured CollectionUrl from Core.Rest; fall back to the relative form
-                    # if the collection URL is not available in this context.
-                    try {
-                        $coreCfg = Get-CoreRestConfig
-                        Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieved Core.Rest config successfully"
-                    }
-                    catch {
-                        $coreCfg = $null
-                        Write-Warning "[Import-AdoWorkItemsFromExcel] Failed to retrieve Core.Rest config: $_"
-                    }
 
-                    $collectionUrl = $null
-                    if ($coreCfg -and $coreCfg.CollectionUrl) { 
-                        $collectionUrl = $coreCfg.CollectionUrl.TrimEnd('/') 
-                        Write-Warning "[Import-AdoWorkItemsFromExcel] Using CollectionUrl: $collectionUrl"
-                    } else {
-                        Write-Warning "[Import-AdoWorkItemsFromExcel] CollectionUrl not available, will use relative URL"
-                    }
+                # Build absolute URL for parent work item relation. Azure DevOps expects a full
+                # absolute URL for relation targets (not a relative path). Try to get the
+                # configured CollectionUrl from Core.Rest; fall back to the relative form
+                # if the collection URL is not available in this context.
+                try {
+                    $coreCfg = Get-CoreRestConfig
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieved Core.Rest config successfully"
+                }
+                catch {
+                    $coreCfg = $null
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Failed to retrieve Core.Rest config: $_"
+                }
 
-                    if ($collectionUrl) {
-                        $relTargetUrl = "$collectionUrl/_apis/wit/workItems/$parentAdoId"
-                        Write-Warning "[Import-AdoWorkItemsFromExcel] Constructed absolute relation URL: $relTargetUrl"
-                    }
-                    else {
-                        # Last resort: use relative URL (older codepath). This is less likely to be
-                        # accepted by the server but preserves behavior when collection URL isn't available.
-                        $relTargetUrl = "/$projEnc/_apis/wit/workItems/$parentAdoId"
-                        Write-Warning "[Import-AdoWorkItemsFromExcel] Using relative relation URL: $relTargetUrl"
-                    }
-
-                    $relValue = [pscustomobject]@{
-                        rel = "System.LinkTypes.Hierarchy-Reverse"
-                        url = $relTargetUrl
-                        attributes = [pscustomobject]@{ comment = "Imported from Excel" }
-                    }
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Created relation value object for parent link"
-                    $operations += [pscustomobject]@{
-                        op = "add"
-                        path = "/relations/-"
-                        value = $relValue
-                    }
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Added parent relation operation to operations list"
+                $collectionUrl = $null
+                if ($coreCfg -and $coreCfg.CollectionUrl) {
+                    $collectionUrl = $coreCfg.CollectionUrl.TrimEnd('/')
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Using CollectionUrl: $collectionUrl"
                 }
                 else {
-                    Write-Warning "Parent LocalId $($row.ParentLocalId) not yet created for work item '$($row.Title)'"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] CollectionUrl not available, will use relative URL"
+                }
+
+                if ($parentAdoId) {
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Building relation URL for parent ID: $parentAdoId"
+                    $relTargetUrl = if ($collectionUrl) {
+                        "$collectionUrl/$projEnc/_apis/wit/workItems/$parentAdoId"
+                    }
+                    else {
+                        "/$projEnc/_apis/wit/workItems/$parentAdoId"
+                    }
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Relation URL for parent link: $relTargetUrl"
+
+                    # Validate hierarchy for immediate relations too
+                    try {
+                        # We don't have the work item types yet since the work item isn't created, 
+                        # but we can validate based on the resolved types
+                        $childType = $row.ResolvedWorkItemType.Name
+                        $parentWi = Invoke-AdoRest GET "/$projEnc/_apis/wit/workitems/$parentAdoId?`$fields=System.WorkItemType" -ApiVersion "7.1"
+                        $parentType = $parentWi.fields.'System.WorkItemType'
+                        
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Validating immediate hierarchy: Child ($childType) -> Parent $parentAdoId ($parentType)"
+                        
+                        $hierarchyOrder = @{
+                            "Epic" = 1
+                            "Feature" = 2  
+                            "User Story" = 3
+                            "Product Backlog Item" = 3
+                            "Requirement" = 3
+                            "Task" = 4
+                            "Bug" = 4
+                            "Test Case" = 4
+                            "Issue" = 5
+                        }
+                        
+                        $childOrder = $hierarchyOrder.ContainsKey($childType) ? $hierarchyOrder[$childType] : 999
+                        $parentOrder = $hierarchyOrder.ContainsKey($parentType) ? $hierarchyOrder[$parentType] : 999
+                        
+                        if ($parentOrder -ge $childOrder) {
+                            Write-Warning "[Import-AdoWorkItemsFromExcel] Skipping invalid immediate hierarchy: Parent $parentType (order $parentOrder) cannot be parent of $childType (order $childOrder)"
+                            $parentAdoId = $null  # Skip adding the relation
+                        }
+                    }
+                    catch {
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Could not validate work item types for immediate hierarchy: $_"
+                        # Continue anyway
+                    }
+
+                    if ($parentAdoId) {
+                        $relValue = [pscustomobject]@{
+                            rel = "System.LinkTypes.Hierarchy-Reverse"
+                            url = $relTargetUrl
+                            attributes = [pscustomobject]@{ comment = "Imported from Excel" }
+                        }
+                        $operations += [pscustomobject]@{
+                            op = "add"
+                            path = "/relations/-"
+                            value = $relValue
+                        }
+                        $script:relationshipsCreated++
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Added parent relation operation to operations list"
+                    }
+                }
+                else {
+                    Write-Warning "Parent LocalId $($row.ParentLocalId) not yet created for work item '$($row.Title)' - deferring link"
+                    $pendingParentLink = @{
+                        ParentKeys    = @($parentLookupCandidates)
+                        CollectionUrl = $collectionUrl
+                        ChildLocalId  = if ($row.LocalId) { "$($row.LocalId)" }
+                                        elseif ($row.PSObject.Properties['LocalIdKey'] -and $row.LocalIdKey) { $row.LocalIdKey }
+                                        else { $null }
+                        ParentLocalId = "$($row.ParentLocalId)"
+                    }
                 }
             }
             
@@ -3007,24 +3158,73 @@ function Import-AdoWorkItemsFromExcel {
                                           -Body $workItemBody `
                                           -ContentType "application/json-patch+json"
 
-                # Store mapping for child relationships
-                if ($row.PSObject.Properties['LocalId'] -and $row.LocalId) {
-                    $localKey = $null
-                    if ($row.PSObject.Properties['LocalIdKey'] -and $row.LocalIdKey) {
-                        $localKey = $row.LocalIdKey
-                    }
-                    elseif ($null -ne $row.LocalId) {
-                        $localKey = "$($row.LocalId)"
-                    }
-                    if ($localKey) {
-                        $localToAdoMap[$localKey] = $workItem.id
-                    }
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Stored mapping: LocalId $($row.LocalId) -> ADO ID $($workItem.id)"
+                # Store mapping for child relationships (support both LocalIdKey and numeric LocalId)
+
+                $storedKeys = @()
+
+                if ($row.PSObject.Properties['LocalIdKey'] -and $row.LocalIdKey) {
+
+                    $localToAdoMap[$row.LocalIdKey] = $workItem.id
+
+                    $storedKeys += $row.LocalIdKey
+
                 }
 
-                Write-Host "  ✅ Created $($wit.Name) #$($workItem.id): $($row.Title)" -ForegroundColor Gray
+                if ($row.PSObject.Properties['LocalId'] -and $null -ne $row.LocalId) {
+
+                    $numericKey = "$($row.LocalId)"
+
+                    if (-not [string]::IsNullOrWhiteSpace($numericKey)) {
+
+                        $localToAdoMap[$numericKey] = $workItem.id
+
+                        $storedKeys += $numericKey
+
+                    }
+
+                }
+
+                if ($storedKeys.Count -gt 0) {
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Stored mapping keys '$($storedKeys -join ', ')' -> ADO ID $($workItem.id)"
+                }
+
+
+                if ($pendingParentLink) {
+
+                    $deferredEntry = [pscustomobject]@{
+
+                        ChildId       = $workItem.id
+
+                        ChildLocalId  = if ($pendingParentLink.ChildLocalId) { $pendingParentLink.ChildLocalId }
+
+                                        elseif ($row.LocalId) { "$($row.LocalId)" }
+
+                                        else { $row.LocalIdKey }
+
+                        ParentKeys    = @($pendingParentLink.ParentKeys)
+
+                        CollectionUrl = $pendingParentLink.CollectionUrl
+
+                    }
+
+                    [void]$deferredParentLinks.Add($deferredEntry)
+
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Deferred parent link queued for child LocalId $($deferredEntry.ChildLocalId)"
+
+                }
+
+
+
+                & $processDeferredParentLinks $deferredParentLinks $localToAdoMap $projEnc
+
+
+
+                Write-Host "  ✓ Created $witName #$($workItem.id): $($row.Title)" -ForegroundColor Gray
+
                 Write-Warning "[Import-AdoWorkItemsFromExcel] Created work item id=$($workItem.id) for LocalId=$($row.LocalId)"
+
                 $successCount++
+
             }
             catch {
                 # Capture rich diagnostics for failed POSTs to logs/debug-workitem-failure-<guid>.json
@@ -3111,6 +3311,11 @@ function Import-AdoWorkItemsFromExcel {
         }
     }
     # Summary
+    & $processDeferredParentLinks $deferredParentLinks $localToAdoMap $projEnc
+    if ($deferredParentLinks.Count -gt 0) {
+        Write-Warning "[Import-AdoWorkItemsFromExcel] Unable to resolve $($deferredParentLinks.Count) deferred parent link(s). Verify parent references exist in Excel."
+    }
+
     Write-Warning "[Import-AdoWorkItemsFromExcel] Loop completed. Processed $processedCount rows out of $($orderedRows.Count) total rows"
     Write-Warning ""
     Write-Warning "[SUCCESS] Imported $successCount work items successfully"

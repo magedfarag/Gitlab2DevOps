@@ -112,30 +112,43 @@ function Set-AdoWikiPage {
         # Removed unused parameters: CollectionUrl, AdoPat, AdoApiVersion
     )
     
+
     $enc = [uri]::EscapeDataString($Path)
     $projEnc = [uri]::EscapeDataString($Project)
-    
+
+    # Pre-PUT wiki readiness check: poll wiki metadata endpoint for up to 10 seconds
+    $wikiReady = $false
+    $wikiReadyTimeout = 10
+    $wikiReadyStart = Get-Date
+    while ((Get-Date) - $wikiReadyStart -lt (New-TimeSpan -Seconds $wikiReadyTimeout)) {
+        try {
+            $wikiMeta = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId" -MaxAttempts 1 -DelaySeconds 0
+            if ($wikiMeta -and $wikiMeta.PSObject.Properties['id'] -and $wikiMeta.id) {
+                $wikiReady = $true
+                break
+            }
+        } catch {
+            Start-Sleep -Seconds 2
+        }
+    }
+    if (-not $wikiReady) {
+        Write-Verbose "[Wikis] Wiki backend not ready after $wikiReadyTimeout seconds, proceeding with page creation attempts."
+    }
+
     # Azure DevOps Wiki API behavior:
     # - PUT: Create new page (fails if page exists)
     # - PATCH: Update existing page (fails if page doesn't exist with 405)
     # Strategy: Try PUT first, if it fails with "already exists", use PATCH
-    
-    # Add retry logic for wiki availability (handle potential race conditions after wiki creation)
+
     $maxWikiRetries = 5  # Increased from 3
     $wikiRetryDelay = 3  # Increased from 2
     $lastError = $null
     $pageAlreadyExists = $false
-    
+
     for ($wikiAttempt = 1; $wikiAttempt -le $maxWikiRetries; $wikiAttempt++) {
         try {
-            # If page already exists, skip PUT and go directly to PATCH
-            if ($pageAlreadyExists) {
-                break
-            }
-            
-            # Try PUT first to create new page
-                Write-Verbose "[Wikis] Creating wiki page: $Path (attempt $wikiAttempt)"
-            # Disable REST-layer retries for wiki PUT (treat 500 as informational at wiki layer)
+            if ($pageAlreadyExists) { break }
+            Write-Verbose "[Wikis] Creating wiki page: $Path (attempt $wikiAttempt)"
             Invoke-AdoRest PUT "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{ content = $Markdown } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
             Write-Verbose "[Wikis] Successfully created wiki page: $Path"
             return
@@ -143,8 +156,6 @@ function Set-AdoWikiPage {
         catch {
             $errorMsg = $_.Exception.Message
             $lastError = $_
-
-            # Get normalized error for better status code detection
             $normalizedError = $null
             if (Get-Command -Name New-NormalizedError -ErrorAction SilentlyContinue) {
                 try { $normalizedError = New-NormalizedError -Exception $_ -Side 'ado' -Endpoint $Path } catch { }
@@ -153,35 +164,19 @@ function Set-AdoWikiPage {
                 $normalizedError = [pscustomobject]@{ status = $null; message = $errorMsg }
             }
             $status = $normalizedError.status
-
-            # Check for various wiki-related errors that indicate the wiki isn't ready
-            # Do NOT treat Internal Server Error (500) as a 'wiki not ready' transient condition
-            # so we don't retry on it here. Service Unavailable (503) may still be retried.
-            $isWikiNotReady = $errorMsg -match 'WikiNotFoundException|Wiki.*not found|404' -or 
-                             $errorMsg -match 'Service Unavailable' -or
-                             $status -eq 404
-
-            # If it's a wiki not ready error and we haven't exhausted retries, wait and retry
+            $isWikiNotReady = $errorMsg -match 'WikiNotFoundException|Wiki.*not found|404' -or $errorMsg -match 'Service Unavailable' -or $status -eq 404
             if ($isWikiNotReady -and $wikiAttempt -lt $maxWikiRetries) {
                 Write-Verbose "[Wikis] Wiki not ready (status: $status), retrying in ${wikiRetryDelay}s (attempt $wikiAttempt/$maxWikiRetries)"
                 Start-Sleep -Seconds $wikiRetryDelay
-                $wikiRetryDelay *= 1.5  # Slower exponential backoff
+                $wikiRetryDelay *= 1.5
                 continue
             }
-
-            # Handle 500 errors - treat them as informational for wiki page creation and skip
-            # further retries here. This avoids noisy warnings and long retry chains when the
-            # server returns an internal error that is not improved by immediate retries.
             if ($status -eq 500 -or $errorMsg -match '500|Internal Server Error') {
                 Write-Host "[Wikis] Server returned 500 for $Path — saving server response to logs and skipping page creation (info)" -ForegroundColor Cyan
-
-                # Attempt to extract raw response body from the exception and write to logs for diagnostics
                 try {
                     $rawBody = $null
-                    # Normalize access to inner exception which may contain the Response stream
                     $actualEx = $null
                     if ($_.Exception -and ($_.Exception -is [System.Management.Automation.ErrorRecord])) { $actualEx = $_.Exception.Exception } else { $actualEx = $_.Exception }
-
                     if ($actualEx -and (Get-Member -InputObject $actualEx -Name 'Response' -MemberType Properties -ErrorAction SilentlyContinue)) {
                         if ($actualEx.Response) {
                             try {
@@ -193,15 +188,11 @@ function Set-AdoWikiPage {
                             }
                         }
                     }
-
-                    # Build logs directory (same pattern as Core.Rest)
                     $logsDir = Join-Path $PSScriptRoot "..\logs"
                     if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
-
                     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
                     $safePath = ($Path -replace '[^a-zA-Z0-9\-\._]', '-')
                     $logFile = Join-Path $logsDir ("wiki-500-" + $([uri]::EscapeDataString($Project)) + "-" + $safePath + "-" + $timestamp + ".log")
-
                     $payload = [ordered]@{
                         timestamp = (Get-Date).ToString('o')
                         project   = $Project
@@ -210,29 +201,21 @@ function Set-AdoWikiPage {
                         message   = $normalizedError.message
                         rawBody   = if ($rawBody) { $rawBody } else { '<no body captured>' }
                     }
-
                     $payload | ConvertTo-Json -Depth 5 | Out-File -FilePath $logFile -Encoding UTF8 -Force
                     Write-Host "[Wikis] Saved server 500 response to: $logFile" -ForegroundColor Cyan
                 }
                 catch {
                     Write-Verbose "[Wikis] Failed to write 500 diagnostic log: $_"
                 }
-
                 return
             }
-
-            # If page already exists, mark flag and break out of PUT retry loop to switch to PATCH
             if ($errorMsg -match 'WikiPageAlreadyExistsException|already exists|409') {
                 Write-Verbose "[Wikis] Page $Path already exists, switching to PATCH mode"
                 $pageAlreadyExists = $true
                 break
             }
             else {
-                # Unexpected error - if it's the last retry, rethrow
-                if ($wikiAttempt -eq $maxWikiRetries) {
-                    throw
-                }
-                # Otherwise, wait and retry
+                if ($wikiAttempt -eq $maxWikiRetries) { throw }
                 Write-Verbose "[Wikis] Unexpected error, retrying in ${wikiRetryDelay}s (attempt $wikiAttempt/$maxWikiRetries): $errorMsg"
                 Start-Sleep -Seconds $wikiRetryDelay
                 $wikiRetryDelay *= 2

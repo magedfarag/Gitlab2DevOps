@@ -10,6 +10,79 @@
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
 
+# Dashboard REST helper defaults (order: prefer latest, fall back for Azure DevOps Server)
+$script:dashboardApiVersions = @('7.1-preview.3', '7.1-preview.1', '7.0', '6.0')
+
+function Invoke-AdoDashboardRest {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('GET', 'POST', 'PATCH', 'DELETE')]
+        [string]$Method,
+
+        [Parameter(Mandatory)]
+        [string]$Endpoint,
+
+        $Body,
+
+        [string]$ContentType,
+
+        [switch]$ReturnNullOnNotFound
+    )
+
+    $lastError = $null
+    foreach ($apiVersion in $script:dashboardApiVersions) {
+        try {
+            $invokeParams = @{ ApiVersion = $apiVersion }
+            if ($PSBoundParameters.ContainsKey('Body')) { $invokeParams['Body'] = $Body }
+            if ($PSBoundParameters.ContainsKey('ContentType')) { $invokeParams['ContentType'] = $ContentType }
+            if ($ReturnNullOnNotFound.IsPresent) { $invokeParams['ReturnNullOnNotFound'] = $true }
+
+            switch ($Method.ToUpperInvariant()) {
+                'GET'    { return Invoke-AdoRest GET $Endpoint @invokeParams }
+                'POST'   { return Invoke-AdoRest POST $Endpoint @invokeParams }
+                'PATCH'  { return Invoke-AdoRest PATCH $Endpoint @invokeParams }
+                'DELETE' { return Invoke-AdoRest DELETE $Endpoint @invokeParams }
+            }
+        }
+        catch {
+            $lastError = $_
+            $statusCode = $null
+            try {
+                if ($_.Exception -and $_.Exception.Response) {
+                    $statusCode = [int]$_.Exception.Response.StatusCode
+                }
+            }
+            catch {
+                $statusCode = $null
+            }
+
+            $message = if ($_.Exception) { $_.Exception.Message } else { $_.ToString() }
+            $retryable = $false
+            if ($statusCode -in 400, 404, 405) {
+                $retryable = $true
+            }
+            elseif ($message -match 'No HTTP resource was found' -or
+                    $message -match 'controller for path' -or
+                    $message -match 'api-version' -or
+                    $message -match 'TF10158' -or
+                    $message -match 'Not Found') {
+                $retryable = $true
+            }
+
+            if (-not $retryable) {
+                throw
+            }
+        }
+    }
+
+    if ($lastError) {
+        throw $lastError
+    }
+
+    return $null
+}
+
 
 function Set-AdoTeamSettings {
     [CmdletBinding()]
@@ -125,19 +198,21 @@ function Resolve-AdoDashboardEndpoints {
     $projIdEnc = if ($ProjectId) { [uri]::EscapeDataString($ProjectId) } else { $projEnc }
     $teamNameEnc = if ($Team) { [uri]::EscapeDataString($Team) } else { $null }
 
-    # Prefer the supported name-based endpoint first so Azure DevOps resolves the team identity without
-    # hitting the legacy classification descriptor route that returns TF10158 for some on-prem servers.
+    # Prioritize the correct official endpoint that works on both Azure DevOps Cloud and Server
     if ($teamNameEnc) {
         $endpoints += "/$projEnc/$teamNameEnc/_apis/dashboard/dashboards"
     }
 
+    # Fallback to ID-based endpoint (may not work on some servers)
     if ($TeamId) {
         $teamIdEnc = [uri]::EscapeDataString($TeamId)
         $endpoints += "/_apis/projects/$projIdEnc/teams/$teamIdEnc/dashboard/dashboards"
+    }
 
-        # Fallback endpoints for servers that don't support the legacy route shape
-        $teamQuery = "teamId=$teamIdEnc"
-        $endpoints += "/$projEnc/_apis/dashboard/dashboards?$teamQuery"
+    # Additional fallback endpoints for servers that don't support the preferred routes
+    if ($TeamId) {
+        $teamIdEnc = [uri]::EscapeDataString($TeamId)
+        $endpoints += "/$projEnc/_apis/dashboard/dashboards?teamId=$teamIdEnc"
 
         $orgQueryParts = @("teamId=$teamIdEnc")
         if ($ProjectId) {
@@ -218,7 +293,7 @@ function Search-Adodashboard {
         $existingDashboards = $null
         foreach ($ep in $endpoints) {
             try {
-                $existingDashboards = Invoke-AdoRest GET $ep -Preview
+                $existingDashboards = Invoke-AdoDashboardRest -Method GET -Endpoint $ep
                 break
             }
             catch {
@@ -267,7 +342,7 @@ function Search-Adodashboard {
                         $sourceDetails = $null
                         foreach ($ep in $endpoints) {
                             try {
-                                $sourceDetails = Invoke-AdoRest GET ("$ep/" + $sourceId) -Preview
+                                $sourceDetails = Invoke-AdoDashboardRest -Method GET -Endpoint ("$ep/" + $sourceId)
                                 break
                             }
                             catch {
@@ -279,7 +354,7 @@ function Search-Adodashboard {
                             $updateBody = @{ widgets = $sourceDetails.widgets; description = $sourceDetails.description }
                             foreach ($ep in $endpoints) {
                                 try {
-                                    Invoke-AdoRest PATCH ("$ep/" + $overviewId) -Body $updateBody -Preview | Out-Null
+                                    Invoke-AdoDashboardRest -Method PATCH -Endpoint ("$ep/" + $overviewId) -Body $updateBody | Out-Null
                                     Write-Host "[SUCCESS] Replaced Overview dashboard widgets with dashboard '$($source.name)'" -ForegroundColor Green
                                     break
                                 }
@@ -383,7 +458,7 @@ function Search-Adodashboard {
         $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
         foreach ($ep in $endpoints) {
             try {
-                $dashboard = Invoke-AdoRest POST $ep -Body $dashboardBody -Preview
+                $dashboard = Invoke-AdoDashboardRest -Method POST -Endpoint $ep -Body $dashboardBody
                 break
             }
             catch {
@@ -393,7 +468,7 @@ function Search-Adodashboard {
                 if ($postErr -and ($postErr -match 'DuplicateDashboardNameException' -or $postErr -match 'DuplicateDashboardName')) {
                     Write-LogLevelVerbose "[Search-Adodashboard] Duplicate dashboard name detected when posting to $ep - attempting to find existing dashboard"
                     try {
-                        $existingDashboards = Invoke-AdoRest GET $ep -Preview
+                        $existingDashboards = Invoke-AdoDashboardRest -Method GET -Endpoint $ep
                         $entries = @()
                         if ($existingDashboards -eq $null) { $entries = @() }
                         elseif ($existingDashboards.PSObject.Properties['dashboardEntries']) { $entries = $existingDashboards.dashboardEntries }
@@ -452,9 +527,9 @@ function Search-Adodashboard {
     }
     catch {
         # Dashboard API is often not available on on-premise Azure DevOps Server
-        if ($_ -match "404|Not Found") {
+        if ($_ -match "404|Not Found|500|Internal Server Error") {
             Write-Host ""
-            Write-Host "ℹ️  [INFO] Dashboard API not available (common on on-premise servers)" -ForegroundColor Cyan
+            Write-Host "ℹ️  [INFO] Dashboard API not available (common on on-premise servers or API issues)" -ForegroundColor Cyan
             Write-Host "    Dashboards must be created manually in Azure DevOps UI" -ForegroundColor DarkCyan
             Write-Host "    Navigate to: Overview → Dashboards → New Dashboard" -ForegroundColor DarkCyan
             Write-Host ""
@@ -494,7 +569,7 @@ function Test-Adoqadashboard {
         $existingDashboards = $null
         foreach ($ep in $endpoints) {
             try {
-                $existingDashboards = Invoke-AdoRest GET $ep -Preview
+                $existingDashboards = Invoke-AdoDashboardRest -Method GET -Endpoint $ep
                 break
             }
             catch {
@@ -600,7 +675,7 @@ function Test-Adoqadashboard {
         $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
         foreach ($ep in $endpoints) {
             try {
-                    $dashboard = Invoke-AdoRest POST $ep -Body $dashboardBody -Preview
+                $dashboard = Invoke-AdoDashboardRest -Method POST -Endpoint $ep -Body $dashboardBody
                 break
             }
             catch {
@@ -608,7 +683,7 @@ function Test-Adoqadashboard {
                 if ($postErr -and ($postErr -match 'DuplicateDashboardNameException' -or $postErr -match 'DuplicateDashboardName')) {
                     Write-LogLevelVerbose "[Test-Adoqadashboard] Duplicate dashboard name detected when posting to $ep - attempting to find existing dashboard"
                     try {
-                        $existingDashboards = Invoke-AdoRest GET $ep -Preview
+                        $existingDashboards = Invoke-AdoDashboardRest -Method GET -Endpoint $ep
                         $entries = @()
                         if ($existingDashboards -eq $null) { $entries = @() }
                         elseif ($existingDashboards.PSObject.Properties['dashboardEntries']) { $entries = $existingDashboards.dashboardEntries }
@@ -650,9 +725,9 @@ function Test-Adoqadashboard {
     }
     catch {
         # Dashboard API is often not available on on-premise Azure DevOps Server
-        if ($_ -match "404|Not Found") {
+        if ($_ -match "404|Not Found|500|Internal Server Error") {
             Write-Host ""
-            Write-Host "ℹ️  [INFO] QA Dashboard API not available (common on on-premise servers)" -ForegroundColor Cyan
+            Write-Host "ℹ️  [INFO] QA Dashboard API not available (common on on-premise servers or API issues)" -ForegroundColor Cyan
             Write-Host "    Dashboards must be created manually in Azure DevOps UI" -ForegroundColor DarkCyan
             Write-Host ""
         }
@@ -691,7 +766,7 @@ function New-Adodevdashboard {
         $dashboards = $null
         foreach ($ep in $endpoints) {
             try {
-                $dashboards = Invoke-AdoRest GET $ep -Preview
+                $dashboards = Invoke-AdoDashboardRest -Method GET -Endpoint $ep
                 break
             }
             catch {
@@ -765,7 +840,7 @@ function New-Adodevdashboard {
         $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
         foreach ($ep in $endpoints) {
             try {
-                $dashboard = Invoke-AdoRest POST $ep -Body $dashboardConfig -Preview
+                $dashboard = Invoke-AdoDashboardRest -Method POST -Endpoint $ep -Body $dashboardConfig
                 break
             }
             catch {
@@ -792,8 +867,8 @@ function New-Adodevdashboard {
     }
     catch {
         # Dashboard API is often not available on on-premise Azure DevOps Server
-        if ($_ -match "404|Not Found") {
-            Write-Host "ℹ️  [INFO] Development Dashboard API not available (common on on-premise servers)" -ForegroundColor Cyan
+        if ($_ -match "404|Not Found|500|Internal Server Error") {
+            Write-Host "ℹ️  [INFO] Development Dashboard API not available (common on on-premise servers or API issues)" -ForegroundColor Cyan
         }
         else {
             Write-Warning "Failed to create development dashboard: $_"
@@ -851,7 +926,7 @@ function New-AdoSecurityDashboard {
         $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
         foreach ($ep in $endpoints) {
             try {
-                $dashboard = Invoke-AdoRest POST $ep -Body $dashboardConfig -Preview
+                $dashboard = Invoke-AdoDashboardRest -Method POST -Endpoint $ep -Body $dashboardConfig
                 break
             }
             catch {
@@ -859,7 +934,7 @@ function New-AdoSecurityDashboard {
                 if ($postErr -and ($postErr -match 'DuplicateDashboardNameException' -or $postErr -match 'DuplicateDashboardName')) {
                     Write-Verbose "[New-AdoSecurityDashboard] Duplicate dashboard name detected when posting to $ep - attempting to find existing dashboard"
                     try {
-                        $existingDashboards = Invoke-AdoRest GET $ep -Preview
+                        $existingDashboards = Invoke-AdoDashboardRest -Method GET -Endpoint $ep
                         $entries = @()
                         if ($existingDashboards -eq $null) { $entries = @() }
                         elseif ($existingDashboards.PSObject.Properties['dashboardEntries']) { $entries = $existingDashboards.dashboardEntries }
@@ -892,8 +967,8 @@ function New-AdoSecurityDashboard {
     }
     catch {
         # Dashboard API is often not available on on-premise Azure DevOps Server
-        if ($_ -match "404|Not Found") {
-            Write-Host "ℹ️  [INFO] Security Dashboard API not available (common on on-premise servers)" -ForegroundColor Cyan
+        if ($_ -match "404|Not Found|500|Internal Server Error") {
+            Write-Host "ℹ️  [INFO] Security Dashboard API not available (common on on-premise servers or API issues)" -ForegroundColor Cyan
         }
         else {
             Write-Warning "Failed to create security dashboard: $_"
@@ -969,7 +1044,7 @@ function Test-Adomanagementdashboard {
         $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
         foreach ($ep in $endpoints) {
             try {
-                $dashboard = Invoke-AdoRest POST $ep -Body $dashboardConfig -Preview
+                $dashboard = Invoke-AdoDashboardRest -Method POST -Endpoint $ep -Body $dashboardConfig
                 break
             }
             catch {
@@ -977,7 +1052,7 @@ function Test-Adomanagementdashboard {
                 if ($postErr -and ($postErr -match 'DuplicateDashboardNameException' -or $postErr -match 'DuplicateDashboardName')) {
                     Write-Verbose "[Test-Adomanagementdashboard] Duplicate dashboard name detected when posting to $ep - attempting to find existing dashboard"
                     try {
-                        $existingDashboards = Invoke-AdoRest GET $ep -Preview
+                        $existingDashboards = Invoke-AdoDashboardRest -Method GET -Endpoint $ep
                         $entries = @()
                         if ($existingDashboards -eq $null) { $entries = @() }
                         elseif ($existingDashboards.PSObject.Properties['dashboardEntries']) { $entries = $existingDashboards.dashboardEntries }
@@ -1010,8 +1085,8 @@ function Test-Adomanagementdashboard {
     }
     catch {
         # Dashboard API is often not available on on-premise Azure DevOps Server
-        if ($_ -match "404|Not Found") {
-            Write-Host "ℹ️  [INFO] Management Dashboard API not available (common on on-premise servers)" -ForegroundColor Cyan
+        if ($_ -match "404|Not Found|500|Internal Server Error") {
+            Write-Host "ℹ️  [INFO] Management Dashboard API not available (common on on-premise servers or API issues)" -ForegroundColor Cyan
         }
         else {
             Write-Warning "Failed to create management dashboard: $_"
