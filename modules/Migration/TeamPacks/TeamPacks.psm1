@@ -22,6 +22,14 @@ $coreRestPath = Join-Path $migrationRoot "core\Core.Rest.psm1"
 if (-not (Get-Module -Name 'Core.Rest') -and (Test-Path $coreRestPath)) {
     Import-Module -WarningAction SilentlyContinue $coreRestPath -Force -Global -ErrorAction Stop
 }
+$migrationCorePath = Join-Path $migrationRoot "Core\MigrationCore.psm1"
+if (-not (Get-Module -Name 'MigrationCore') -and (Test-Path $migrationCorePath)) {
+    Import-Module -WarningAction SilentlyContinue $migrationCorePath -Force -Global -ErrorAction SilentlyContinue
+}
+
+if (-not (Get-Variable -Name 'TeamPackWikiCache' -Scope Script -ErrorAction SilentlyContinue)) { $script:TeamPackWikiCache = @{} }
+if (-not (Get-Variable -Name 'TeamPackQueryCache' -Scope Script -ErrorAction SilentlyContinue)) { $script:TeamPackQueryCache = @{} }
+if (-not (Get-Variable -Name 'TeamPackTelemetryHistory' -Scope Script -ErrorAction SilentlyContinue)) { $script:TeamPackTelemetryHistory = @{} }
 
 # Helper: ensure project exists by querying ADO (uses Invoke-AdoRest so tests can mock)
 function Ensure-AdoProject {
@@ -88,6 +96,12 @@ function Ensure-ProjectWiki {
         [Parameter()] $WikiId
     )
 
+    $cacheKey = $ProjectName.ToLowerInvariant()
+    if ($script:TeamPackWikiCache.ContainsKey($cacheKey)) {
+        Write-Verbose "[TeamPacks] Returning cached wiki for $ProjectName"
+        return $script:TeamPackWikiCache[$cacheKey]
+    }
+
     # Don't pre-check existence. Try to create and if creation fails, attempt to query/update.
     try {
         Write-Verbose "[TeamPacks] Attempting to create project wiki for $ProjectName"
@@ -96,6 +110,7 @@ function Ensure-ProjectWiki {
         $proj = Ensure-AdoProject -ProjectName $ProjectName
         $projId = if ($proj -is [System.Collections.IDictionary]) { $proj['id'] } elseif ($proj.PSObject.Properties['id']) { $proj.id } else { $proj }
         $wiki = Measure-Adoprojectwiki $projId $ProjectName
+        if ($wiki) { $script:TeamPackWikiCache[$cacheKey] = $wiki }
         return $wiki
     }
     catch {
@@ -103,7 +118,10 @@ function Ensure-ProjectWiki {
         try {
             $enc = [uri]::EscapeDataString($ProjectName)
             $existing = Invoke-AdoRest GET "/$enc/_apis/wiki/wikis" -ReturnNullOnNotFound
-            if ($existing -and $existing.value -and $existing.value.Count -gt 0) { return $existing.value[0] }
+            if ($existing -and $existing.value -and $existing.value.Count -gt 0) {
+                $script:TeamPackWikiCache[$cacheKey] = $existing.value[0]
+                return $existing.value[0]
+            }
         }
         catch {
             Write-Verbose "[TeamPacks] Could not read existing wikis for ${ProjectName}: $_"
@@ -119,6 +137,13 @@ function Ensure-SharedQueries {
         [Parameter(Mandatory)] [string] $ProjectName,
         [Parameter()] [string] $TeamName
     )
+
+    $teamKey = if ($TeamName) { "$ProjectName|$TeamName" } else { "$ProjectName|$ProjectName Team" }
+    $cacheKey = $teamKey.ToLowerInvariant()
+    if ($script:TeamPackQueryCache.ContainsKey($cacheKey)) {
+        Write-Verbose "[TeamPacks] Shared queries already initialized for $ProjectName ($TeamName)"
+        return
+    }
 
     # Try create first (use existing New-AdoSharedQueries where available), then fall back to query update functions
     try {
@@ -147,6 +172,8 @@ function Ensure-SharedQueries {
     catch {
         Write-Verbose "[TeamPacks] Post-create query setup had warnings: $_"
     }
+
+    $script:TeamPackQueryCache[$cacheKey] = $true
 }
 
 <#
@@ -586,6 +613,49 @@ function Initialize-ManagementInit {
     New-AdoProjectSummaryWikiPage -Project $DestProject -WikiId $wikiId
 }
 
+# Internal helper: persist telemetry to disk so operators can confirm packs ran
+function Write-TeamPackTelemetry {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectName,
+        [Parameter(Mandatory)][psobject[]]$PackResults
+    )
+
+    $payload = [pscustomobject]@{
+        timestamp    = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        project      = $ProjectName
+        packs        = $PackResults
+        totalPacks   = $PackResults.Count
+        failedPacks  = ($PackResults | Where-Object { $_.status -ne 'Success' }).Count
+    }
+
+    $script:TeamPackTelemetryHistory[$ProjectName.ToLowerInvariant()] = $payload
+
+    $paths = $null
+    try { $paths = Get-ProjectPaths -ProjectName $ProjectName -ErrorAction Stop }
+    catch {
+        try { $paths = Get-BulkProjectPaths -AdoProject $ProjectName } catch { }
+    }
+
+    if (-not $paths -or -not $paths.reportsDir) {
+        Write-Verbose "[TeamPacks] Telemetry path unavailable for $ProjectName"
+        return
+    }
+
+    if (-not (Test-Path $paths.reportsDir)) {
+        try { New-Item -ItemType Directory -Path $paths.reportsDir -Force | Out-Null } catch { }
+    }
+
+    try {
+        $telemetryFile = Join-Path $paths.reportsDir "team-packs-telemetry.json"
+        $payload | ConvertTo-Json -Depth 8 | Set-Content -Path $telemetryFile -Encoding UTF8
+        Write-Host "[INFO] Team pack telemetry saved: $telemetryFile" -ForegroundColor Gray
+    }
+    catch {
+        Write-Verbose "[TeamPacks] Failed to persist telemetry for ${ProjectName}: $_"
+    }
+}
+
 # Helper: apply every team pack sequentially (Business, Dev, Security, Management)
 function Invoke-AllTeamPacks {
     [CmdletBinding()]
@@ -616,15 +686,43 @@ function Invoke-AllTeamPacks {
         }
     )
 
+    $packResults = @()
+
     foreach ($pack in $packs) {
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
         try {
             Write-Host "[INFO] Applying $($pack.Name) pack..." -ForegroundColor Cyan
             & $pack.Action
             Write-Host "[SUCCESS] $($pack.Name) pack completed." -ForegroundColor Green
+            $packResults += [pscustomobject]@{
+                name     = $pack.Name
+                status   = 'Success'
+                duration = [math]::Round($sw.Elapsed.TotalSeconds,2)
+                error    = $null
+            }
         }
         catch {
             Write-Host "[WARN] $($pack.Name) pack failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            $packResults += [pscustomobject]@{
+                name     = $pack.Name
+                status   = 'Failed'
+                duration = [math]::Round($sw.Elapsed.TotalSeconds,2)
+                error    = $_.Exception.Message
+            }
         }
+    }
+
+    if ($packResults.Count -gt 0) {
+        Write-Host ""
+        Write-Host "[INFO] Team pack summary for '$ProjectName':" -ForegroundColor Cyan
+        foreach ($result in $packResults) {
+            $color = if ($result.status -eq 'Success') { 'Green' } else { 'Yellow' }
+            Write-Host (" - {0}: {1} ({2}s)" -f $result.name, $result.status, $result.duration) -ForegroundColor $color
+            if ($result.PSObject.Properties['error'] -and $result.error) {
+                Write-Host ("   Error: {0}" -f $result.error) -ForegroundColor Yellow
+            }
+        }
+        Write-TeamPackTelemetry -ProjectName $ProjectName -PackResults $packResults
     }
 }
 

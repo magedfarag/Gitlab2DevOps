@@ -2211,10 +2211,10 @@ function Import-AdoWorkItemsFromExcel {
     Write-Host "[INFO] Processing $(@($orderedRows).Count) work items in hierarchical order" -ForegroundColor Cyan
     
     # Cache field definitions to avoid repeated API calls
-    Write-LogLevelVerbose "Initializing field cache for validation..."
-    $fieldCache = @{}  # Will store per work item type: $fieldCache["User Story"]["System.State"] = @("New", "Active", ...)}}}
-}
-        # Helper function to get allowed values for a field on a specific work item type
+    Write-Warning "Initializing field cache for validation..."
+    $fieldCache = @{}  # Will store per work item type: $fieldCache["User Story"]["System.State"] = @("New", "Active", ...)}
+    
+    # Helper function to get allowed values for a field on a specific work item type
     function Get-FieldAllowedValues {
         param(
             [string]$WorkItemType,
@@ -2232,44 +2232,46 @@ function Import-AdoWorkItemsFromExcel {
             $fieldInfo = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/workitemtypes/$witEncoded/fields/$fieldEncoded?api-version=7.1"
             if ($fieldInfo -and $fieldInfo.allowedValues) {
                 $fieldCache[$cacheKey] = $fieldInfo.allowedValues
-                Write-LogLevelVerbose "Cached $($fieldInfo.allowedValues.Count) allowed values for $WorkItemType.$FieldName"
+                Write-Warning "Cached $($fieldInfo.allowedValues.Count) allowed values for $WorkItemType.$FieldName"
                 return $fieldInfo.allowedValues
             } else {
                 $fieldCache[$cacheKey] = @()
-                Write-LogLevelVerbose "No allowed values found for $WorkItemType.$FieldName"
+                Write-Warning "No allowed values found for $WorkItemType.$FieldName"
                 return @()
             }
         }
         catch {
             $fieldCache[$cacheKey] = @()
-            Write-LogLevelVerbose "Could not cache $WorkItemType.$FieldName`: $_"
+            Write-Warning "Could not cache $WorkItemType.$FieldName`: $_"
             # Also log a warning for state field failures as they are more critical
             if ($FieldName -eq "System.State") {
-                Write-LogLevelVerbose "State validation will be skipped for $WorkItemType - API unavailable"
+                Write-Warning "State validation will be skipped for $WorkItemType - API unavailable"
             }
             return @()
         }
-    
+    }
     
     # Get current iteration for default assignment
     $currentIterationPath = $null
     try {
         $callProjectName = if ($PSBoundParameters.ContainsKey('Project')) { $PSBoundParameters['Project'] } else { $Project }
-        Write-LogLevelVerbose ("Getting current iteration for project: {0}" -f ($callProjectName -or '<unknown>'))
+        Write-Warning ("Getting current iteration for project: {0}" -f ($callProjectName -or '<unknown>'))
         if ($TeamName) {
             $teamEnc = [uri]::EscapeDataString([string]$TeamName)
+            Write-Warning "Debug: Attempting to retrieve current iteration for team"
             if ($projEnc) {
                 $currentIterationResponse = Invoke-AdoRest GET "/$projEnc/$teamEnc/_apis/work/teamsettings/iterations?`$timeframe=current"
             } else {
                 # If project encoding is not available, attempt a relative path (best-effort)
                 $currentIterationResponse = Invoke-AdoRest GET "/$([uri]::EscapeDataString([string]$Project))/$teamEnc/_apis/work/teamsettings/iterations?`$timeframe=current"
             }
+            Write-Warning "Debug: Current iteration API call completed $(currentIterationResponse | Out-String)"
             if ($currentIterationResponse -and $currentIterationResponse.value -and $currentIterationResponse.value.Count -gt 0) {
                 $currentIterationPath = $currentIterationResponse.value[0].path
-                Write-LogLevelVerbose "Current iteration path: $currentIterationPath"
+                Write-Warning "Current iteration path: $currentIterationPath"
             }
         } else {
-            Write-Host "[INFO] No team name provided - skipping current iteration retrieval" -ForegroundColor Yellow
+            Write-Warning "[INFO] No team name provided - skipping current iteration retrieval"
         }
     }
     catch {
@@ -2297,7 +2299,7 @@ function Import-AdoWorkItemsFromExcel {
             }
             catch { }
         }
-        Write-LogLevelVerbose ("Getting first area and iteration for project: {0}" -f ($callProjectName -or '<unknown>'))
+        Write-Warning ("Getting first area and iteration for project: {0}" -f ($callProjectName -or '<unknown>'))
         if ([string]::IsNullOrWhiteSpace($callProjectName)) {
             throw "[Import-AdoWorkItemsFromExcel] No project context available for classification node lookup"
         }
@@ -2307,20 +2309,20 @@ function Import-AdoWorkItemsFromExcel {
         $areasResponse = Invoke-AdoRest GET "/$projEnc/_apis/wit/classificationnodes/areas?`$depth=1" -ReturnNullOnNotFound
         if ($areasResponse -and $areasResponse.value -and $areasResponse.value.Count -gt 0) {
             $firstAreaPath = $areasResponse.value[0].name
-            Write-LogLevelVerbose "First area path: $firstAreaPath"
+            Write-Warning "First area path: $firstAreaPath"
         } elseif ($areasResponse -and $areasResponse.name) {
             $firstAreaPath = $areasResponse.name
-            Write-LogLevelVerbose "First area path: $firstAreaPath"
+            Write-Warning "First area path: $firstAreaPath"
         }
         
         # Get first iteration. Use ReturnNullOnNotFound to avoid noisy TerminatingError when no iterations exist yet.
         $iterationsResponse = Invoke-AdoRest GET "/$projEnc/_apis/wit/classificationnodes/iterations?`$depth=1" -ReturnNullOnNotFound
         if ($iterationsResponse -and $iterationsResponse.value -and $iterationsResponse.value.Count -gt 0) {
             $firstIterationPath = $iterationsResponse.value[0].name
-            Write-LogLevelVerbose "First iteration path: $firstIterationPath"
+            Write-Warning "First iteration path: $firstIterationPath"
         } elseif ($iterationsResponse -and $iterationsResponse.name) {
             $firstIterationPath = $iterationsResponse.name
-            Write-LogLevelVerbose "First iteration path: $firstIterationPath"
+            Write-Warning "First iteration path: $firstIterationPath"
         }
     }
     catch {

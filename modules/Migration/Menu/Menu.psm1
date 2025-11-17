@@ -1179,6 +1179,17 @@ function Invoke-Option9PreparationRefresh {
             $paths = Get-ProjectPaths -AdoProject $PreparedItem.ProjectName -GitLabProject $repoName -ErrorAction Stop
             Write-Host "[INFO] Refreshing preparation for '$($PreparedItem.ProjectName)' from $gitLabPath ..." -ForegroundColor Cyan
             Initialize-GitLab -ProjectPath $gitLabPath -CustomBaseDir $paths.projectDir -CustomProjectName $repoName | Out-Null
+            try {
+                $preReportPath = Join-Path $paths.gitlabDir "reports\pre-migration-report.json"
+                New-MigrationPreReport -GitLabPath $gitLabPath `
+                                       -AdoProject $PreparedItem.ProjectName `
+                                       -AdoRepoName $repoName `
+                                       -OutputPath $preReportPath | Out-Null
+                Write-Verbose "[Option9Prep] Pre-migration report refreshed at $preReportPath"
+            }
+            catch {
+                Write-Warning "[Option9Prep] Failed to refresh pre-migration report for '$($PreparedItem.ProjectName)': $($_.Exception.Message)"
+            }
             try { Export-GitLabDocumentation -AdoProject $PreparedItem.ProjectName | Out-Null } catch { Write-Verbose "[Option9Prep] Documentation export failed: $_" }
             try {
                 if ($paths.configFile) {
