@@ -2326,37 +2326,42 @@ function Import-AdoWorkItemsFromExcel {
         }
     }
     catch {
-        Write-LogLevelVerbose "Could not retrieve classification nodes: $_"
+        Write-Warning "Could not retrieve classification nodes: $_"
         # If the project does not exist on the server (common in test mocks), avoid attempting
         # to create classification nodes which may exercise code paths that depend on server state
         # and can trigger op_Addition errors in some mocked environments. Instead, fall back to
         # sensible defaults so imports can continue in unattended/test scenarios.
         try {
+            Write-Warning "[DEBUG] Checking if project '$Project' exists on server"
             if ($projEnc) {
-                $projCheck = Invoke-AdoRest GET "/_apis/projects/$projEnc" -ReturnNullOnNotFound
+            $projCheck = Invoke-AdoRest GET "/_apis/projects/$projEnc" -ReturnNullOnNotFound
             }
             else {
-                $projCheck = $null
+            $projCheck = $null
             }
+            Write-Warning "[DEBUG] Project check result: $(if ($projCheck) { 'Exists' } else { 'Not found' })"
         }
-        catch { $projCheck = $null }
+        catch { 
+            Write-Warning "[DEBUG] Exception during project check: $_"
+            $projCheck = $null 
+        }
+    }
 
         $skipCreation = $false
         if (-not $projCheck) {
-            Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Project appears missing on server - skipping classification node creation and using fallback defaults"
+            Write-Warning "[Import-AdoWorkItemsFromExcel] Project appears missing on server - skipping classification node creation and using fallback defaults"
             $firstAreaPath = if ($PSBoundParameters.ContainsKey('Project')) { $PSBoundParameters['Project'] } else { $null }
             $firstIterationPath = if ($PSBoundParameters.ContainsKey('Project')) { $PSBoundParameters['Project'] } else { $null }
             $skipCreation = $true
         }
-
         # If classification nodes are missing, create default area and iteration with the project name so imports have sensible defaults
-        if (-not $skipCreation) {
+    if (-not $skipCreation) {
         try {
             if (-not $projEnc -or [string]::IsNullOrWhiteSpace($callProjectName)) {
                 throw "[Import-AdoWorkItemsFromExcel] Cannot create default classification nodes without a project name"
             }
             $displayProject = $callProjectName
-            Write-Host "[INFO] Creating default Area and Iteration: $displayProject" -ForegroundColor Cyan
+            Write-Warning "[Import-AdoWorkItemsFromExcel] Creating default Area and Iteration: $displayProject"
             $projEnc = [uri]::EscapeDataString($callProjectName)
 
             # Step 1: Create root area node named after the project (skip if disabled)
@@ -2404,24 +2409,24 @@ function Import-AdoWorkItemsFromExcel {
             # Use project root as default area path even when creation disabled
             $firstAreaPath = $Project
             $firstIterationPath = $Project
-            Write-Host "[SUCCESS] Default area and iteration '$Project' created and will be assigned to imported work items" -ForegroundColor Green
+            Write-Warning "[SUCCESS] Default area and iteration '$Project' created and will be assigned to imported work items"
         }
         catch {
-                # Emit richer diagnostics to console for immediate feedback during tests
+            # Emit richer diagnostics to console for immediate feedback during tests
+            try {
+                $err = $_
+                Write-Warning "Could not create default area/iteration automatically: $($err.Exception.Message)"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Exception type: $($err.GetType().FullName)"
+                try { Write-Warning "[Import-AdoWorkItemsFromExcel] StackTrace: $($err.Exception.StackTrace)" } catch { }
                 try {
-                    $err = $_
-                    Write-Warning "Could not create default area/iteration automatically: $($err.Exception.Message)"
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Exception type: $($err.GetType().FullName)"
-                    try { Write-Warning "[Import-AdoWorkItemsFromExcel] StackTrace: $($err.Exception.StackTrace)" } catch { }
-                    try {
-                        if ($err.InvocationInfo) {
-                            Write-Warning "[Import-AdoWorkItemsFromExcel] Invocation script: $($err.InvocationInfo.ScriptName)"
-                            Write-Warning "[Import-AdoWorkItemsFromExcel] Invocation line: $($err.InvocationInfo.ScriptLineNumber)"
-                            Write-Warning "[Import-AdoWorkItemsFromExcel] Invocation position: $($err.InvocationInfo.PositionMessage)"
-                            Write-Warning "[Import-AdoWorkItemsFromExcel] Invocation command: $($err.InvocationInfo.MyCommand)"
-                        }
-                    } catch { }
-                } catch { Write-Warning "[Import-AdoWorkItemsFromExcel] Failed to emit rich diagnostics: $_" }
+                    if ($err.InvocationInfo) {
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Invocation script: $($err.InvocationInfo.ScriptName)"
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Invocation line: $($err.InvocationInfo.ScriptLineNumber)"
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Invocation position: $($err.InvocationInfo.PositionMessage)"
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Invocation command: $($err.InvocationInfo.MyCommand)"
+                    }
+                } catch { }
+            } catch { Write-Warning "[Import-AdoWorkItemsFromExcel] Failed to emit rich diagnostics: $_" }
             # If the failure was due to the project not existing on the server (common in test mocks),
             # avoid trying to call ADO to create classification nodes and instead fall back to sensible defaults.
             try {
@@ -2454,24 +2459,30 @@ function Import-AdoWorkItemsFromExcel {
                 Write-Warning "Failed to write default area/iteration diagnostic file: $_"
             }
         }
-        else {
-            Write-Warning "[Import-AdoWorkItemsFromExcel] Skipped creation of classification nodes due to missing project. Using fallback defaults: Area=$firstAreaPath, Iteration=$firstIterationPath"
-        }
     }
+    else {
+        Write-Warning "[Import-AdoWorkItemsFromExcel] Skipped creation of classification nodes due to missing project. Using fallback defaults: Area=$firstAreaPath, Iteration=$firstIterationPath"
+    }
+
     
     # Map Excel LocalId to Azure DevOps work item ID (string keys to avoid JSON serialization issues)
     $localToAdoMap = @{}
     $successCount = 0
     $errorCount = 0
+    Write-Warning "[Import-AdoWorkItemsFromExcel] Initialized localToAdoMap, successCount=0, errorCount=0"
     # Initialize relationships tracking to avoid uninitialized variable errors in some code paths/tests
     if (-not (Test-Path variable:script:relationshipsCreated)) {
         $script:relationshipsCreated = 0
+        Write-Warning "[Import-AdoWorkItemsFromExcel] Initialized script:relationshipsCreated to 0"
     }
     
+    Write-Warning "[Import-AdoWorkItemsFromExcel] Starting to process $($orderedRows.Count) ordered rows"
     foreach ($row in $orderedRows) {
+        Write-Warning "[Import-AdoWorkItemsFromExcel] Processing row: Title='$($row.Title)', LocalId='$($row.LocalId)', WorkItemType='$($row.WorkItemType)', ResolvedWorkItemType='$($row.ResolvedWorkItemType)'"
         # Use resolved work item type (from Resolve-AdoWorkItemType)
         $wit = if ($row.PSObject.Properties['ResolvedWorkItemType']) { $row.ResolvedWorkItemType } else { $row.WorkItemType }
         
+        Write-Warning "[INFO] Processing work item: Title='$($row.Title)', Type='$($wit)', LocalId='$($row.LocalId)'"
         # Skip bugs that are not linked to a parent
         if ($wit -eq "Bug" -and (-not $row.PSObject.Properties['ParentLocalId'] -or [string]::IsNullOrWhiteSpace($row.ParentLocalId))) {
             Write-Warning "Skipping Bug work item '$($row.Title)' - bugs must be linked to a parent work item"
@@ -2479,6 +2490,7 @@ function Import-AdoWorkItemsFromExcel {
         }
         
         # Guard against cycles and invalid parent references
+        Write-Warning "[DEBUG] Validating ParentLocalId for row: LocalId='$($row.LocalId)', ParentLocalId='$($row.ParentLocalId)'"
         if ($row.PSObject.Properties['ParentLocalId'] -and $row.ParentLocalId) {
             if ($row.LocalId -eq $row.ParentLocalId) {
                 Write-Warning "Skipping row with LocalId=$($row.LocalId) due to ParentLocalId=$($row.ParentLocalId) (self-reference cycle)"
@@ -2489,10 +2501,10 @@ function Import-AdoWorkItemsFromExcel {
                 continue
             }
         }
-    try {
+        try {
             # Build JSON Patch operations array (use PSCustomObject to ensure ConvertTo-Json serializes cleanly)
             $operations = @()
-            
+            write-Warning "[DEBUG] Building JSON Patch operations for work item: Title='$($row.Title)', Type='$($wit)'"
             # Required: Title
             if ([string]::IsNullOrWhiteSpace($row.Title)) {
                 Write-Warning "Skipping row with missing title (LocalId: $($row.LocalId))"
@@ -2521,7 +2533,7 @@ function Import-AdoWorkItemsFromExcel {
             if ($currentIterationPath) { $iterationToAssign = $currentIterationPath }
             elseif ($sprintIterationPath) { $iterationToAssign = $sprintIterationPath }
             elseif ($firstIterationPath) { $iterationToAssign = $firstIterationPath }
-
+            Write-Warning "Debug: Determined iteration to assign: '$iterationToAssign' (currentIterationPath='$currentIterationPath', sprintIterationPath='$sprintIterationPath', firstIterationPath='$firstIterationPath')"
             if ($iterationToAssign) {
                 $operations += [pscustomobject]@{
                     op    = "add"
@@ -2559,20 +2571,25 @@ function Import-AdoWorkItemsFromExcel {
             #     }
             # }
             if ($row.PSObject.Properties['State'] -and $row.State) {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Processing State field for work item '$($row.Title)' with original value: '$($row.State)'"
                 $originalStateVal = $row.State.ToString()
                 $stateVal = $originalStateVal
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Initial stateVal set to: '$stateVal'"
 
                 # Special handling for "New" state - map to appropriate initial state based on work item type
                 if ($originalStateVal -eq "New") {
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Detected 'New' state for work item type '$wit', checking if mapping is needed"
                     # Test Cases use "Design" as their initial state, not "New"
                     if ($wit -eq "Test Case") {
                         $stateVal = "Design"
-                        Write-LogLevelVerbose "Mapping 'New' state to 'Design' for Test Case work item type"
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Mapped 'New' state to 'Design' for Test Case work item type"
                     }
                     else {
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieving allowed states for work item type '$wit' to check 'New' availability"
                         # For other work item types, try to map to first allowed state if "New" not allowed
                         $allowedStates = Get-FieldAllowedValues -WorkItemType $wit -FieldName "System.State"
                         if (-not $allowedStates) { $allowedStates = @() }
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Allowed states for $wit.System.State: $($allowedStates -join ', ')"
 
                         # Check if "New" is directly allowed
                         $newIsAllowed = $false
@@ -2584,51 +2601,64 @@ function Import-AdoWorkItemsFromExcel {
                                 }
                             }
                         }
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Is 'New' state allowed for $wit? $newIsAllowed"
 
                         if (-not $newIsAllowed -and $allowedStates.Count -gt 0) {
                             # "New" not allowed, use first state in the workflow
                             $stateVal = $allowedStates[0]
-                            Write-Warning "Mapping 'New' state to first allowed state: '$stateVal' (allowed: $($allowedStates -join ', '))"
+                            Write-Warning "[Import-AdoWorkItemsFromExcel] Mapping 'New' state to first allowed state: '$stateVal' (allowed: $($allowedStates -join ', '))"
+                        } else {
+                            Write-Warning "[Import-AdoWorkItemsFromExcel] 'New' state is allowed or no allowed states found, keeping original"
                         }
                     }
+                } else {
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] State is not 'New', proceeding with original value: '$stateVal'"
                 }
 
                 # Validate the final state value
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Validating final state value '$stateVal' for work item type '$wit'"
                 $allowed = Get-FieldAllowedValues -WorkItemType $wit -FieldName "System.State"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieved allowed states for $wit.System.State: $($allowed -join ', ')"
                 if (-not $allowed) { $allowed = @() }
 
                 $isAllowed = $false
                 if ($allowed -and $allowed.Count -gt 0) {
                     foreach ($av in $allowed) { if ($av -ieq $stateVal) { $isAllowed = $true; break } }
                 }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Checking if state '$stateVal' is allowed for $($wit): $isAllowed"
 
                 # If API calls failed (empty allowed values), skip validation and allow the state
                 # This prevents false warnings when Azure DevOps API is not available
                 if ($allowed.Count -eq 0) {
-                    Write-LogLevelVerbose "API unavailable for state validation - allowing state '$stateVal' without validation"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] API unavailable for state validation - allowing state '$stateVal' without validation"
                     $isAllowed = $true
                 }
 
                 if ($isAllowed) {
                     $operations += [pscustomobject]@{ op="add"; path="/fields/System.State"; value=$stateVal }
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Added System.State operation: '$stateVal' for work item '$($row.Title)'"
                 }
                 else {
-                    Write-Warning "Skipping setting State='$originalStateVal' (mapped to '$stateVal' but not in allowed values for $wit.System.State - will use default state)"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Skipping setting State='$originalStateVal' (mapped to '$stateVal' but not in allowed values for $wit.System.State - will use default state)"
                 }
             }
             if ($row.PSObject.Properties['Description'] -and $row.Description) {
                 $operations += [pscustomobject]@{ op="add"; path="/fields/System.Description"; value=$row.Description.ToString() }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Added System.Description operation for work item '$($row.Title)'"
             }
             if ($row.PSObject.Properties['Priority'] -and $row.Priority) {
                 $operations += @{ op="add"; path="/fields/Microsoft.VSTS.Common.Priority"; value=[int]$row.Priority }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.Common.Priority operation: '$($row.Priority)' for work item '$($row.Title)'"
             }
             
             # Work item type specific fields
             if ($row.PSObject.Properties['StoryPoints'] -and $row.StoryPoints -and $wit -eq "User Story") {
                 $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StoryPoints"; value=[double]$row.StoryPoints }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.Scheduling.StoryPoints operation: '$($row.StoryPoints)' for User Story '$($row.Title)'"
             }
             if ($row.PSObject.Properties['BusinessValue'] -and $row.BusinessValue) {
                 $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Common.BusinessValue"; value=[int]$row.BusinessValue }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.Common.BusinessValue operation: '$($row.BusinessValue)' for work item '$($row.Title)'"
             }
             if ($row.PSObject.Properties['ValueArea'] -and $row.ValueArea) {
                 # Map Excel ValueArea values to Azure DevOps Agile process values
@@ -2638,14 +2668,17 @@ function Import-AdoWorkItemsFromExcel {
 
                 $originalValueAreaVal = $row.ValueArea.ToString()
                 $valueAreaVal = if ($valueAreaMapping.ContainsKey($originalValueAreaVal)) {
-                    $valueAreaMapping[$originalValueAreaVal]
-                } else {
-                    $originalValueAreaVal
-                }
+                                    $valueAreaMapping[$originalValueAreaVal]
+                                } else {
+                                    $originalValueAreaVal
+                                }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Mapped ValueArea from '$originalValueAreaVal' to '$valueAreaVal' for work item '$($row.Title)'"
 
                 $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Common.ValueArea"; value=$valueAreaVal }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.Common.ValueArea operation: '$valueAreaVal' for work item '$($row.Title)'"
             }
             if ($row.PSObject.Properties['Risk'] -and $row.Risk) {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Processing Risk field for work item '$($row.Title)': original value '$($row.Risk)'"
                 # Map Excel Risk values to Azure DevOps Agile process values
                 $riskMapping = @{
                     "High" = "1 - High"
@@ -2654,62 +2687,80 @@ function Import-AdoWorkItemsFromExcel {
                 }
 
                 $originalRiskVal = $row.Risk.ToString()
-                $riskVal = if ($riskMapping.ContainsKey($originalRiskVal)) {
-                    $riskMapping[$originalRiskVal]
-                } else {
-                    $originalRiskVal
-                }
+                $riskVal = if ($riskMapping.ContainsKey($originalRiskVal)) {$riskMapping[$originalRiskVal]
+                            } else {
+                                $originalRiskVal
+                            }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Mapped Risk from '$originalRiskVal' to '$riskVal' for work item '$($row.Title)'"
 
                 # Try to validate Risk allowed values; if not available, add cautiously
                 $riskAllowed = Get-FieldAllowedValues -WorkItemType $wit -FieldName "Microsoft.VSTS.Common.Risk"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieved allowed risk values for $($wit): $($riskAllowed -join ', ')"
                 if (-not $riskAllowed) { $riskAllowed = @() }
 
                 $riskOk = $false
                 if ($riskAllowed -and $riskAllowed.Count -gt 0) {
                     foreach ($rv in $riskAllowed) { if ($rv -ieq $riskVal) { $riskOk = $true; break } }
                 }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Checking if risk '$riskVal' is allowed for $($wit): $riskOk"
 
                 # If API calls failed (empty allowed values), skip validation and allow the risk
                 if ($riskAllowed.Count -eq 0) {
-                    Write-LogLevelVerbose "API unavailable for risk validation - allowing risk '$riskVal' without validation"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] API unavailable for risk validation - allowing risk '$riskVal' without validation"
                     $riskOk = $true
                 }
 
                 if ($riskOk) {
                     $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Common.Risk"; value=$riskVal }
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.Common.Risk operation: '$riskVal' for work item '$($row.Title)'"
                 }
                 else {
-                    Write-Warning "Skipping setting Risk='$originalRiskVal' (mapped to '$riskVal' but not in allowed values for $wit.Risk)"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Skipping setting Risk='$originalRiskVal' (mapped to '$riskVal' but not in allowed values for $wit.Risk)"
                 }
             }
             
             # Scheduling fields
             if ($row.PSObject.Properties['StartDate'] -and $row.StartDate) {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Processing StartDate field for work item '$($row.Title)': value '$($row.StartDate)'"
                 $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StartDate"; value=[datetime]$row.StartDate }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.Scheduling.StartDate operation: '$($row.StartDate)' for work item '$($row.Title)'"
             }
             if ($row.PSObject.Properties['FinishDate'] -and $row.FinishDate) {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Processing FinishDate field for work item '$($row.Title)': value '$($row.FinishDate)'"
                 $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.FinishDate"; value=[datetime]$row.FinishDate }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.Scheduling.FinishDate operation: '$($row.FinishDate)' for work item '$($row.Title)'"
             }
             if ($row.PSObject.Properties['TargetDate'] -and $row.TargetDate) {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Processing TargetDate field for work item '$($row.Title)': value '$($row.TargetDate)'"
                 $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.TargetDate"; value=[datetime]$row.TargetDate }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.Scheduling.TargetDate operation: '$($row.TargetDate)' for work item '$($row.Title)'"
             }
             if ($row.PSObject.Properties['DueDate'] -and $row.DueDate) {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Processing DueDate field for work item '$($row.Title)': value '$($row.DueDate)'"
                 $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.DueDate"; value=[datetime]$row.DueDate }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.Scheduling.DueDate operation: '$($row.DueDate)' for work item '$($row.Title)'"
             }
             
             # Effort tracking
             if ($row.PSObject.Properties['OriginalEstimate'] -and $row.OriginalEstimate) {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Processing OriginalEstimate field for work item '$($row.Title)': value '$($row.OriginalEstimate)'"
                 $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.OriginalEstimate"; value=[double]$row.OriginalEstimate }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.Scheduling.OriginalEstimate operation: '$($row.OriginalEstimate)' for work item '$($row.Title)'"
             }
             if ($row.PSObject.Properties['RemainingWork'] -and $row.RemainingWork) {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Processing RemainingWork field for work item '$($row.Title)': value '$($row.RemainingWork)'"
                 $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.RemainingWork"; value=[double]$row.RemainingWork }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.Scheduling.RemainingWork operation: '$($row.RemainingWork)' for work item '$($row.Title)'"
             }
             if ($row.PSObject.Properties['CompletedWork'] -and $row.CompletedWork) {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Processing CompletedWork field for work item '$($row.Title)': value '$($row.CompletedWork)'"
                 $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.CompletedWork"; value=[double]$row.CompletedWork }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.Scheduling.CompletedWork operation: '$($row.CompletedWork)' for work item '$($row.Title)'"
             }
             
             # Test Case specific: Test Steps
             if ($wit -eq "Test Case" -and $row.PSObject.Properties['TestSteps'] -and $row.TestSteps) {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Processing TestSteps for Test Case '$($row.Title)': value '$($row.TestSteps)'"
                 $stepsXml = ConvertTo-AdoTestStepsXml -StepsText $row.TestSteps
                 if ($stepsXml) {
                     $operations += [pscustomobject]@{
@@ -2717,42 +2768,63 @@ function Import-AdoWorkItemsFromExcel {
                         path  = "/fields/Microsoft.VSTS.TCM.Steps"
                         value = $stepsXml
                     }
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.TCM.Steps operation for Test Case '$($row.Title)'"
+                } else {
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Failed to convert TestSteps for Test Case '$($row.Title)'"
                 }
             }
             
             # Tags
             if ($row.PSObject.Properties['Tags'] -and $row.Tags) {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Processing Tags field for work item '$($row.Title)': value '$($row.Tags)'"
                 $operations += [pscustomobject]@{ op="add"; path="/fields/System.Tags"; value=$row.Tags.ToString() }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Added System.Tags operation: '$($row.Tags)' for work item '$($row.Title)'"
             }
             
             # Parent relationship (if parent was already created)
             if ($row.PSObject.Properties['ParentLocalId'] -and $row.ParentLocalId) {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Processing parent relationship for work item '$($row.Title)' with ParentLocalId: $($row.ParentLocalId)"
                 $parentKey = "$($row.ParentLocalId)"
                 $parentAdoId = $null
-                if ($localToAdoMap.ContainsKey($parentKey)) { $parentAdoId = $localToAdoMap[$parentKey] }
+                if ($localToAdoMap.ContainsKey($parentKey)) { 
+                    $parentAdoId = $localToAdoMap[$parentKey] 
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Found parent ADO ID: $parentAdoId for ParentLocalId: $($row.ParentLocalId)"
+                } else {
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Parent ADO ID not found in map for ParentLocalId: $($row.ParentLocalId)"
+                }
                 if ($parentAdoId) {
                     $projEnc = [uri]::EscapeDataString($Project)
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Building relation URL for parent ID: $parentAdoId"
                     # Build absolute URL for parent work item relation. Azure DevOps expects a full
                     # absolute URL for relation targets (not a relative path). Try to get the
                     # configured CollectionUrl from Core.Rest; fall back to the relative form
                     # if the collection URL is not available in this context.
                     try {
                         $coreCfg = Get-CoreRestConfig
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieved Core.Rest config successfully"
                     }
                     catch {
                         $coreCfg = $null
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Failed to retrieve Core.Rest config: $_"
                     }
 
                     $collectionUrl = $null
-                    if ($coreCfg -and $coreCfg.CollectionUrl) { $collectionUrl = $coreCfg.CollectionUrl.TrimEnd('/') }
+                    if ($coreCfg -and $coreCfg.CollectionUrl) { 
+                        $collectionUrl = $coreCfg.CollectionUrl.TrimEnd('/') 
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Using CollectionUrl: $collectionUrl"
+                    } else {
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] CollectionUrl not available, will use relative URL"
+                    }
 
                     if ($collectionUrl) {
                         $relTargetUrl = "$collectionUrl/_apis/wit/workItems/$parentAdoId"
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Constructed absolute relation URL: $relTargetUrl"
                     }
                     else {
                         # Last resort: use relative URL (older codepath). This is less likely to be
                         # accepted by the server but preserves behavior when collection URL isn't available.
                         $relTargetUrl = "/$projEnc/_apis/wit/workItems/$parentAdoId"
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Using relative relation URL: $relTargetUrl"
                     }
 
                     $relValue = [pscustomobject]@{
@@ -2760,11 +2832,13 @@ function Import-AdoWorkItemsFromExcel {
                         url = $relTargetUrl
                         attributes = [pscustomobject]@{ comment = "Imported from Excel" }
                     }
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Created relation value object for parent link"
                     $operations += [pscustomobject]@{
                         op = "add"
                         path = "/relations/-"
                         value = $relValue
                     }
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Added parent relation operation to operations list"
                 }
                 else {
                     Write-Warning "Parent LocalId $($row.ParentLocalId) not yet created for work item '$($row.Title)'"
@@ -2774,73 +2848,104 @@ function Import-AdoWorkItemsFromExcel {
             # Create work item via REST API
             $witEncoded = [uri]::EscapeDataString($wit)
             $projEnc = [uri]::EscapeDataString($Project)
-            
             # Assign area and iteration to each imported work item
             try {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Assigning default Area and Iteration for work item '$($row.Title)'"
                 # Determine area: prefer firstAreaPath, fallback to project root
                 $assignArea = $null
-                if ($firstAreaPath) { $assignArea = $firstAreaPath }
-                elseif ($Project) { $assignArea = $Project }
+                if ($firstAreaPath) { 
+                    $assignArea = $firstAreaPath 
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Using firstAreaPath: $firstAreaPath"
+                }
+                elseif ($Project) { 
+                    $assignArea = $Project 
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Falling back to Project name for area: $Project"
+                }
                 if ($assignArea) {
                     $operations += [pscustomobject]@{ op = "add"; path = "/fields/System.AreaPath"; value = $assignArea }
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Added AreaPath operation: $assignArea"
                 }
 
                 # Determine iteration: prefer current sprint for the team if available, otherwise use firstIterationPath
                 $assignIteration = $null
-                if ($currentIterationPath) { $assignIteration = $currentIterationPath }
-                elseif ($firstIterationPath) { $assignIteration = $firstIterationPath }
+                if ($currentIterationPath) { 
+                    $assignIteration = $currentIterationPath 
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Using currentIterationPath: $currentIterationPath"
+                }
+                elseif ($firstIterationPath) { 
+                    $assignIteration = $firstIterationPath 
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Using firstIterationPath: $firstIterationPath"
+                }
                 if ($assignIteration) {
                     $operations += [pscustomobject]@{ op = "add"; path = "/fields/System.IterationPath"; value = $assignIteration }
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Added IterationPath operation: $assignIteration"
                 }
             }
             catch {
                 Write-Warning "Could not set default Area/Iteration on import for row LocalId=$($row.LocalId): $_"
             }
-
+        
             # De-duplicate field operations to avoid sending multiple updates for the same field
             # Azure DevOps rejects updates that set the same field more than once in a single JSON-patch
             try {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Starting field operation deduplication for work item '$($row.Title)'"
                 $filteredOperations = @()
                 $seenFieldPaths = @{}
                 foreach ($op in $operations) {
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Processing operation: $($op | ConvertTo-Json -Depth 3 -Compress)"
                     $path = $null
-                    if ($op -and $op.PSObject.Properties['path']) { $path = $op.path }
+                    if ($op -and $op.PSObject.Properties['path']) { 
+                        $path = $op.path 
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Extracted path: '$path'"
+                    } else {
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Operation has no path property"
+                    }
 
                     # Normalize field ops (only dedupe /fields/*). Relations (e.g. /relations/-) may be repeated.
                     if ($path -and $path -like '/fields/*') {
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Detected field operation with path: '$path'"
                         # Normalized, case-insensitive key to ensure same fields with different casing are deduped
                         $normPath = $path.Trim().ToLowerInvariant()
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Normalized path: '$normPath'"
                         if (-not $seenFieldPaths.ContainsKey($normPath)) {
+                            Write-Warning "[Import-AdoWorkItemsFromExcel] Path '$normPath' not seen before, adding to filtered operations"
                             if (-not $filteredOperations) { $filteredOperations = @() }
                             $filteredOperations += @($op)
                             $seenFieldPaths[$normPath] = $true
+                            Write-Warning "[Import-AdoWorkItemsFromExcel] Added operation for path '$normPath' to filtered list"
+                        } else {
+                            Write-Warning "[Import-AdoWorkItemsFromExcel] Path '$normPath' already seen, skipping duplicate"
                         }
-                        else {
-                            Write-Warning "[Import-AdoWorkItemsFromExcel] Deduplicated duplicate field operation for path: $path (skipped)"
-                        }
-                    }
-                    else {
+                    } else {
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Non-field operation (path: '$path'), adding without deduplication"
                         if (-not $filteredOperations) { $filteredOperations = @() }
                         $filteredOperations += @($op)
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Added non-field operation to filtered list"
                     }
                 }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Kept field operation for path: $path"
+
                 $operations = $filteredOperations
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Deduplication complete. Final operations count: $($operations.Count)"
             }
             catch {
                 Write-Warning "[Import-AdoWorkItemsFromExcel] Field de-duplication failed - proceeding with original operations: $_"
             }
-
+        
             # Ensure $operations is JSON-serializable by ConvertTo-Json
             $workItemBody = $operations | ConvertTo-Json -Depth 20
-
+            Write-Warning "[Import-AdoWorkItemsFromExcel] Serialized operations to JSON body (length: $($workItemBody.Length))"
+        
             # Low-level diagnostic logging: endpoint, content-type, body preview and full payload in verbose
             try {
                 $coreCfg = Get-CoreRestConfig
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieved Core.Rest config for endpoint logging"
             }
             catch {
                 $coreCfg = $null
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Failed to retrieve Core.Rest config for logging: $_"
             }
-
+        
             $endpointPath = "/$projEnc/_apis/wit/workitems/`$$witEncoded"
             Write-Warning "[Import-AdoWorkItemsFromExcel] Preparing POST to: $endpointPath"
             if ($coreCfg -and $coreCfg.CollectionUrl) { Write-Warning "[Import-AdoWorkItemsFromExcel] CollectionUrl: $($coreCfg.CollectionUrl)" }
@@ -2848,6 +2953,7 @@ function Import-AdoWorkItemsFromExcel {
             Write-Warning "[Import-AdoWorkItemsFromExcel] Work item operations (count=$($operations.Count)): $($operations | ConvertTo-Json -Depth 5)"
 
             try {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Invoking Invoke-AdoRest POST for work item creation"
                 $workItem = Invoke-AdoRest POST $endpointPath `
                                           -Body $workItemBody `
                                           -ContentType "application/json-patch+json"
@@ -2855,6 +2961,7 @@ function Import-AdoWorkItemsFromExcel {
                 # Store mapping for child relationships
                 if ($row.PSObject.Properties['LocalId'] -and $row.LocalId) {
                     $localToAdoMap["$($row.LocalId)"] = $workItem.id
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Stored mapping: LocalId $($row.LocalId) -> ADO ID $($workItem.id)"
                 }
 
                 Write-Host "  ✅ Created $wit #$($workItem.id): $($row.Title)" -ForegroundColor Gray
@@ -2877,6 +2984,14 @@ function Import-AdoWorkItemsFromExcel {
                     $logsDir = Join-Path (Get-Location) 'logs'
                     if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
 
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Work item creation failed for '$($row.Title)' (LocalId: $($row.LocalId), Type: $wit)"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Endpoint: $endpointPath"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Collection URL: $(if ($coreCfg) { $coreCfg.CollectionUrl } else { 'Not available' })"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Content-Type: application/json-patch+json"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Operations count: $($operations.Count)"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Body preview: $(if ($workItemBody) { $workItemBody.Substring(0,[Math]::Min(500,$workItemBody.Length)) } else { 'No body' })"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Exception: $($_.Exception.Message)"
+
                     $failure = [ordered]@{
                         timestamp      = (Get-Date).ToString('o')
                         project        = $Project
@@ -2893,10 +3008,10 @@ function Import-AdoWorkItemsFromExcel {
 
                     $fname = Join-Path $logsDir ("debug-workitem-failure-" + [guid]::NewGuid().ToString() + ".json")
                     $failure | ConvertTo-Json -Depth 10 | Out-File -FilePath $fname -Encoding UTF8 -Force
-                    Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Wrote failure details to: $($fname)"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Wrote failure details to: $($fname)"
                 }
                 catch {
-                    Write-LogLevelVerbose "[Import-AdoWorkItemsFromExcel] Failed to write debug failure file: $($_)"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Failed to write debug failure file: $($_)"
                 }
 
                 # Re-throw to be handled by outer catch which aggregates errors
@@ -2908,9 +3023,10 @@ function Import-AdoWorkItemsFromExcel {
             Write-Warning $errMsg
             $importErrors += $errMsg
             $errorCount++
-
+            Write-Warning "[Import-AdoWorkItemsFromExcel] Capturing extra diagnostics for op_Addition / PSObject errors"
             # Extra diagnostics for op_Addition / PSObject errors: write a debug JSON with context
             try {
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Preparing op_Addition diagnostic data for failed work item creation"
                 $diag = [ordered]@{
                     timestamp = (Get-Date).ToString('o')
                     message = $errMsg
@@ -2919,35 +3035,37 @@ function Import-AdoWorkItemsFromExcel {
                     operationsType = if ($null -ne $operations) { $operations.GetType().FullName } else { $null }
                     operationsSample = if ($null -ne $operations) { ($operations | Select-Object -First 5) } else { $null }
                 }
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic timestamp: $($diag.timestamp)"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic message: $($diag.message)"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic row details: Title='$($diag.row.Title)', LocalId='$($diag.row.LocalId)', ParentLocalId='$($diag.row.ParentLocalId)', WorkItemType='$($diag.row.WorkItemType)'"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic operations type: $($diag.operationsType)"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic operations sample count: $(if ($diag.operationsSample) { $diag.operationsSample.Count } else { 0 })"
                 $logsDir = Join-Path (Get-Location) 'logs'
                 if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
                 $fname = Join-Path $logsDir ("debug-op_addition-" + [guid]::NewGuid().ToString() + ".json")
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Writing diagnostic file to: $fname"
                 $diag | ConvertTo-Json -Depth 10 | Out-File -FilePath $fname -Encoding UTF8 -Force
-                Write-LogLevelVerbose "Wrote op_Addition diagnostic file: $fname"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Successfully wrote op_Addition diagnostic file: $fname"
             }
             catch {
-                Write-LogLevelVerbose "Failed to write op_Addition diagnostic file: $_"
+                Write-Warning "Failed to write op_Addition diagnostic file: $_"
             }
+        }
+        # Summary
+        Write-Warning ""
+        Write-Warning "[SUCCESS] Imported $successCount work items successfully"
+        if ($errorCount -gt 0) {Write-Warning "[WARN] $errorCount work items failed to import"}
+
+        # Include errors array in return value for caller diagnostics
+        return @{
+            SuccessCount = $successCount
+            ErrorCount   = $errorCount
+            WorkItemMap  = $localToAdoMap
+            Errors       = $importErrors
+            SkippedRows  = $(@($skippedRows).Count)
         }
     }
 }
-    # Summary
-    Write-Host ""
-    Write-Host "[SUCCESS] Imported $successCount work items successfully" -ForegroundColor Green
-    if ($errorCount -gt 0) {
-        Write-Host "[WARN] $errorCount work items failed to import" -ForegroundColor Yellow
-    }
-
-    # Include errors array in return value for caller diagnostics
-    return @{
-        SuccessCount = $successCount
-        ErrorCount   = $errorCount
-        WorkItemMap  = $localToAdoMap
-        Errors       = $importErrors
-        SkippedRows  = $(@($skippedRows).Count)
-    }
-}
-
 
 <#
 .SYNOPSIS

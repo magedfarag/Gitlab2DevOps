@@ -1266,6 +1266,8 @@ function Invoke-AdoRest {
         [string]$ApiVersion = $AdoApiVersion,
         
         [object]$Body = $null,
+
+        [string]$ContentType,
         
         [hashtable]$Headers,
 
@@ -1292,15 +1294,36 @@ function Invoke-AdoRest {
     # Create headers if not provided (reuse script-level headers so callers can inject custom values)
     if (-not $Headers) {
         if ($script:AdoHeaders) {
-            $Headers = $script:AdoHeaders
+            if ($script:AdoHeaders -is [hashtable]) {
+                $Headers = $script:AdoHeaders.Clone()
+            }
+            else {
+                $Headers = @{}
+                foreach ($key in $script:AdoHeaders.PSObject.Properties.Name) {
+                    $Headers[$key] = $script:AdoHeaders.$key
+                }
+            }
         }
         elseif ($config.AdoPat) {
-            $Headers = New-AuthHeader -Pat $config.AdoPat
-            $script:AdoHeaders = $Headers
+            $script:AdoHeaders = New-AuthHeader -Pat $config.AdoPat
+            if ($script:AdoHeaders -is [hashtable]) {
+                $Headers = $script:AdoHeaders.Clone()
+            }
+            else {
+                $Headers = @{}
+                foreach ($key in $script:AdoHeaders.PSObject.Properties.Name) {
+                    $Headers[$key] = $script:AdoHeaders.$key
+                }
+            }
         }
         else {
             $Headers = @{}
         }
+    }
+
+    if ($PSBoundParameters.ContainsKey('ContentType') -and $ContentType) {
+        if (-not $Headers) { $Headers = @{} }
+        $Headers['Content-Type'] = $ContentType
     }
 
     # Normalize base collection URL and relative paths

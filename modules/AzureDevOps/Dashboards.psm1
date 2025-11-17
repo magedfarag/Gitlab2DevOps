@@ -134,6 +134,17 @@ function Resolve-AdoDashboardEndpoints {
     if ($TeamId) {
         $teamIdEnc = [uri]::EscapeDataString($TeamId)
         $endpoints += "/_apis/projects/$projIdEnc/teams/$teamIdEnc/dashboard/dashboards"
+
+        # Fallback endpoints for servers that don't support the legacy route shape
+        $teamQuery = "teamId=$teamIdEnc"
+        $endpoints += "/$projEnc/_apis/dashboard/dashboards?$teamQuery"
+
+        $orgQueryParts = @("teamId=$teamIdEnc")
+        if ($ProjectId) {
+            $orgQueryParts += "projectId=$projIdEnc"
+        }
+        $orgQuery = $orgQueryParts -join '&'
+        $endpoints += "/_apis/dashboard/dashboards?$orgQuery"
     }
 
     # No team context available - do not attempt project-scoped dashboard endpoints by default.
@@ -368,6 +379,7 @@ function Search-Adodashboard {
         }
         
         $dashboard = $null
+        $lastPostError = $null
         $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
         foreach ($ep in $endpoints) {
             try {
@@ -375,6 +387,7 @@ function Search-Adodashboard {
                 break
             }
             catch {
+                $lastPostError = $_
                 $postErr = $_.Exception.Message
                 # If duplicate dashboard name was reported, try to locate and return existing dashboard instead
                 if ($postErr -and ($postErr -match 'DuplicateDashboardNameException' -or $postErr -match 'DuplicateDashboardName')) {
@@ -414,6 +427,14 @@ function Search-Adodashboard {
                     Write-Warning "[Search-Adodashboard] POST $ep failed while creating dashboard '$dashboardName': $($_.Exception.Message)"
                 }
             }
+        }
+
+        if (-not $dashboard) {
+            if ($lastPostError) {
+                throw $lastPostError
+            }
+
+            throw "Failed to create dashboard '$dashboardName' for project '$Project' and team '$Team'."
         }
         
         Write-Host "[SUCCESS] Created team dashboard: $dashboardName" -ForegroundColor Green

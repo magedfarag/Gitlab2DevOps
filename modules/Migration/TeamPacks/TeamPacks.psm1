@@ -621,12 +621,22 @@ function Write-TeamPackTelemetry {
         [Parameter(Mandatory)][psobject[]]$PackResults
     )
 
+    # Force the incoming value into an array so .Count is always available, even
+    # when callers accidentally pass a single PSCustomObject instance.
+    $packArray = @($PackResults)
+    if (-not $packArray -or $packArray.Count -eq 0) {
+        Write-Verbose "[TeamPacks] No pack results provided for telemetry on project $ProjectName"
+        return
+    }
+
+    $failedPacks = @($packArray | Where-Object { $_ -and $_.status -ne 'Success' })
+
     $payload = [pscustomobject]@{
         timestamp    = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
         project      = $ProjectName
-        packs        = $PackResults
-        totalPacks   = $PackResults.Count
-        failedPacks  = ($PackResults | Where-Object { $_.status -ne 'Success' }).Count
+        packs        = $packArray
+        totalPacks   = $packArray.Count
+        failedPacks  = $failedPacks.Count
     }
 
     $script:TeamPackTelemetryHistory[$ProjectName.ToLowerInvariant()] = $payload
