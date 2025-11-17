@@ -438,7 +438,7 @@ function Initialize-AdoProject {
             Write-Host "[INFO] 📋 Resuming from previous checkpoint..." -ForegroundColor Cyan
             
             # Merge saved checkpoint
-            foreach ($key in $checkpoint.Keys) {
+            foreach ($key in @($checkpoint.Keys)) {
                 if ($null -ne $savedCheckpoint.$key) {
                     $checkpoint[$key] = $savedCheckpoint.$key
                 }
@@ -461,7 +461,7 @@ function Initialize-AdoProject {
     if ($Force.IsPresent) {
         Write-Host "[INFO] 🔄 Force mode enabled - re-executing all steps" -ForegroundColor Yellow
         # Reset checkpoint
-        foreach ($key in $checkpoint.Keys) {
+        foreach ($key in @($checkpoint.Keys)) {
             if ($key -notin @('lastUpdate', 'errors', 'completed')) {
                 $checkpoint[$key] = $false
             }

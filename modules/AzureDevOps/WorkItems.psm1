@@ -2015,6 +2015,22 @@ function Convert-ExcelLocalId {
     }
 }
 
+function Get-NormalizedLocalIdKey {
+    [CmdletBinding()]
+    param(
+        [string]$LocalId
+    )
+
+    if ([string]::IsNullOrWhiteSpace($LocalId)) {
+        return $null
+    }
+
+    $normalized = $LocalId.Trim()
+    # Remove internal whitespace so "F 010" and "F010" resolve to the same key
+    $normalized = ($normalized -replace '\s+', '')
+    return $normalized.ToUpperInvariant()
+}
+
 <#
 .SYNOPSIS
     Import work items from Excel file into Azure DevOps project.
@@ -2141,14 +2157,28 @@ function Import-AdoWorkItemsFromExcel {
     foreach ($row in $rows) {
         if ($row.PSObject.Properties['LocalId'] -and $row.LocalId) {
             $originalLocalId = $row.LocalId.ToString()
+            $normalizedLocalKey = Get-NormalizedLocalIdKey -LocalId $originalLocalId
             $parsedLocalId = Convert-ExcelLocalId -LocalId $originalLocalId
             $row.LocalId = $parsedLocalId
+            try {
+                $row | Add-Member -NotePropertyName LocalIdKey -NotePropertyValue $normalizedLocalKey -Force
+            }
+            catch {
+                $row.LocalIdKey = $normalizedLocalKey
+            }
             Write-Warning "[DEBUG] Parsed LocalId: '$originalLocalId' -> $parsedLocalId"
         }
         if ($row.PSObject.Properties['ParentLocalId'] -and $row.ParentLocalId) {
             $originalParentLocalId = $row.ParentLocalId.ToString()
+            $normalizedParentKey = Get-NormalizedLocalIdKey -LocalId $originalParentLocalId
             $parsedParentLocalId = Convert-ExcelLocalId -LocalId $originalParentLocalId
             $row.ParentLocalId = $parsedParentLocalId
+            try {
+                $row | Add-Member -NotePropertyName ParentLocalIdKey -NotePropertyValue $normalizedParentKey -Force
+            }
+            catch {
+                $row.ParentLocalIdKey = $normalizedParentKey
+            }
             Write-Warning "[DEBUG] Parsed ParentLocalId: '$originalParentLocalId' -> $parsedParentLocalId"
         }
     }
@@ -2789,13 +2819,26 @@ function Import-AdoWorkItemsFromExcel {
             
             # Parent relationship (if parent was already created)
             if ($row.PSObject.Properties['ParentLocalId'] -and $row.ParentLocalId) {
+                $parentKey = $null
+                if ($row.PSObject.Properties['ParentLocalIdKey'] -and $row.ParentLocalIdKey) {
+                    $parentKey = $row.ParentLocalIdKey
+                }
                 Write-Warning "[Import-AdoWorkItemsFromExcel] Processing parent relationship for work item '$($row.Title)' with ParentLocalId: $($row.ParentLocalId)"
-                $parentKey = "$($row.ParentLocalId)"
+                $parentLookupCandidates = @()
+                if ($parentKey) {
+                    $parentLookupCandidates += $parentKey
+                }
+                $parentLookupCandidates += "$($row.ParentLocalId)"
+                $parentLookupCandidates = $parentLookupCandidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
                 $parentAdoId = $null
-                if ($localToAdoMap.ContainsKey($parentKey)) { 
-                    $parentAdoId = $localToAdoMap[$parentKey] 
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Found parent ADO ID: $parentAdoId for ParentLocalId: $($row.ParentLocalId)"
-                } else {
+                foreach ($candidate in $parentLookupCandidates) {
+                    if ($localToAdoMap.ContainsKey($candidate)) {
+                        $parentAdoId = $localToAdoMap[$candidate]
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Found parent ADO ID: $parentAdoId for ParentLocalId key '$candidate'"
+                        break
+                    }
+                }
+                if (-not $parentAdoId) {
                     Write-Warning "[Import-AdoWorkItemsFromExcel] Parent ADO ID not found in map for ParentLocalId: $($row.ParentLocalId)"
                 }
                 if ($parentAdoId) {
@@ -2966,7 +3009,16 @@ function Import-AdoWorkItemsFromExcel {
 
                 # Store mapping for child relationships
                 if ($row.PSObject.Properties['LocalId'] -and $row.LocalId) {
-                    $localToAdoMap["$($row.LocalId)"] = $workItem.id
+                    $localKey = $null
+                    if ($row.PSObject.Properties['LocalIdKey'] -and $row.LocalIdKey) {
+                        $localKey = $row.LocalIdKey
+                    }
+                    elseif ($null -ne $row.LocalId) {
+                        $localKey = "$($row.LocalId)"
+                    }
+                    if ($localKey) {
+                        $localToAdoMap[$localKey] = $workItem.id
+                    }
                     Write-Warning "[Import-AdoWorkItemsFromExcel] Stored mapping: LocalId $($row.LocalId) -> ADO ID $($workItem.id)"
                 }
 
