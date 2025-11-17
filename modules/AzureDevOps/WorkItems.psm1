@@ -46,18 +46,9 @@ function Ensure-WorkItemTypesCache {
     if ($Project) {
         try {
             if ($Types) {
-                # Normalize incoming types to simple string array and log for diagnostics
-                try {
-                    $normalized = @()
-                    foreach ($t in $Types) { if ($t -ne $null) { $normalized += [string]$t } }
-                    if ($normalized.Count -eq 0) { $normalized = $Types }
-                }
-                catch {
-                    $normalized = $Types
-                }
-
-                Write-LogLevelVerbose "[Ensure-WorkItemTypesCache] Seeding cache for project '$Project' with types: $($normalized -join ', ')"
-                $script:workItemTypesCache[$Project] = $normalized
+                # Store the types directly (now they are objects with Name and ReferenceName)
+                Write-LogLevelVerbose "[Ensure-WorkItemTypesCache] Seeding cache for project '$Project' with types: $($Types | ForEach-Object { $_.Name } | Join-String -Separator ', ')"
+                $script:workItemTypesCache[$Project] = $Types
             }
             elseif (-not ($script:workItemTypesCache -and $script:workItemTypesCache.ContainsKey($Project))) {
                 try {
@@ -72,7 +63,7 @@ function Ensure-WorkItemTypesCache {
                     $types = Get-StaticAgileWorkItemTypes
                 }
 
-                Write-LogLevelVerbose "[Ensure-WorkItemTypesCache] Detected types for project '$Project': $($types -join ', ')"
+                Write-LogLevelVerbose "[Ensure-WorkItemTypesCache] Detected types for project '$Project': $($types | ForEach-Object { $_.Name } | Join-String -Separator ', ')"
                 $script:workItemTypesCache[$Project] = $types
             }
         }
@@ -124,7 +115,8 @@ function Get-WorkItemTypesCache {
     try {
         if ($Project) {
             $val = $script:workItemTypesCache[$Project]
-            Write-LogLevelVerbose "[Get-WorkItemTypesCache] Returning cached types for '$Project': $($val -join ', ')"
+            $names = $val | ForEach-Object { $_.Name }
+            Write-LogLevelVerbose "[Get-WorkItemTypesCache] Returning cached types for '$Project': $($names -join ', ')"
             return $val
         }
         Write-LogLevelVerbose "[Get-WorkItemTypesCache] Returning full cache keys: $($script:workItemTypesCache.Keys -join ', ')"
@@ -136,8 +128,14 @@ function Get-WorkItemTypesCache {
 }
 # Static Agile WITs for seeding the cache when detection fails (safe, small set)
 function Get-StaticAgileWorkItemTypes {
-    # Return simple name list (strings) - other code expects string arrays
-    return @('User Story','Task','Bug','Epic','Feature','Test Case')
+    return @(
+        @{ Name = 'Epic'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Epic' }
+        @{ Name = 'Task'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Task' }
+        @{ Name = 'Bug'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Bug' }
+        @{ Name = 'Feature'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Feature' }
+        @{ Name = 'Test Case'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.TestCase' }
+        @{ Name = 'User Story'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.UserStory' }
+    )
 }
 
 
@@ -356,7 +354,6 @@ function Resolve-AdoWorkItemType {
 
     if (-not $ExcelType) { return $null }
     $inputNorm = $ExcelType.Trim()
-         $available = @('User Story','Task','Bug','Epic','Feature','Test Case') 
 
     # Cache work item types per project to avoid repeated API calls
     # Access the module-level script-scoped cache defensively to avoid StrictMode
@@ -387,7 +384,8 @@ function Resolve-AdoWorkItemType {
 
     try { $available = $script:workItemTypesCache[$Project] } catch { $available = @() }
 
-    Write-LogLevelVerbose "[Resolve-AdoWorkItemType] Available types for project '$Project': $($available -join ', ')"
+    $availableNames = $available | ForEach-Object { $_.Name }
+    Write-LogLevelVerbose "[Resolve-AdoWorkItemType] Available types for project '$Project': $($availableNames -join ', ')"
 
     # If detection failed (empty), fall back to process-template defaults to improve chances of mapping
     if (-not $available -or $available.Count -eq 0) {
@@ -395,13 +393,13 @@ function Resolve-AdoWorkItemType {
         try {
             $proc = Get-AdoProjectProcessTemplate -ProjectId $Project
             switch ($proc) {
-                'Agile'    { $available = @('User Story','Task','Bug','Epic','Feature','Test Case') }
-                'Scrum'    { $available = @('Product Backlog Item','Task','Bug','Epic','Feature','Test Case','Impediment') }
-                'CMMI'     { $available = @('Requirement','Task','Bug','Epic','Feature','Test Case','Issue','Risk','Review','Change Request') }
-                'Basic'    { $available = @('Issue','Task','Epic') }
-                default    { $available = @('User Story','Product Backlog Item','Task','Bug','Epic','Feature','Test Case','Issue','Requirement') }
+                'Agile'    { $available = @(@{ Name = 'User Story'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.UserStory' }, @{ Name = 'Task'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Task' }, @{ Name = 'Bug'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Bug' }, @{ Name = 'Epic'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Epic' }, @{ Name = 'Feature'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Feature' }, @{ Name = 'Test Case'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.TestCase' }) }
+                'Scrum'    { $available = @(@{ Name = 'Product Backlog Item'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.ProductBacklogItem' }, @{ Name = 'Task'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Task' }, @{ Name = 'Bug'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Bug' }, @{ Name = 'Epic'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Epic' }, @{ Name = 'Feature'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Feature' }, @{ Name = 'Test Case'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.TestCase' }, @{ Name = 'Impediment'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Impediment' }) }
+                'CMMI'     { $available = @(@{ Name = 'Requirement'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Requirement' }, @{ Name = 'Task'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Task' }, @{ Name = 'Bug'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Bug' }, @{ Name = 'Epic'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Epic' }, @{ Name = 'Feature'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Feature' }, @{ Name = 'Test Case'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.TestCase' }, @{ Name = 'Issue'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Issue' }, @{ Name = 'Risk'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Risk' }, @{ Name = 'Review'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Review' }, @{ Name = 'Change Request'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.ChangeRequest' }) }
+                'Basic'    { $available = @(@{ Name = 'Issue'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Issue' }, @{ Name = 'Task'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Task' }, @{ Name = 'Epic'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Epic' }) }
+                default    { $available = @(@{ Name = 'User Story'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.UserStory' }, @{ Name = 'Product Backlog Item'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.ProductBacklogItem' }, @{ Name = 'Task'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Task' }, @{ Name = 'Bug'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Bug' }, @{ Name = 'Epic'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Epic' }, @{ Name = 'Feature'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Feature' }, @{ Name = 'Test Case'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.TestCase' }, @{ Name = 'Issue'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Issue' }, @{ Name = 'Requirement'; ReferenceName = 'Microsoft.VSTS.WorkItemTypes.Requirement' }) }
             }
-            Write-LogLevelVerbose "[Resolve-AdoWorkItemType] Fallback available types: $($available -join ', ')"
+            Write-LogLevelVerbose "[Resolve-AdoWorkItemType] Fallback available types: $($available | ForEach-Object { $_.Name } | Join-String -Separator ', ')"
         }
         catch {
             Write-LogLevelVerbose "[Resolve-AdoWorkItemType] Fallback to defaults failed: $_"
@@ -410,7 +408,7 @@ function Resolve-AdoWorkItemType {
     }
 
     $availableLower = @{}
-    foreach ($t in $available) { $availableLower[$t.ToLower()] = $t }
+    foreach ($t in $available) { $availableLower[$t.Name.ToLower()] = $t }
 
     # Normalization map of common Excel synonyms -> canonical ADO names
     $synonyms = @{
@@ -448,25 +446,25 @@ function Resolve-AdoWorkItemType {
 
     # 2) Try synonyms map
     if ($synonyms.ContainsKey($lower)) {
-        $cand = $synonyms[$lower]
-        if ($available -contains $cand) { return $cand }
+        $candName = $synonyms[$lower]
+        if ($availableLower.ContainsKey($candName.ToLower())) { return $availableLower[$candName.ToLower()] }
     }
 
     # 3) Fuzzy containment: find any available type that contains the input or vice-versa
     foreach ($t in $available) {
-        if ($t.ToLower().Contains($lower) -or $lower.Contains($t.ToLower())) { return $t }
+        if ($t.Name.ToLower().Contains($lower) -or $lower.Contains($t.Name.ToLower())) { return $t }
     }
 
     # 4) Last-resort heuristics: map short forms
     foreach ($k in $synonyms.Keys) {
         if ($lower -like "*$k*") {
-            $cand = $synonyms[$k]
-            if ($available -contains $cand) { return $cand }
+            $candName = $synonyms[$k]
+            if ($availableLower.ContainsKey($candName.ToLower())) { return $availableLower[$candName.ToLower()] }
         }
     }
 
     # Unknown type
-    Write-Warning "Unknown or unsupported WorkItemType from Excel: '$ExcelType' - will be skipped. Available types: $($available -join ', ')"
+    Write-Warning "Unknown or unsupported WorkItemType from Excel: '$ExcelType' - will be skipped. Available types: $($availableNames -join ', ')"
     return $null
 }
 
@@ -2477,34 +2475,42 @@ function Import-AdoWorkItemsFromExcel {
     }
     
     Write-Warning "[Import-AdoWorkItemsFromExcel] Starting to process $($orderedRows.Count) ordered rows"
+    $processedCount = 0
     foreach ($row in $orderedRows) {
-        Write-Warning "[Import-AdoWorkItemsFromExcel] Processing row: Title='$($row.Title)', LocalId='$($row.LocalId)', WorkItemType='$($row.WorkItemType)', ResolvedWorkItemType='$($row.ResolvedWorkItemType)'"
+        $processedCount++
+        Write-Warning "[Import-AdoWorkItemsFromExcel] Processing row $processedCount/$($orderedRows.Count): Title='$($row.Title)', LocalId='$($row.LocalId)', WorkItemType='$($row.WorkItemType)', ResolvedWorkItemType='$($row.ResolvedWorkItemType)'"
         # Use resolved work item type (from Resolve-AdoWorkItemType)
-        $wit = if ($row.PSObject.Properties['ResolvedWorkItemType']) { $row.ResolvedWorkItemType } else { $row.WorkItemType }
+        $wit = $row.ResolvedWorkItemType
         
-        Write-Warning "[INFO] Processing work item: Title='$($row.Title)', Type='$($wit)', LocalId='$($row.LocalId)'"
+        Write-Warning "[INFO] Processing work item: Title='$($row.Title)', Type='$($wit.Name)', LocalId='$($row.LocalId)'"
         # Skip bugs that are not linked to a parent
-        if ($wit -eq "Bug" -and (-not $row.PSObject.Properties['ParentLocalId'] -or [string]::IsNullOrWhiteSpace($row.ParentLocalId))) {
+        if ($wit.Name -eq "Bug" -and (-not $row.PSObject.Properties['ParentLocalId'] -or [string]::IsNullOrWhiteSpace($row.ParentLocalId))) {
             Write-Warning "Skipping Bug work item '$($row.Title)' - bugs must be linked to a parent work item"
             continue
         }
         
         # Guard against cycles and invalid parent references
         Write-Warning "[DEBUG] Validating ParentLocalId for row: LocalId='$($row.LocalId)', ParentLocalId='$($row.ParentLocalId)'"
-        if ($row.PSObject.Properties['ParentLocalId'] -and $row.ParentLocalId) {
-            if ($row.LocalId -eq $row.ParentLocalId) {
+        try {
+            $localIdInt = [int]$row.LocalId
+            $parentIdInt = [int]$row.ParentLocalId
+            if ($localIdInt -eq $parentIdInt) {
                 Write-Warning "Skipping row with LocalId=$($row.LocalId) due to ParentLocalId=$($row.ParentLocalId) (self-reference cycle)"
                 continue
             }
-            if ([int]$row.ParentLocalId -ge [int]$row.LocalId) {
+            if ($parentIdInt -ge $localIdInt) {
                 Write-Warning "Skipping row with LocalId=$($row.LocalId) due to ParentLocalId=$($row.ParentLocalId) (forward reference or cycle)"
                 continue
             }
         }
+        catch {
+            Write-Warning "Skipping row with invalid LocalId or ParentLocalId format: LocalId='$($row.LocalId)', ParentLocalId='$($row.ParentLocalId)' - $($_.Exception.Message)"
+            continue
+        }
         try {
             # Build JSON Patch operations array (use PSCustomObject to ensure ConvertTo-Json serializes cleanly)
             $operations = @()
-            write-Warning "[DEBUG] Building JSON Patch operations for work item: Title='$($row.Title)', Type='$($wit)'"
+            write-Warning "[DEBUG] Building JSON Patch operations for work item: Title='$($row.Title)', Type='$($wit.Name)'"
             # Required: Title
             if ([string]::IsNullOrWhiteSpace($row.Title)) {
                 Write-Warning "Skipping row with missing title (LocalId: $($row.LocalId))"
@@ -2540,7 +2546,7 @@ function Import-AdoWorkItemsFromExcel {
                     path  = "/fields/System.IterationPath"
                     value = $iterationToAssign
                 }
-                Write-Warning "Assigned iteration path '$iterationToAssign' to work item '$($row.Title)' (type: $wit)"
+                Write-Warning "Assigned iteration path '$iterationToAssign' to work item '$($row.Title)' (type: $($wit.Name))"
             }
             
             # IterationPath is intentionally ignored during Excel import to use default project area
@@ -2578,18 +2584,18 @@ function Import-AdoWorkItemsFromExcel {
 
                 # Special handling for "New" state - map to appropriate initial state based on work item type
                 if ($originalStateVal -eq "New") {
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Detected 'New' state for work item type '$wit', checking if mapping is needed"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Detected 'New' state for work item type '$($wit.Name)', checking if mapping is needed"
                     # Test Cases use "Design" as their initial state, not "New"
-                    if ($wit -eq "Test Case") {
+                    if ($wit.Name -eq "Test Case") {
                         $stateVal = "Design"
                         Write-Warning "[Import-AdoWorkItemsFromExcel] Mapped 'New' state to 'Design' for Test Case work item type"
                     }
                     else {
-                        Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieving allowed states for work item type '$wit' to check 'New' availability"
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieving allowed states for work item type '$($wit.Name)' to check 'New' availability"
                         # For other work item types, try to map to first allowed state if "New" not allowed
-                        $allowedStates = Get-FieldAllowedValues -WorkItemType $wit -FieldName "System.State"
+                        $allowedStates = Get-FieldAllowedValues -WorkItemType $wit.Name -FieldName "System.State"
                         if (-not $allowedStates) { $allowedStates = @() }
-                        Write-Warning "[Import-AdoWorkItemsFromExcel] Allowed states for $wit.System.State: $($allowedStates -join ', ')"
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Allowed states for $($wit.Name).System.State: $($allowedStates -join ', ')"
 
                         # Check if "New" is directly allowed
                         $newIsAllowed = $false
@@ -2601,7 +2607,7 @@ function Import-AdoWorkItemsFromExcel {
                                 }
                             }
                         }
-                        Write-Warning "[Import-AdoWorkItemsFromExcel] Is 'New' state allowed for $wit? $newIsAllowed"
+                        Write-Warning "[Import-AdoWorkItemsFromExcel] Is 'New' state allowed for $($wit.Name)? $newIsAllowed"
 
                         if (-not $newIsAllowed -and $allowedStates.Count -gt 0) {
                             # "New" not allowed, use first state in the workflow
@@ -2616,16 +2622,16 @@ function Import-AdoWorkItemsFromExcel {
                 }
 
                 # Validate the final state value
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Validating final state value '$stateVal' for work item type '$wit'"
-                $allowed = Get-FieldAllowedValues -WorkItemType $wit -FieldName "System.State"
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieved allowed states for $wit.System.State: $($allowed -join ', ')"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Validating final state value '$stateVal' for work item type '$($wit.Name)'"
+                $allowed = Get-FieldAllowedValues -WorkItemType $wit.Name -FieldName "System.State"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieved allowed states for $($wit.Name).System.State: $($allowed -join ', ')"
                 if (-not $allowed) { $allowed = @() }
 
                 $isAllowed = $false
                 if ($allowed -and $allowed.Count -gt 0) {
                     foreach ($av in $allowed) { if ($av -ieq $stateVal) { $isAllowed = $true; break } }
                 }
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Checking if state '$stateVal' is allowed for $($wit): $isAllowed"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Checking if state '$stateVal' is allowed for $($wit.Name): $isAllowed"
 
                 # If API calls failed (empty allowed values), skip validation and allow the state
                 # This prevents false warnings when Azure DevOps API is not available
@@ -2639,7 +2645,7 @@ function Import-AdoWorkItemsFromExcel {
                     Write-Warning "[Import-AdoWorkItemsFromExcel] Added System.State operation: '$stateVal' for work item '$($row.Title)'"
                 }
                 else {
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Skipping setting State='$originalStateVal' (mapped to '$stateVal' but not in allowed values for $wit.System.State - will use default state)"
+                    Write-Warning "[Import-AdoWorkItemsFromExcel] Skipping setting State='$originalStateVal' (mapped to '$stateVal' but not in allowed values for $($wit.Name).System.State - will use default state)"
                 }
             }
             if ($row.PSObject.Properties['Description'] -and $row.Description) {
@@ -2652,7 +2658,7 @@ function Import-AdoWorkItemsFromExcel {
             }
             
             # Work item type specific fields
-            if ($row.PSObject.Properties['StoryPoints'] -and $row.StoryPoints -and $wit -eq "User Story") {
+            if ($row.PSObject.Properties['StoryPoints'] -and $row.StoryPoints -and $wit.Name -eq "User Story") {
                 $operations += [pscustomobject]@{ op="add"; path="/fields/Microsoft.VSTS.Scheduling.StoryPoints"; value=[double]$row.StoryPoints }
                 Write-Warning "[Import-AdoWorkItemsFromExcel] Added Microsoft.VSTS.Scheduling.StoryPoints operation: '$($row.StoryPoints)' for User Story '$($row.Title)'"
             }
@@ -2694,8 +2700,8 @@ function Import-AdoWorkItemsFromExcel {
                 Write-Warning "[Import-AdoWorkItemsFromExcel] Mapped Risk from '$originalRiskVal' to '$riskVal' for work item '$($row.Title)'"
 
                 # Try to validate Risk allowed values; if not available, add cautiously
-                $riskAllowed = Get-FieldAllowedValues -WorkItemType $wit -FieldName "Microsoft.VSTS.Common.Risk"
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieved allowed risk values for $($wit): $($riskAllowed -join ', ')"
+                $riskAllowed = Get-FieldAllowedValues -WorkItemType $wit.Name -FieldName "Microsoft.VSTS.Common.Risk"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Retrieved allowed risk values for $($wit.Name): $($riskAllowed -join ', ')"
                 if (-not $riskAllowed) { $riskAllowed = @() }
 
                 $riskOk = $false
@@ -2759,7 +2765,7 @@ function Import-AdoWorkItemsFromExcel {
             }
             
             # Test Case specific: Test Steps
-            if ($wit -eq "Test Case" -and $row.PSObject.Properties['TestSteps'] -and $row.TestSteps) {
+            if ($wit.Name -eq "Test Case" -and $row.PSObject.Properties['TestSteps'] -and $row.TestSteps) {
                 Write-Warning "[Import-AdoWorkItemsFromExcel] Processing TestSteps for Test Case '$($row.Title)': value '$($row.TestSteps)'"
                 $stepsXml = ConvertTo-AdoTestStepsXml -StepsText $row.TestSteps
                 if ($stepsXml) {
@@ -2846,7 +2852,7 @@ function Import-AdoWorkItemsFromExcel {
             }
             
             # Create work item via REST API
-            $witEncoded = [uri]::EscapeDataString($wit)
+            $witEncoded = [uri]::EscapeDataString($wit.ReferenceName)
             $projEnc = [uri]::EscapeDataString($Project)
             # Assign area and iteration to each imported work item
             try {
@@ -2964,7 +2970,7 @@ function Import-AdoWorkItemsFromExcel {
                     Write-Warning "[Import-AdoWorkItemsFromExcel] Stored mapping: LocalId $($row.LocalId) -> ADO ID $($workItem.id)"
                 }
 
-                Write-Host "  ✅ Created $wit #$($workItem.id): $($row.Title)" -ForegroundColor Gray
+                Write-Host "  ✅ Created $($wit.Name) #$($workItem.id): $($row.Title)" -ForegroundColor Gray
                 Write-Warning "[Import-AdoWorkItemsFromExcel] Created work item id=$($workItem.id) for LocalId=$($row.LocalId)"
                 $successCount++
             }
@@ -3051,19 +3057,20 @@ function Import-AdoWorkItemsFromExcel {
                 Write-Warning "Failed to write op_Addition diagnostic file: $_"
             }
         }
-        # Summary
-        Write-Warning ""
-        Write-Warning "[SUCCESS] Imported $successCount work items successfully"
-        if ($errorCount -gt 0) {Write-Warning "[WARN] $errorCount work items failed to import"}
+    }
+    # Summary
+    Write-Warning "[Import-AdoWorkItemsFromExcel] Loop completed. Processed $processedCount rows out of $($orderedRows.Count) total rows"
+    Write-Warning ""
+    Write-Warning "[SUCCESS] Imported $successCount work items successfully"
+    if ($errorCount -gt 0) {Write-Warning "[WARN] $errorCount work items failed to import"}
 
-        # Include errors array in return value for caller diagnostics
-        return @{
-            SuccessCount = $successCount
-            ErrorCount   = $errorCount
-            WorkItemMap  = $localToAdoMap
-            Errors       = $importErrors
-            SkippedRows  = $(@($skippedRows).Count)
-        }
+    # Include errors array in return value for caller diagnostics
+    return @{
+        SuccessCount = $successCount
+        ErrorCount   = $errorCount
+        WorkItemMap  = $localToAdoMap
+        Errors       = $importErrors
+        SkippedRows  = $(@($skippedRows).Count)
     }
 }
 

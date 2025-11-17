@@ -329,15 +329,13 @@ function Get-AdoWorkItemTypes {
         }
 
         # Handle different response formats more defensively
-        $typeNames = @()
+        $typeObjects = @()
 
         if ($types -is [array]) {
             Write-Verbose "[Get-AdoWorkItemTypes] Response is direct array with $($types.Count) items"
-            $typeNames = $types | ForEach-Object {
-                if ($_.PSObject.Properties['name']) {
-                    $_.name
-                } elseif ($_.PSObject.Properties['referenceName']) {
-                    $_.referenceName
+            $typeObjects = $types | ForEach-Object {
+                if ($_.PSObject.Properties['name'] -and $_.PSObject.Properties['referenceName']) {
+                    @{ Name = $_.name; ReferenceName = $_.referenceName }
                 } else {
                     $null
                 }
@@ -345,11 +343,9 @@ function Get-AdoWorkItemTypes {
         }
         elseif ($types -and $types.PSObject.Properties['value']) {
             Write-Verbose "[Get-AdoWorkItemTypes] Response wrapped in 'value' property with $($types.value.Count) items"
-            $typeNames = $types.value | ForEach-Object {
-                if ($_.PSObject.Properties['name']) {
-                    $_.name
-                } elseif ($_.PSObject.Properties['referenceName']) {
-                    $_.referenceName
+            $typeObjects = $types.value | ForEach-Object {
+                if ($_.PSObject.Properties['name'] -and $_.PSObject.Properties['referenceName']) {
+                    @{ Name = $_.name; ReferenceName = $_.referenceName }
                 } else {
                     $null
                 }
@@ -357,11 +353,9 @@ function Get-AdoWorkItemTypes {
         }
         elseif ($types -and $types.PSObject.Properties['workItemTypes']) {
             Write-Verbose "[Get-AdoWorkItemTypes] Response contains 'workItemTypes' property with $($types.workItemTypes.Count) items"
-            $typeNames = $types.workItemTypes | ForEach-Object {
-                if ($_.PSObject.Properties['name']) {
-                    $_.name
-                } elseif ($_.PSObject.Properties['referenceName']) {
-                    $_.referenceName
+            $typeObjects = $types.workItemTypes | ForEach-Object {
+                if ($_.PSObject.Properties['name'] -and $_.PSObject.Properties['referenceName']) {
+                    @{ Name = $_.name; ReferenceName = $_.referenceName }
                 } else {
                     $null
                 }
@@ -369,13 +363,11 @@ function Get-AdoWorkItemTypes {
         }
         elseif ($types -is [hashtable] -and $types.ContainsKey('value')) {
             Write-Verbose "[Get-AdoWorkItemTypes] Response is hashtable wrapped in 'value' property with $($types.value.Count) items"
-            $typeNames = $types.value | ForEach-Object {
-                if ($_ -is [hashtable] -and $_.ContainsKey('name')) {
-                    $_.name
-                } elseif ($_.PSObject.Properties['name']) {
-                    $_.name
-                } elseif ($_.PSObject.Properties['referenceName']) {
-                    $_.referenceName
+            $typeObjects = $types.value | ForEach-Object {
+                if ($_ -is [hashtable] -and $_.ContainsKey('name') -and $_.ContainsKey('referenceName')) {
+                    @{ Name = $_.name; ReferenceName = $_.referenceName }
+                } elseif ($_.PSObject.Properties['name'] -and $_.PSObject.Properties['referenceName']) {
+                    @{ Name = $_.name; ReferenceName = $_.referenceName }
                 } else {
                     $null
                 }
@@ -383,29 +375,30 @@ function Get-AdoWorkItemTypes {
         }
         else {
             # Try to enumerate any objects that look like work item type descriptors
-            Write-Verbose "[Get-AdoWorkItemTypes] Response format unknown, attempting to enumerate for items with 'name' property"
+            Write-Verbose "[Get-AdoWorkItemTypes] Response format unknown, attempting to enumerate for items with 'name' and 'referenceName' properties"
             Write-Verbose "[Get-AdoWorkItemTypes] Response type: $($types.GetType().FullName)"
             Write-Verbose "[Get-AdoWorkItemTypes] Properties: $($types.PSObject.Properties.Name -join ', ')"
 
             $candidates = @()
             try {
-                $candidates = @($types) | Where-Object { $_ -and $_.PSObject.Properties['name'] }
+                $candidates = @($types) | Where-Object { $_ -and $_.PSObject.Properties['name'] -and $_.PSObject.Properties['referenceName'] }
             }
             catch {
                 $candidates = @()
             }
 
             if ($candidates -and $candidates.Count -gt 0) {
-                $typeNames = $candidates | ForEach-Object { $_.name }
+                $typeObjects = $candidates | ForEach-Object { @{ Name = $_.name; ReferenceName = $_.referenceName } }
             }
         }
 
-        # Filter out nulls and empty strings
-        $typeNames = @($typeNames | Where-Object { $_ })
+        # Filter out nulls
+        $typeObjects = @($typeObjects | Where-Object { $_ })
 
-        if ($typeNames.Count -gt 0) {
+        if ($typeObjects.Count -gt 0) {
+            $typeNames = $typeObjects | ForEach-Object { $_.Name }
             Write-Host "[INFO] Available work item types in project '$Project': $($typeNames -join ', ')" -ForegroundColor Cyan
-            return $typeNames
+            return $typeObjects
         }
 
         # If nothing found, return empty array (caller may fall back to process-template defaults)

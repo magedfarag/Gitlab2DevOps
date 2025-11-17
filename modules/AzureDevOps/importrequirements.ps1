@@ -127,7 +127,7 @@ foreach ($row in $orderedRows) {
     Add-IntField    -ops ([ref]$ops) -value $row.Priority      -path "/fields/Microsoft.VSTS.Common.Priority"
     Add-IntField    -ops ([ref]$ops) -value $row.BusinessValue -path "/fields/Microsoft.VSTS.Common.BusinessValue"
 
-    if ($row.StoryPoints -and $wit -eq "User Story") {
+    if ($row.StoryPoints -and $wit.Name -eq "User Story") {
         Add-DoubleField -ops ([ref]$ops) -value $row.StoryPoints -path "/fields/Microsoft.VSTS.Scheduling.StoryPoints"
     }
 
@@ -150,7 +150,7 @@ foreach ($row in $orderedRows) {
     Add-DoubleField -ops ([ref]$ops) -value $row.CompletedWork    -path "/fields/Microsoft.VSTS.Scheduling.CompletedWork"
 
     # test steps
-    if ($wit -eq "Test Case" -and $row.TestSteps) {
+    if ($wit.Name -eq "Test Case" -and $row.TestSteps) {
         $xml = Convert-ToTestStepsXml -text $row.TestSteps
         if ($xml) {
             $ops += @{
@@ -186,7 +186,7 @@ foreach ($row in $orderedRows) {
     # Build the ADO path for creating a work item of a given type. The endpoint expects a literal
     # dollar sign before the type (e.g. /_apis/wit/workitems/$Bug). Create the literal by prefixing
     # a backtick to the dollar sign and concatenating the escaped work item type.
-    $escapedWit = [uri]::EscapeDataString($wit)
+    $escapedWit = [uri]::EscapeDataString($wit.ReferenceName)
     $typeSegment = "`$" + $escapedWit
     $path = "/$Project/_apis/wit/workitems/$typeSegment"
 
