@@ -2,15 +2,6 @@
 
 Complete reference for command-line automation with Gitlab2DevOps.
 
-## ⚠️ v2.1.0 Breaking Change
-
-**Self-contained folder structures** are now used for all migrations:
-- Single: `migrations/{AdoProject}/{GitLabProject}/`
-- Bulk: `migrations/{AdoProject}/{Project1,Project2,...}/`
-- Output paths updated throughout this guide (see individual mode sections)
-
-See [README - Project Structure](../README.md#project-structure) for full details.
-
 ---
 
 ## CLI Mode Overview

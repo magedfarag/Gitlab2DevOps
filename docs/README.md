@@ -1,5 +1,3 @@
-# Documentation Index
-
 Welcome to the Gitlab2DevOps documentation! This directory contains comprehensive guides, references, and best practices for using the migration tool.
 
 ---
@@ -160,11 +158,11 @@ docs/
 
 ---
 
-## 🔄 Keeping Documentation Updated
+### Keeping Documentation Updated
 
 Documentation is updated with each release:
 
-- **Version 2.1.0** (Current) - November 8, 2025
+- **Version 1.0** (Current) - November 17, 2025
   - Self-contained folder structures
   - 43 wiki templates
   - 4 team initialization packs

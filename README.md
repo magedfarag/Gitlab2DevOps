@@ -2,7 +2,7 @@
 
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://github.com/PowerShell/PowerShell)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.1.0--dev-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-1.0-green.svg)](CHANGELOG.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 > **Enterprise-grade migration toolkit for seamless GitLab to Azure DevOps transitions**
@@ -24,16 +24,6 @@ Migrate Git repositories with full history, branch policies, and comprehensive a
 | 🔄 **Bulk Migration** | Process dozens of projects with single command |
 | 📚 **43 Wiki Templates** | ~18,000 lines of production-ready documentation |
 | 📋 **Excel Import** | Import work items from Excel with auto-detection and hierarchy support |
-
----
-
-## ⚠️ v2.1.0 Breaking Change
-
-**Self-contained folder structures** are now used for all migrations. See [Project Structure](#project-structure) for details.
-
-- Single migrations: `migrations/{AdoProject}/{GitLabProject}/`
-- Bulk migrations: `migrations/{AdoProject}/{Project1,Project2,...}/`
-- Legacy projects (v2.0.x) can be detected and re-prepared
 
 ---
 
