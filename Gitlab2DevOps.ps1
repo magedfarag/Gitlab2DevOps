@@ -111,7 +111,7 @@
 .NOTES
     Author: Migration Team
     Version: 2.1.0
-    Requires: PowerShell 5.1+, Git, Azure DevOps PAT, GitLab PAT
+    Requires: PowerShell 7.0+, Git, Azure DevOps PAT, GitLab PAT
     
     Environment Variables (recommended):
     - ADO_COLLECTION_URL: Azure DevOps organization URL
@@ -124,7 +124,7 @@
     - CLI: Use -Mode parameter with required parameters for automation
 #>
 
-#Requires -Version 5.1
+#Requires -Version 7.0
 [CmdletBinding(DefaultParameterSetName='Interactive', SupportsShouldProcess)]
 param(
     [Parameter(ParameterSetName='CLI', Mandatory)]
@@ -193,24 +193,12 @@ Write-Host ""
 # Import modules
 Write-Host "[INFO] Loading migration modules..."
 # Import Core.Rest once with warning suppression to avoid noisy unapproved-verb warnings
-$oldWarning = $WarningPreference
-$WarningPreference = 'SilentlyContinue'
-try {
-    Import-Module "$scriptRoot\modules\core\Core.Rest.psm1" -Force -DisableNameChecking -ErrorAction Stop -WarningAction SilentlyContinue
-}
-catch {
-    Write-Warning "[WARN] Failed to import Core.Rest: $_"
-}
-$WarningPreference = $oldWarning
+Import-Module "$scriptRoot\modules\core\Core.Rest.psm1" -Force -DisableNameChecking -Global -ErrorAction Stop
+Write-Host "[DEBUG] Invoke-AdoRest available: $(Get-Command Invoke-AdoRest -ErrorAction SilentlyContinue)"
 
 # Ensure Core.Rest is initialized (idempotent)
-try {
-    if (Get-Command -Name 'Initialize-CoreRest' -ErrorAction SilentlyContinue) { Initialize-CoreRest }
-else { Import-Module "$scriptRoot\modules\core\Core.Rest.psm1" -Force -DisableNameChecking -ErrorAction SilentlyConti`nue -WarningAction SilentlyContinue; if (Get-Command -Name 'Initialize-CoreRest' -ErrorAction SilentlyContinue) { Initialize-CoreRest } }
-}
-catch {
-    Write-Warning "[WARN] Core.Rest initialization encountered an error: $_"
-}
+if (Get-Command -Name 'Initialize-CoreRest' -ErrorAction SilentlyContinue) { Initialize-CoreRest }
+else { Import-Module "$scriptRoot\modules\core\Core.Rest.psm1" -Force -DisableNameChecking -Global -ErrorAction Stop; if (Get-Command -Name 'Initialize-CoreRest' -ErrorAction SilentlyContinue) { Initialize-CoreRest } }
 
 Import-Module "$scriptRoot\modules\core\Logging.psm1" -Force -DisableNameChecking -WarningAction SilentlyContinue
 Import-Module "$scriptRoot\modules\GitLab\GitLab.psm1" -Force -DisableNameChecking -WarningAction SilentlyContinue

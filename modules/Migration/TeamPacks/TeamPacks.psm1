@@ -351,7 +351,10 @@ function Initialize-DevInit {
 
     # Create development dashboard
     Write-Host "[INFO] Creating development dashboard..." -ForegroundColor Cyan
-    New-Adodevdashboard -Project $DestProject -WikiId $wikiId
+    $devDashboardStatus = New-Adodevdashboard -Project $DestProject -WikiId $wikiId
+    if ($devDashboardStatus) {
+        Write-Host ("[DASHBOARD] Development dashboard status: {0} - {1}" -f $devDashboardStatus.status, $devDashboardStatus.message) -ForegroundColor Gray
+    }
 
     # Ensure development queries (create first, then update/setup)
     Write-Host "[INFO] Creating development-focused queries..." -ForegroundColor Cyan
@@ -390,6 +393,7 @@ function Initialize-DevInit {
         dev_queries       = @('My PRs Awaiting Review','PRs I Need to Review','Technical Debt','Recently Completed','Code Review Feedback')
         repo_files        = @('.gitignore','.editorconfig','CONTRIBUTING.md','CODEOWNERS')
         repository_found  = ($null -ne $repo)
+        dashboard_status  = $devDashboardStatus
         notes             = 'Development initialization completed. Repository files added if repository exists.'
     }
 
@@ -472,7 +476,10 @@ function Initialize-SecurityInit {
 
     # Create security dashboard
     Write-Host "[INFO] Creating security dashboard..." -ForegroundColor Cyan
-    New-AdoSecurityDashboard -Project $DestProject
+    $securityDashboardStatus = New-AdoSecurityDashboard -Project $DestProject
+    if ($securityDashboardStatus) {
+        Write-Host ("[DASHBOARD] Security dashboard status: {0} - {1}" -f $securityDashboardStatus.status, $securityDashboardStatus.message) -ForegroundColor Gray
+    }
 
     # Ensure security queries
     Write-Host "[INFO] Creating security-focused queries..." -ForegroundColor Cyan
@@ -502,6 +509,7 @@ function Initialize-SecurityInit {
         security_queries  = @('Security Bugs (Priority 0-1)','Vulnerability Backlog','Security Review Required','Compliance Items','Security Debt')
         repo_files        = @('SECURITY.md','security-scan-config.yml','.trivyignore','.snyk')
         repository_found  = ($null -ne $repo)
+        dashboard_status  = $securityDashboardStatus
         notes             = 'Security initialization completed. Repository files added if repository exists. Embed shift-left security practices from day one.'
     }
 
@@ -577,7 +585,10 @@ function Initialize-ManagementInit {
 
     # Create management dashboard
     Write-Host "[INFO] Creating management dashboard..." -ForegroundColor Cyan
-    Test-Adomanagementdashboard -Project $DestProject
+    $managementDashboardStatus = Test-Adomanagementdashboard -Project $DestProject
+    if ($managementDashboardStatus) {
+        Write-Host ("[DASHBOARD] Management dashboard status: {0} - {1}" -f $managementDashboardStatus.status, $managementDashboardStatus.message) -ForegroundColor Gray
+    }
 
     # Ensure management queries
     Write-Host "[INFO] Creating management-focused queries..." -ForegroundColor Cyan
@@ -592,7 +603,7 @@ function Initialize-ManagementInit {
         ado_project         = $DestProject
         wiki_pages          = @('Program-Overview','Sprint-Planning','Capacity-Planning','Roadmap','RAID-Log','Stakeholder-Communications','Retrospectives','Metrics-Dashboard')
         management_queries  = @('Program Status','Sprint Progress','Active Risks','Open Issues','Cross-Team Dependencies','Milestone Tracker')
-        dashboard_created   = $true
+        dashboard_status    = $managementDashboardStatus
         notes               = 'Management initialization completed. PMO infrastructure ready for program oversight, sprint planning, risk management, and stakeholder reporting.'
     }
 
@@ -697,8 +708,16 @@ function Invoke-AllTeamPacks {
     )
 
     $packResults = @()
+    $totalPacks = $packs.Count
+    $currentPack = 0
+
+    Write-Progress -Activity "Team Pack Installation" -Status "Starting team pack installation..." -PercentComplete 0 -Id 2
 
     foreach ($pack in $packs) {
+        $currentPack++
+        $progressPercent = [math]::Round(($currentPack - 1) / $totalPacks * 100)
+        Write-Progress -Activity "Team Pack Installation" -Status "Installing $($pack.Name) Team Pack..." -PercentComplete $progressPercent -Id 2
+        
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         try {
             Write-Host "[INFO] Applying $($pack.Name) pack..." -ForegroundColor Cyan
@@ -721,6 +740,8 @@ function Invoke-AllTeamPacks {
             }
         }
     }
+
+    Write-Progress -Activity "Team Pack Installation" -Status "Team pack installation completed!" -PercentComplete 100 -Id 2
 
     if ($packResults.Count -gt 0) {
         Write-Host ""

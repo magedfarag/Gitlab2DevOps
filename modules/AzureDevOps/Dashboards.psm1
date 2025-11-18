@@ -752,14 +752,16 @@ function New-Adodevdashboard {
         [string]$Team
     )
     
-    Write-Host "[INFO] Creating development dashboard..." -ForegroundColor Cyan
+    Write-Host "[INFO] Attempting to create development dashboard for '$Project' (Team: $Team)..." -ForegroundColor Cyan
 
     if (-not $Team) { $Team = "$Project Team" }
-    
+
     $context = Get-AdoDashboardContext -Project $Project -Team $Team
     $teamId = $context.TeamId
     $projectId = $context.ProjectId
-    
+
+    $result = [pscustomobject]@{ status = "unknown"; message = $null }
+
     try {
         # Check if dashboard already exists
         $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
@@ -782,10 +784,13 @@ function New-Adodevdashboard {
         $devDashboard = $entries | Where-Object { $_.name -eq "Development Metrics" }
 
         if ($devDashboard) {
-            Write-Host "  ℹ️ Development dashboard already exists" -ForegroundColor DarkYellow
-            return
+            Write-Host "  ℹ️ Development dashboard already exists for '$Project' (Team: $Team)" -ForegroundColor DarkYellow
+            $result.status = "skipped"
+            $result.message = "Dashboard already exists."
+            return $result
         }
 
+        Write-Host "[INFO] Creating development dashboard for '$Project' (Team: $Team)..." -ForegroundColor Cyan
         # Create dashboard
         $dashboardConfig = @{
             name = Truncate-DashboardName "Development Metrics"
@@ -862,18 +867,25 @@ function New-Adodevdashboard {
         
         Set-AdoWikiPage $Project $WikiId "/Development/Component-Tags" $componentTagsContent
         Write-Host "  ✅ Component Tags wiki page created" -ForegroundColor Gray
-        
-        Write-Host "[SUCCESS] Development dashboard created" -ForegroundColor Green
+        Write-Host "[SUCCESS] Development dashboard created for '$Project' (Team: $Team)" -ForegroundColor Green
+        $result.status = "created"
+        $result.message = "Dashboard created successfully."
+        return $result
     }
     catch {
         # Dashboard API is often not available on on-premise Azure DevOps Server
         if ($_ -match "404|Not Found|500|Internal Server Error") {
             Write-Host "ℹ️  [INFO] Development Dashboard API not available (common on on-premise servers or API issues)" -ForegroundColor Cyan
+            $result.status = "failed"
+            $result.message = "Dashboard API not available."
         }
         else {
             Write-Warning "Failed to create development dashboard: $_"
+            $result.status = "failed"
+            $result.message = "Failed to create dashboard: $_"
         }
         Write-Verbose "[New-Adodevdashboard] Error details: $($_.Exception.Message)"
+        return $result
     }
 }
 
@@ -886,14 +898,16 @@ function New-AdoSecurityDashboard {
         [string]$Team
     )
     
-    Write-Host "[INFO] Creating Security Metrics dashboard..." -ForegroundColor Cyan
+    Write-Host "[INFO] Attempting to create Security Metrics dashboard for '$Project' (Team: $Team)..." -ForegroundColor Cyan
 
     if (-not $Team) { $Team = "$Project Team" }
 
     $context = Get-AdoDashboardContext -Project $Project -Team $Team
     $teamId = $context.TeamId
     $projectId = $context.ProjectId
-    
+
+    $result = [pscustomobject]@{ status = "unknown"; message = $null }
+
     try {
         $dashboardConfig = @{
             name = Truncate-DashboardName "Security Metrics"
@@ -944,9 +958,11 @@ function New-AdoSecurityDashboard {
 
                         $found = $entries | Where-Object { $_.name -eq $dashboardConfig.name } | Select-Object -First 1
                         if ($found) {
-                            Write-Host "[INFO] Found existing Security Metrics dashboard after duplicate error" -ForegroundColor Gray
+                            Write-Host "[INFO] Security Metrics dashboard already exists for '$Project' (Team: $Team)" -ForegroundColor DarkYellow
                             $dashboard = $found
-                            break
+                            $result.status = "skipped"
+                            $result.message = "Dashboard already exists."
+                            return $result
                         }
                     }
                     catch {
@@ -959,21 +975,31 @@ function New-AdoSecurityDashboard {
         }
 
         if (-not $dashboard) {
-            throw "Failed to create Security Metrics dashboard for team '$Team'."
+            $result.status = "failed"
+            $result.message = "Failed to create Security Metrics dashboard for team '$Team'."
+            throw $result.message
         }
 
-        Write-Host "  ✅ Security Metrics dashboard created" -ForegroundColor Gray
-        Write-Host "[SUCCESS] Security dashboard created" -ForegroundColor Green
+        Write-Host "  ✅ Security Metrics dashboard created for '$Project' (Team: $Team)" -ForegroundColor Gray
+        Write-Host "[SUCCESS] Security dashboard created for '$Project' (Team: $Team)" -ForegroundColor Green
+        $result.status = "created"
+        $result.message = "Dashboard created successfully."
+        return $result
     }
     catch {
         # Dashboard API is often not available on on-premise Azure DevOps Server
         if ($_ -match "404|Not Found|500|Internal Server Error") {
             Write-Host "ℹ️  [INFO] Security Dashboard API not available (common on on-premise servers or API issues)" -ForegroundColor Cyan
+            $result.status = "failed"
+            $result.message = "Dashboard API not available."
         }
         else {
             Write-Warning "Failed to create security dashboard: $_"
+            $result.status = "failed"
+            $result.message = "Failed to create dashboard: $_"
         }
         Write-Verbose "[New-AdoSecurityDashboard] Error details: $($_.Exception.Message)"
+        return $result
     }
 }
 
@@ -986,14 +1012,16 @@ function Test-Adomanagementdashboard {
         [string]$Team
     )
     
-    Write-Host "[INFO] Creating Program Management dashboard..." -ForegroundColor Cyan
+    Write-Host "[INFO] Attempting to create Program Management dashboard for '$Project' (Team: $Team)..." -ForegroundColor Cyan
 
     if (-not $Team) { $Team = "$Project Team" }
 
     $context = Get-AdoDashboardContext -Project $Project -Team $Team
     $teamId = $context.TeamId
     $projectId = $context.ProjectId
-    
+
+    $result = [pscustomobject]@{ status = "unknown"; message = $null }
+
     try {
         $dashboardConfig = @{
             name = Truncate-DashboardName "Program Management"
@@ -1062,9 +1090,11 @@ function Test-Adomanagementdashboard {
 
                         $found = $entries | Where-Object { $_.name -eq $dashboardConfig.name } | Select-Object -First 1
                         if ($found) {
-                            Write-Host "[INFO] Found existing Program Management dashboard after duplicate error" -ForegroundColor Gray
+                            Write-Host "[INFO] Program Management dashboard already exists for '$Project' (Team: $Team)" -ForegroundColor DarkYellow
                             $dashboard = $found
-                            break
+                            $result.status = "skipped"
+                            $result.message = "Dashboard already exists."
+                            return $result
                         }
                     }
                     catch {
@@ -1077,21 +1107,31 @@ function Test-Adomanagementdashboard {
         }
 
         if (-not $dashboard) {
-            throw "Failed to create Program Management dashboard for team '$Team'."
+            $result.status = "failed"
+            $result.message = "Failed to create Program Management dashboard for team '$Team'."
+            throw $result.message
         }
 
-        Write-Host "  ✅ Program Management dashboard created" -ForegroundColor Gray
-        Write-Host "[SUCCESS] Management dashboard created" -ForegroundColor Green
+        Write-Host "  ✅ Program Management dashboard created for '$Project' (Team: $Team)" -ForegroundColor Gray
+        Write-Host "[SUCCESS] Management dashboard created for '$Project' (Team: $Team)" -ForegroundColor Green
+        $result.status = "created"
+        $result.message = "Dashboard created successfully."
+        return $result
     }
     catch {
         # Dashboard API is often not available on on-premise Azure DevOps Server
         if ($_ -match "404|Not Found|500|Internal Server Error") {
             Write-Host "ℹ️  [INFO] Management Dashboard API not available (common on on-premise servers or API issues)" -ForegroundColor Cyan
+            $result.status = "failed"
+            $result.message = "Dashboard API not available."
         }
         else {
             Write-Warning "Failed to create management dashboard: $_"
+            $result.status = "failed"
+            $result.message = "Failed to create dashboard: $_"
         }
         Write-Verbose "[Test-Adomanagementdashboard] Error details: $($_.Exception.Message)"
+        return $result
     }
 }
 

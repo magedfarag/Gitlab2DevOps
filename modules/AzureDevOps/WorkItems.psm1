@@ -556,11 +556,11 @@ function Initialize-AdoTeamTemplates {
  $available = @('User Story','Task','Bug','Epic','Feature','Test Case') 
 
     # Wait longer for project to fully initialize work item types after creation
-    Write-Host "[INFO] Waiting 10 seconds for project work item types to initialize..." -ForegroundColor Yellow
+    Write-LogLevelMessage -Message "Waiting 10 seconds for project work item types to initialize..." -Level INFO
     Start-Sleep -Seconds 10
     
     # Get project details to determine process template
-    Write-Host "[INFO] Detecting process template for project '$Project'..." -ForegroundColor Cyan
+    Write-LogLevelMessage -Message "Detecting process template for project '$Project'..." -Level INFO
     $projDetails = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))?includeCapabilities=true"
     $processTemplate = Get-AdoProjectProcessTemplate -ProjectId $projDetails.id
     
@@ -580,7 +580,7 @@ function Initialize-AdoTeamTemplates {
         }
         default {
             # Unknown - try detection, fallback to common types (excluding Issue for Agile-like projects)
-            Write-Host "[INFO] Unknown process template, attempting work item type detection..." -ForegroundColor Yellow
+            Write-LogLevelMessage -Message "Unknown process template, attempting work item type detection..." -Level INFO
             
             # Cache work item types to avoid repeated API calls when multiple team packs are initialized
             try {
@@ -610,7 +610,7 @@ function Initialize-AdoTeamTemplates {
         }
     }
     
-    Write-Host "[INFO] Using work item types for $processTemplate template: $($availableTypes -join ', ')" -ForegroundColor Green
+    Write-LogLevelMessage -Message "Using work item types for $processTemplate template: $($availableTypes -join ', ')" -Level INFO
     
     # Determine which story type to use based on process template
     $storyType = switch ($processTemplate) {
@@ -658,7 +658,7 @@ function Initialize-AdoTeamTemplates {
     $createdCount = 0
     $skippedCount = 0
     
-    Write-Host "[INFO] Creating work item templates for $processTemplate process..." -ForegroundColor Cyan
+    Write-LogLevelMessage -Message "Creating work item templates for $processTemplate process..." -Level INFO
     Write-LogLevelVerbose "[Initialize-AdoTeamTemplates] Available types in project: $($availableTypes -join ', ')"
     Write-LogLevelVerbose "[Initialize-AdoTeamTemplates] Template API endpoint: $base"
     
@@ -668,7 +668,7 @@ function Initialize-AdoTeamTemplates {
             
             # Check if template already exists
             if (-not $byName.ContainsKey($template.name)) {
-                Write-Host "[INFO] Creating $workItemType template..." -ForegroundColor Cyan
+                Write-LogLevelMessage -Message "Creating $workItemType template..." -Level INFO
                 
                 try {
                     $templateBody = @{
@@ -682,7 +682,7 @@ function Initialize-AdoTeamTemplates {
                     Write-LogLevelVerbose "[Initialize-AdoTeamTemplates] Template body: $($templateBody | ConvertTo-Json -Depth 5)"
                     
                     Invoke-AdoRest POST $base -Body $templateBody | Out-Null
-                    Write-Host "[SUCCESS] Created $workItemType template: $($template.name)" -ForegroundColor Green
+                    Write-LogLevelMessage -Message "Created $workItemType template: $($template.name)" -Level INFO
                     $createdCount++
                 }
                 catch {
@@ -694,44 +694,44 @@ function Initialize-AdoTeamTemplates {
                 }
             }
             else {
-                Write-Host "[INFO] $workItemType template already exists: $($template.name)" -ForegroundColor Gray
+                Write-LogLevelMessage -Message "$workItemType template already exists: $($template.name)" -Level INFO
                 $skippedCount++
             }
         }
         else {
-            Write-Host "[INFO] No template defined for work item type: $workItemType" -ForegroundColor Yellow
+            Write-LogLevelMessage -Message "No template defined for work item type: $workItemType" -Level INFO
         }
     }
     
     # Summary with actionable guidance
     Write-Host ""
-    Write-Host "[INFO] Work item template configuration summary:" -ForegroundColor Cyan
-    Write-Host "  ✅ Created: $createdCount templates" -ForegroundColor Green
+    Write-LogLevelMessage -Message "Work item template configuration summary:" -Level INFO
+    Write-LogLevelMessage -Message "  ✅ Created: $createdCount templates" -Level INFO
     if ($skippedCount -gt 0) {
-        Write-Host "  ⏭️ Skipped: $skippedCount templates (already exist)" -ForegroundColor Yellow
+        Write-LogLevelMessage -Message "  ⏭️ Skipped: $skippedCount templates (already exist)" -Level INFO
     }
-    Write-Host "  📋 Available work item types: $($availableTypes -join ', ')" -ForegroundColor Gray
+    Write-LogLevelMessage -Message "  📋 Available work item types: $($availableTypes -join ', ')" -Level INFO
     Write-Host ""
-    Write-Host "[INFO] ✨ Templates are ready to use!" -ForegroundColor Green
+    Write-LogLevelMessage -Message "✨ Templates are ready to use!" -Level INFO
     Write-Host ""
-    Write-Host "⚠️  [ACTION REQUIRED] Templates must be set as default manually:" -ForegroundColor Yellow
-    Write-Host "    (Azure DevOps API does not support setting templates as default)" -ForegroundColor DarkYellow
+    Write-LogLevelMessage -Message "⚠️  [ACTION REQUIRED] Templates must be set as default manually:" -Level WARN
+    Write-LogLevelMessage -Message "    (Azure DevOps API does not support setting templates as default)" -Level INFO
     Write-Host ""
-    Write-Host "[NEXT STEPS] To make templates auto-populate when creating work items:" -ForegroundColor Cyan
+    Write-LogLevelMessage -Message "[NEXT STEPS] To make templates auto-populate when creating work items:" -Level INFO
     try {
         $baseUrl = Get-AdoBaseUrl
-        Write-Host "  1. Navigate to: $baseUrl/$([uri]::EscapeDataString($Project))/_settings/work-items" -ForegroundColor White
+        Write-LogLevelMessage -Message "  1. Navigate to: $baseUrl/$([uri]::EscapeDataString($Project))/_settings/work-items" -Level INFO
     }
     catch {
-        Write-Host "  1. Navigate to your Azure DevOps project settings → Work items" -ForegroundColor White
+        Write-LogLevelMessage -Message "  1. Navigate to your Azure DevOps project settings → Work items" -Level INFO
     }
-    Write-Host "  2. Select the work item type (e.g., 'User Story', 'Task', 'Bug')" -ForegroundColor White
-    Write-Host "  3. Find the template in the list" -ForegroundColor White
-    Write-Host "  4. Click the ⋮ (actions menu) → 'Set as default'" -ForegroundColor White
-    Write-Host "  5. Repeat for each work item type" -ForegroundColor White
+    Write-LogLevelMessage -Message "  2. Select the work item type (e.g., 'User Story', 'Task', 'Bug')" -Level INFO
+    Write-LogLevelMessage -Message "  3. Find the template in the list" -Level INFO
+    Write-LogLevelMessage -Message "  4. Click the ⋮ (actions menu) → 'Set as default'" -Level INFO
+    Write-LogLevelMessage -Message "  5. Repeat for each work item type" -Level INFO
     Write-Host ""
-    Write-Host "[NOTE] Setting templates as default is not available via API - manual configuration required" -ForegroundColor Yellow
-    Write-Host "[TIP] Set defaults for most-used types first: User Story, Task, Bug" -ForegroundColor Gray
+    Write-LogLevelMessage -Message "[NOTE] Setting templates as default is not available via API - manual configuration required" -Level INFO
+    Write-LogLevelMessage -Message "[TIP] Set defaults for most-used types first: User Story, Task, Bug" -Level INFO
 }
 
 
@@ -744,7 +744,7 @@ function New-AdoSharedQueries {
         [string]$Team = "$Project Team"
     )
     
-    Write-Host "[INFO] Creating shared work item queries..." -ForegroundColor Cyan
+    Write-LogLevelMessage -Message "Creating shared work item queries..." -Level INFO
     
     # Get project details to get team ID
     $projDetails = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))"
@@ -792,14 +792,14 @@ function New-AdoSharedQueries {
         
         # Create team folder if it doesn't exist
         if (-not $teamFolderId) {
-            Write-Host "[INFO] Creating team folder '$Team' under Shared Queries..." -ForegroundColor Cyan
+            Write-LogLevelMessage -Message "Creating team folder '$Team' under Shared Queries..." -Level INFO
             $folderBody = @{
                 name = $Team
                 isFolder = $true
             }
             $teamFolder = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" -Body $folderBody
             $teamFolderId = $teamFolder.id
-            Write-Host "[SUCCESS] Created team folder '$Team'" -ForegroundColor Green
+            Write-LogLevelMessage -Message "Created team folder '$Team'" -Level INFO
         }
     }
     catch {
@@ -848,13 +848,13 @@ function New-AdoSharedQueries {
     
     # Summary
     Write-Host ""
-    Write-Host "[INFO] Shared queries summary:" -ForegroundColor Cyan
-    Write-Host "  ✅ Created: $createdCount queries" -ForegroundColor Green
+    Write-LogLevelMessage -Message "Shared queries summary:" -Level INFO
+    Write-LogLevelMessage -Message "  ✅ Created: $createdCount queries" -Level INFO
     if ($skippedCount -gt 0) {
-        Write-Host "  ⏭️ Skipped: $skippedCount queries (already exist or permission denied)" -ForegroundColor Yellow
+        Write-LogLevelMessage -Message "  ⏭️ Skipped: $skippedCount queries (already exist or permission denied)" -Level INFO
     }
     $location = if ($teamFolderId) { "Shared Queries/$Team folder" } else { "Shared Queries folder" }
-    Write-Host "  📂 Location: $location" -ForegroundColor Gray
+    Write-LogLevelMessage -Message "  📂 Location: $location" -Level INFO
     
     return $createdQueries
 }
@@ -871,7 +871,7 @@ function New-AdoTestPlan {
         [string]$Iteration
     )
     
-    Write-Host "[INFO] Setting up test plan and test suites..." -ForegroundColor Cyan
+    Write-LogLevelMessage -Message "Setting up test plan and test suites..." -Level INFO
     
     # Get project details
     $projDetails = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))?includeCapabilities=true"
@@ -918,11 +918,11 @@ function New-AdoTestPlan {
     $testPlan = $null
     if ($existingPlans -and $existingPlans.Count -gt 0) {
         $testPlan = $existingPlans[0]
-        Write-Host "[INFO] Test plan '$Name' already exists (ID: $($testPlan.id))" -ForegroundColor Gray
+        Write-LogLevelMessage -Message "Test plan '$Name' already exists (ID: $($testPlan.id))" -Level INFO
     }
     else {
         # Create test plan
-        Write-Host "[INFO] Creating test plan '$Name'..." -ForegroundColor Cyan
+        Write-LogLevelMessage -Message "Creating test plan '$Name'..." -Level INFO
         
         try {
             $testPlanBody = @{
@@ -934,7 +934,7 @@ function New-AdoTestPlan {
             
             Write-LogLevelVerbose "[New-AdoTestPlan] Creating test plan with body: $($testPlanBody | ConvertTo-Json -Depth 5)"
             $testPlan = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/testplan/plans" -Body $testPlanBody
-            Write-Host "[SUCCESS] Created test plan '$Name' (ID: $($testPlan.id))" -ForegroundColor Green
+            Write-LogLevelMessage -Message "Created test plan '$Name' (ID: $($testPlan.id))" -Level INFO
         }
         catch {
             Write-Error "Failed to create test plan: $_"
@@ -983,14 +983,14 @@ function New-AdoTestPlan {
     
     foreach ($suiteDef in $suiteDefinitions) {
         if ($existingSuites.ContainsKey($suiteDef.name)) {
-            Write-Host "[INFO] Test suite '$($suiteDef.name)' already exists" -ForegroundColor Gray
+            Write-LogLevelMessage -Message "Test suite '$($suiteDef.name)' already exists" -Level INFO
             $skippedCount++
             $createdSuites += $existingSuites[$suiteDef.name]
             continue
         }
         
         try {
-            Write-Host "[INFO] Creating test suite '$($suiteDef.name)'..." -ForegroundColor Cyan
+            Write-LogLevelMessage -Message "Creating test suite '$($suiteDef.name)'..." -Level INFO
             
             $suiteBody = @{
                 suiteType = "staticTestSuite"
@@ -1001,7 +1001,7 @@ function New-AdoTestPlan {
             
             Write-LogLevelVerbose "[New-AdoTestPlan] Creating suite: $($suiteDef.name)"
             $suite = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/testplan/plans/$($testPlan.id)/suites" -Body $suiteBody
-            Write-Host "[SUCCESS] Created test suite '$($suiteDef.name)' (ID: $($suite.id))" -ForegroundColor Green
+            Write-LogLevelMessage -Message "Created test suite '$($suiteDef.name)' (ID: $($suite.id))" -Level INFO
             $createdSuites += $suite
             $createdCount++
         }
@@ -1011,18 +1011,16 @@ function New-AdoTestPlan {
     }
     
     # Summary
-    Write-Host ""
-    Write-Host "[INFO] Test plan configuration summary:" -ForegroundColor Cyan
-    Write-Host "  📋 Test Plan: $Name (ID: $($testPlan.id))" -ForegroundColor White
-    Write-Host "  📍 Iteration: $Iteration" -ForegroundColor Gray
-    Write-Host "  ✅ Created: $createdCount test suites" -ForegroundColor Green
+    Write-LogLevelMessage -Message "Test plan configuration summary:" -Level INFO
+    Write-LogLevelMessage -Message "  📋 Test Plan: $Name (ID: $($testPlan.id))" -Level INFO
+    Write-LogLevelMessage -Message "  📍 Iteration: $Iteration" -Level INFO
+    Write-LogLevelMessage -Message "  ✅ Created: $createdCount test suites" -Level INFO
     if ($skippedCount -gt 0) {
-        Write-Host "  ⏭️ Skipped: $skippedCount test suites (already exist)" -ForegroundColor Yellow
+        Write-LogLevelMessage -Message "  ⏭️ Skipped: $skippedCount test suites (already exist)" -Level INFO
     }
-    Write-Host ""
-    Write-Host "[INFO] Test suites available:" -ForegroundColor Cyan
+    Write-LogLevelMessage -Message "Test suites available:" -Level INFO
     foreach ($suite in $createdSuites) {
-        Write-Host "  • $($suite.name)" -ForegroundColor Gray
+        Write-LogLevelMessage -Message "  • $($suite.name)" -Level INFO
     }
     
     return @{
@@ -1039,7 +1037,7 @@ function New-AdoQAQueries {
         [string]$Project
     )
     
-    Write-Host "[INFO] Creating QA-specific work item queries..." -ForegroundColor Cyan
+    Write-LogLevelMessage -Message "Creating QA-specific work item queries..." -Level INFO
     
     # Define QA queries
     $qaQueries = @(
@@ -1089,20 +1087,20 @@ function New-AdoQAQueries {
             $qaFolder = $sharedQueries.children | Where-Object { $_.name -eq "QA" -and $_.isFolder -eq $true }
             if ($qaFolder) {
                 $qaFolderId = $qaFolder.id
-                Write-Host "[INFO] QA folder already exists" -ForegroundColor Gray
+                Write-LogLevelMessage -Message "QA folder already exists" -Level INFO
             }
         }
         
         # Create QA folder if it doesn't exist
         if (-not $qaFolderId) {
-            Write-Host "[INFO] Creating QA folder under Shared Queries..." -ForegroundColor Cyan
+            Write-LogLevelMessage -Message "Creating QA folder under Shared Queries..." -Level INFO
             $folderBody = @{
                 name = "QA"
                 isFolder = $true
             }
             $qaFolder = Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" -Body $folderBody
             $qaFolderId = $qaFolder.id
-            Write-Host "[SUCCESS] Created QA folder" -ForegroundColor Green
+            Write-LogLevelMessage -Message "Created QA folder" -Level INFO
         }
     }
     catch {
@@ -1147,14 +1145,14 @@ function New-AdoQAQueries {
     
     foreach ($queryDef in $qaQueries) {
         if ($existingQueries.ContainsKey($queryDef.name)) {
-            Write-Host "[INFO] Query '$($queryDef.name)' already exists" -ForegroundColor Gray
+            Write-LogLevelMessage -Message "Query '$($queryDef.name)' already exists" -Level INFO
             $skippedCount++
             $createdQueries += $existingQueries[$queryDef.name]
             continue
         }
         
         try {
-            Write-Host "[INFO] Creating query '$($queryDef.name)'..." -ForegroundColor Cyan
+            Write-LogLevelMessage -Message "Creating query '$($queryDef.name)'..." -Level INFO
             
             $queryBody = @{
                 name = $queryDef.name
@@ -1162,7 +1160,7 @@ function New-AdoQAQueries {
             }
             
             $query = Invoke-AdoRest POST $baseEndpoint -Body $queryBody
-            Write-Host "[SUCCESS] Created query '$($queryDef.name)'" -ForegroundColor Green
+            Write-LogLevelMessage -Message "Created query '$($queryDef.name)'" -Level INFO
             $createdQueries += $query
             $createdCount++
         }
@@ -1172,17 +1170,15 @@ function New-AdoQAQueries {
     }
     
     # Summary
-    Write-Host ""
-    Write-Host "[INFO] QA queries summary:" -ForegroundColor Cyan
-    Write-Host "  ✅ Created: $createdCount queries" -ForegroundColor Green
+    Write-LogLevelMessage -Message "QA queries summary:" -Level INFO
+    Write-LogLevelMessage -Message "  ✅ Created: $createdCount queries" -Level INFO
     if ($skippedCount -gt 0) {
-        Write-Host "  ⏭️ Skipped: $skippedCount queries (already exist)" -ForegroundColor Yellow
+        Write-LogLevelMessage -Message "  ⏭️ Skipped: $skippedCount queries (already exist)" -Level INFO
     }
-    Write-Host "  📂 Location: $qaFolderPath" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "[INFO] QA queries available:" -ForegroundColor Cyan
+    Write-LogLevelMessage -Message "  📂 Location: $qaFolderPath" -Level INFO
+    Write-LogLevelMessage -Message "QA queries available:" -Level INFO
     foreach ($query in $createdQueries) {
-        Write-Host "  • $($query.name)" -ForegroundColor Gray
+        Write-LogLevelMessage -Message "  • $($query.name)" -Level INFO
     }
     
     return $createdQueries
@@ -1659,25 +1655,25 @@ ORDER BY [System.ChangedDate] DESC
                     catch {
                         Write-Warning "Failed to create query '$($q.name)' (POST): $_"
                         # Temporary debug capture: write exception + context to logs/debug-failing-post-<guid>.json
-                        try {
-                            $logsDir = Join-Path (Get-Location) 'logs'
-                            if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
+                        # try {
+                        #     $logsDir = Join-Path (Get-Location) 'logs'
+                        #     if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
 
-                            $payload = [ordered]@{
-                                timestamp = (Get-Date).ToString('o')
-                                project   = $Project
-                                queryName = $q.name
-                                endpoint  = "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries"
-                                exception = ($_ | Out-String).Trim()
-                            }
+                        #     $payload = [ordered]@{
+                        #         timestamp = (Get-Date).ToString('o')
+                        #         project   = $Project
+                        #         queryName = $q.name
+                        #         endpoint  = "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries"
+                        #         exception = ($_ | Out-String).Trim()
+                        #     }
 
-                            $fname = Join-Path $logsDir ("debug-failing-post-" + [guid]::NewGuid().ToString() + ".json")
-                            $payload | ConvertTo-Json -Depth 10 | Out-File -FilePath $fname -Encoding UTF8 -Force
-                            Write-LogLevelVerbose "[Search-Adodevqueries] Wrote debug failure details to: $fname"
-                        }
-                        catch {
-                            Write-LogLevelVerbose "[Search-Adodevqueries] Failed to write debug file: $_"
-                        }
+                        #     $fname = Join-Path $logsDir ("debug-failing-post-" + [guid]::NewGuid().ToString() + ".json")
+                        #     $payload | ConvertTo-Json -Depth 10 | Out-File -FilePath $fname -Encoding UTF8 -Force
+                        #     Write-LogLevelVerbose "[Search-Adodevqueries] Wrote debug failure details to: $fname"
+                        # }
+                        # catch {
+                        #     Write-LogLevelVerbose "[Search-Adodevqueries] Failed to write debug file: $_"
+                        # }
 
                         continue
                     }
@@ -2476,24 +2472,24 @@ function Import-AdoWorkItemsFromExcel {
                 $firstIterationPath = "$Project"
             }
             # Extra diagnostics: write exception details and local context to logs for easier debugging
-            try {
-                $logsDir = Join-Path (Get-Location) 'logs'
-                if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
-                $diag = [ordered]@{
-                    timestamp = (Get-Date).ToString('o')
-                    message = "Failed to create default area/iteration"
-                    project = $Project
-                    disableAreaCreation = $disableAreaCreation
-                    projEnc = if ($projEnc) { $projEnc } else { $null }
-                    exception = $_ | Out-String
-                }
-                $fname = Join-Path $logsDir ("debug-default-area-iteration-" + [guid]::NewGuid().ToString() + ".json")
-                $diag | ConvertTo-Json -Depth 10 | Out-File -FilePath $fname -Encoding UTF8 -Force
-                Write-Warning "Wrote default area/iteration diagnostic file: $fname"
-            }
-            catch {
-                Write-Warning "Failed to write default area/iteration diagnostic file: $_"
-            }
+            # try {
+            #     $logsDir = Join-Path (Get-Location) 'logs'
+            #     if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
+            #     $diag = [ordered]@{
+            #         timestamp = (Get-Date).ToString('o')
+            #         message = "Failed to create default area/iteration"
+            #         project = $Project
+            #         disableAreaCreation = $disableAreaCreation
+            #         projEnc = if ($projEnc) { $projEnc } else { $null }
+            #         exception = $_ | Out-String
+            #     }
+            #     $fname = Join-Path $logsDir ("debug-default-area-iteration-" + [guid]::NewGuid().ToString() + ".json")
+            #     $diag | ConvertTo-Json -Depth 10 | Out-File -FilePath $fname -Encoding UTF8 -Force
+            #     Write-Warning "Wrote default area/iteration diagnostic file: $fname"
+            # }
+            # catch {
+            #     Write-Warning "Failed to write default area/iteration diagnostic file: $_"
+            # }
         }
     }
     else {
@@ -3228,49 +3224,49 @@ function Import-AdoWorkItemsFromExcel {
             }
             catch {
                 # Capture rich diagnostics for failed POSTs to logs/debug-workitem-failure-<guid>.json
-                try {
-                        # Additional diagnostic: log the type and summary of the operations object to help trace op_Addition errors
-                        try {
-                            if ($operations -eq $null) { Write-Warning "[Import-AdoWorkItemsFromExcel] operations is $null" } else { Write-Warning "[Import-AdoWorkItemsFromExcel] operations type: $($operations.GetType().FullName); count: $($operations.Count)" }
-                        }
-                        catch {
-                            Write-Warning "[Import-AdoWorkItemsFromExcel] Failed to introspect operations variable: $_"
-                        }
+                # try {
+                #         # Additional diagnostic: log the type and summary of the operations object to help trace op_Addition errors
+                #         try {
+                #             if ($operations -eq $null) { Write-Warning "[Import-AdoWorkItemsFromExcel] operations is $null" } else { Write-Warning "[Import-AdoWorkItemsFromExcel] operations type: $($operations.GetType().FullName); count: $($operations.Count)" }
+                #         }
+                #         catch {
+                #             Write-Warning "[Import-AdoWorkItemsFromExcel] Failed to introspect operations variable: $_"
+                #         }
 
-                        # Log exception stack trace for deeper debugging
-                        try { Write-Warning "[Import-AdoWorkItemsFromExcel] Exception stack: $($_.Exception.StackTrace)" } catch { }
-                    $logsDir = Join-Path (Get-Location) 'logs'
-                    if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
+                #         # Log exception stack trace for deeper debugging
+                #         try { Write-Warning "[Import-AdoWorkItemsFromExcel] Exception stack: $($_.Exception.StackTrace)" } catch { }
+                #     $logsDir = Join-Path (Get-Location) 'logs'
+                #     if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
 
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Work item creation failed for '$($row.Title)' (LocalId: $($row.LocalId), Type: $wit)"
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Endpoint: $endpointPath"
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Collection URL: $(if ($coreCfg) { $coreCfg.CollectionUrl } else { 'Not available' })"
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Content-Type: application/json-patch+json"
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Operations count: $($operations.Count)"
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Body preview: $(if ($workItemBody) { $workItemBody.Substring(0,[Math]::Min(500,$workItemBody.Length)) } else { 'No body' })"
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Exception: $($_.Exception.Message)"
+                #     Write-Warning "[Import-AdoWorkItemsFromExcel] Work item creation failed for '$($row.Title)' (LocalId: $($row.LocalId), Type: $wit)"
+                #     Write-Warning "[Import-AdoWorkItemsFromExcel] Endpoint: $endpointPath"
+                #     Write-Warning "[Import-AdoWorkItemsFromExcel] Collection URL: $(if ($coreCfg) { $coreCfg.CollectionUrl } else { 'Not available' })"
+                #     Write-Warning "[Import-AdoWorkItemsFromExcel] Content-Type: application/json-patch+json"
+                #     Write-Warning "[Import-AdoWorkItemsFromExcel] Operations count: $($operations.Count)"
+                #     Write-Warning "[Import-AdoWorkItemsFromExcel] Body preview: $(if ($workItemBody) { $workItemBody.Substring(0,[Math]::Min(500,$workItemBody.Length)) } else { 'No body' })"
+                #     Write-Warning "[Import-AdoWorkItemsFromExcel] Exception: $($_.Exception.Message)"
 
-                    $failure = [ordered]@{
-                        timestamp      = (Get-Date).ToString('o')
-                        project        = $Project
-                        workItemType   = $wit
-                        title          = $row.Title
-                        localId        = $row.LocalId
-                        endpoint       = $endpointPath
-                        collectionUrl  = if ($coreCfg) { $coreCfg.CollectionUrl } else { $null }
-                        contentType    = 'application/json-patch+json'
-                        operations     = $operations
-                        bodyPreview    = if ($workItemBody) { $workItemBody.Substring(0,[Math]::Min(2000,$workItemBody.Length)) } else { $null }
-                        exception      = $_ | Out-String
-                    }
+                #     $failure = [ordered]@{
+                #         timestamp      = (Get-Date).ToString('o')
+                #         project        = $Project
+                #         workItemType   = $wit
+                #         title          = $row.Title
+                #         localId        = $row.LocalId
+                #         endpoint       = $endpointPath
+                #         collectionUrl  = if ($coreCfg) { $coreCfg.CollectionUrl } else { $null }
+                #         contentType    = 'application/json-patch+json'
+                #         operations     = $operations
+                #         bodyPreview    = if ($workItemBody) { $workItemBody.Substring(0,[Math]::Min(2000,$workItemBody.Length)) } else { $null }
+                #         exception      = $_ | Out-String
+                #     }
 
-                    $fname = Join-Path $logsDir ("debug-workitem-failure-" + [guid]::NewGuid().ToString() + ".json")
-                    $failure | ConvertTo-Json -Depth 10 | Out-File -FilePath $fname -Encoding UTF8 -Force
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Wrote failure details to: $($fname)"
-                }
-                catch {
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Failed to write debug failure file: $($_)"
-                }
+                #     $fname = Join-Path $logsDir ("debug-workitem-failure-" + [guid]::NewGuid().ToString() + ".json")
+                #     $failure | ConvertTo-Json -Depth 10 | Out-File -FilePath $fname -Encoding UTF8 -Force
+                #     Write-Warning "[Import-AdoWorkItemsFromExcel] Wrote failure details to: $($fname)"
+                # }
+                # catch {
+                #     Write-Warning "[Import-AdoWorkItemsFromExcel] Failed to write debug failure file: $($_)"
+                # }
 
                 # Re-throw to be handled by outer catch which aggregates errors
                 throw
@@ -3283,31 +3279,31 @@ function Import-AdoWorkItemsFromExcel {
             $errorCount++
             Write-Warning "[Import-AdoWorkItemsFromExcel] Capturing extra diagnostics for op_Addition / PSObject errors"
             # Extra diagnostics for op_Addition / PSObject errors: write a debug JSON with context
-            try {
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Preparing op_Addition diagnostic data for failed work item creation"
-                $diag = [ordered]@{
-                    timestamp = (Get-Date).ToString('o')
-                    message = $errMsg
-                    exception = $_ | Out-String
-                    row = $row | Select-Object -Property Title, LocalId, ParentLocalId, WorkItemType
-                    operationsType = if ($null -ne $operations) { $operations.GetType().FullName } else { $null }
-                    operationsSample = if ($null -ne $operations) { ($operations | Select-Object -First 5) } else { $null }
-                }
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic timestamp: $($diag.timestamp)"
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic message: $($diag.message)"
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic row details: Title='$($diag.row.Title)', LocalId='$($diag.row.LocalId)', ParentLocalId='$($diag.row.ParentLocalId)', WorkItemType='$($diag.row.WorkItemType)'"
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic operations type: $($diag.operationsType)"
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic operations sample count: $(if ($diag.operationsSample) { $diag.operationsSample.Count } else { 0 })"
-                $logsDir = Join-Path (Get-Location) 'logs'
-                if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
-                $fname = Join-Path $logsDir ("debug-op_addition-" + [guid]::NewGuid().ToString() + ".json")
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Writing diagnostic file to: $fname"
-                $diag | ConvertTo-Json -Depth 10 | Out-File -FilePath $fname -Encoding UTF8 -Force
-                Write-Warning "[Import-AdoWorkItemsFromExcel] Successfully wrote op_Addition diagnostic file: $fname"
-            }
-            catch {
-                Write-Warning "Failed to write op_Addition diagnostic file: $_"
-            }
+            # try {
+            #     Write-Warning "[Import-AdoWorkItemsFromExcel] Preparing op_Addition diagnostic data for failed work item creation"
+            #     $diag = [ordered]@{
+            #         timestamp = (Get-Date).ToString('o')
+            #         message = $errMsg
+            #         exception = $_ | Out-String
+            #         row = $row | Select-Object -Property Title, LocalId, ParentLocalId, WorkItemType
+            #         operationsType = if ($null -ne $operations) { $operations.GetType().FullName } else { $null }
+            #         operationsSample = if ($null -ne $operations) { ($operations | Select-Object -First 5) } else { $null }
+            #     }
+            #     Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic timestamp: $($diag.timestamp)"
+            #     Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic message: $($diag.message)"
+            #     Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic row details: Title='$($diag.row.Title)', LocalId='$($diag.row.LocalId)', ParentLocalId='$($diag.row.ParentLocalId)', WorkItemType='$($diag.row.WorkItemType)'"
+            #     Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic operations type: $($diag.operationsType)"
+            #     Write-Warning "[Import-AdoWorkItemsFromExcel] Diagnostic operations sample count: $(if ($diag.operationsSample) { $diag.operationsSample.Count } else { 0 })"
+            #     $logsDir = Join-Path (Get-Location) 'logs'
+            #     if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
+            #     $fname = Join-Path $logsDir ("debug-op_addition-" + [guid]::NewGuid().ToString() + ".json")
+            #     Write-Warning "[Import-AdoWorkItemsFromExcel] Writing diagnostic file to: $fname"
+            #     $diag | ConvertTo-Json -Depth 10 | Out-File -FilePath $fname -Encoding UTF8 -Force
+            #     Write-Warning "[Import-AdoWorkItemsFromExcel] Successfully wrote op_Addition diagnostic file: $fname"
+            # }
+            # catch {
+            #     Write-Warning "Failed to write op_Addition diagnostic file: $_"
+            # }
         }
     }
     # Summary

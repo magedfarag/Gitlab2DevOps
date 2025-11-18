@@ -86,6 +86,8 @@ function Invoke-BulkPreparationWorkflow {
     $totalStartTime = Get-Date
     $successCount = 0
     $failureCount = 0
+    $totalProjects = $ProjectPaths.Count
+    $currentProject = 0
     
     # Create bulk migration folder structure (v2.1.0+)
     $bulkPaths = Get-BulkProjectPaths -AdoProject $DestProject
@@ -109,7 +111,13 @@ function Invoke-BulkPreparationWorkflow {
         ($ProjectPaths | ForEach-Object { "  - $_" })
     )
     
+    Write-Progress -Activity "Bulk Preparation" -Status "Starting bulk preparation..." -PercentComplete 0 -Id 4
+    
     foreach ($gitlabPath in $ProjectPaths) {
+        $currentProject++
+        $progressPercent = [math]::Round(($currentProject - 1) / $totalProjects * 100)
+        Write-Progress -Activity "Bulk Preparation" -Status "Preparing project $currentProject of $totalProjects`: $gitlabPath" -PercentComplete $progressPercent -Id 4
+        
         $projectStartTime = Get-Date
         Write-Host "[INFO] Processing project: $gitlabPath" -ForegroundColor Cyan
         
@@ -202,6 +210,8 @@ function Invoke-BulkPreparationWorkflow {
             Write-MigrationLog -LogFile $bulkLogFile -Message "[ERROR] $gitlabPath preparation failed: $_"
         }
     }
+    
+    Write-Progress -Activity "Bulk Preparation" -Status "Preparation completed! Generating reports..." -PercentComplete 100 -Id 4
     
     $totalEndTime = Get-Date
     $totalDuration = ($totalEndTime - $totalStartTime).TotalMinutes
@@ -344,7 +354,9 @@ function Invoke-BulkMigrationWorkflow {
         [Parameter(Mandatory)]
         [string]$AdoProject,
         
-        [switch]$Force
+        [switch]$Force,
+        
+        [switch]$AllowSync
     )
     
     # Load bulk configuration
@@ -393,14 +405,32 @@ function Invoke-BulkMigrationWorkflow {
     $migrationResults = @()
     $successCount = 0
     $failureCount = 0
+    $totalProjects = $successfulProjects.Count
+    $currentProject = 0
+
+    Write-Progress -Activity "Bulk Migration" -Status "Starting bulk migration..." -PercentComplete 0 -Id 3
     
     foreach ($project in $successfulProjects) {
+        $currentProject++
+        $progressPercent = [math]::Round(($currentProject - 1) / $totalProjects * 100)
+        Write-Progress -Activity "Bulk Migration" -Status "Migrating project $currentProject of $totalProjects`: $($project.gitlab_path)" -PercentComplete $progressPercent -Id 3
+        
         $projectStartTime = Get-Date
         Write-Host "[INFO] Migrating: $($project.gitlab_path) → $($project.ado_repo_name)" -ForegroundColor Cyan
         
         try {
             # Use single migration workflow for each project
-            Invoke-SingleMigration -SrcPath $project.gitlab_path -DestProject $AdoProject -Force
+            $singleMigrationParams = @{
+                SrcPath = $project.gitlab_path
+                DestProject = $AdoProject
+                Force = $true
+            }
+            
+            if ($AllowSync) {
+                $singleMigrationParams.AllowSync = $true
+            }
+            
+            Invoke-SingleMigration @singleMigrationParams
             
             $migrationResults += [pscustomobject]@{
                 gitlab_path = $project.gitlab_path
@@ -428,6 +458,8 @@ function Invoke-BulkMigrationWorkflow {
             Write-MigrationLog $bulkLogFile "[ERROR] $($project.gitlab_path) migration failed: $_"
         }
     }
+    
+    Write-Progress -Activity "Bulk Migration" -Status "Migration completed! Generating reports..." -PercentComplete 100 -Id 3
     
     $totalEndTime = Get-Date
     $totalDuration = ($totalEndTime - $totalStartTime).TotalMinutes

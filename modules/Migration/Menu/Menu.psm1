@@ -26,6 +26,12 @@ if (Test-Path $teamPacksModulePath) {
     Import-Module -WarningAction SilentlyContinue $teamPacksModulePath -Force -Global
 }
 
+# Import Project Initialization module for Initialize-AdoProject function
+$projectInitModulePath = Join-Path $migrationRoot "Initialization\ProjectInitialization.psm1"
+if (Test-Path $projectInitModulePath) {
+    Import-Module -WarningAction SilentlyContinue $projectInitModulePath -Force -Global
+}
+
 # Module-level variables for menu context
 $script:CollectionUrl = $null
 $script:AdoPat = $null
@@ -111,17 +117,20 @@ function Show-MigrationMenu {
     Write-Host "  7) Add Team Packs           " -ForegroundColor White -NoNewline
     Write-Host "│ Enhance existing project with team resources" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  8) Unattended: Prepare from projects.json" -ForegroundColor White -NoNewline
+    Write-Host "  8) Import Requirements       " -ForegroundColor White -NoNewline
+    Write-Host "│ Import work items from requirements.xlsx" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  9) Unattended: Prepare from projects.json" -ForegroundColor White -NoNewline
     Write-Host "│ Prepare all migrations" -ForegroundColor Gray
-    Write-Host "  9) Unattended: Import from projects.json " -ForegroundColor White -NoNewline
+    Write-Host "  10) Unattended: Import from projects.json " -ForegroundColor White -NoNewline
     Write-Host "│ end-to-end prepare/initialize/migrate"
     Write-Host ""
-    Write-Host "  10) Exit" -ForegroundColor Yellow
+    Write-Host "  11) Exit" -ForegroundColor Yellow
     Write-Host ""
     Write-Host ""
     
-    $choice = Read-Host "Select option (1-10)"
-    if ($choice -eq '8') {
+    $choice = Read-Host "Select option (1-11)"
+    if ($choice -eq '9') {
         Write-Host ""
         Write-Host "=== BULK PREPARATION FROM CONFIG FILE ===" -ForegroundColor Cyan
         Write-Host "This will read projects.json and prepare all migrations in bulk."
@@ -178,10 +187,15 @@ function Show-MigrationMenu {
             Write-Host "  Project: $gitlabProjectName/"
             Write-Host ""
             
+            # Show progress bar for preparation steps
+            Write-Progress -Activity "Single Project Preparation" -Status "Initializing preparation..." -PercentComplete 0 -Id 1
+            
             # Prepare using custom base directory
+            Write-Progress -Activity "Single Project Preparation" -Status "Downloading GitLab repository..." -PercentComplete 25 -Id 1
             Initialize-GitLab -ProjectPath $SourceProjectPath -CustomBaseDir $paths.projectDir -CustomProjectName $gitlabProjectName
             
             # Create migration config
+            Write-Progress -Activity "Single Project Preparation" -Status "Creating migration configuration..." -PercentComplete 50 -Id 1
             $config = [pscustomobject]@{
                 ado_project      = $DestProjectName
                 gitlab_project   = $SourceProjectPath
@@ -196,6 +210,7 @@ function Show-MigrationMenu {
             Write-Host "[INFO] Migration config created: $($paths.configFile)" -ForegroundColor Green
             
             # Extract documentation files
+            Write-Progress -Activity "Single Project Preparation" -Status "Extracting documentation files..." -PercentComplete 75 -Id 1
             Write-Host ""
             Write-Host "[INFO] Extracting documentation files..." -ForegroundColor Cyan
             try {
@@ -213,6 +228,7 @@ function Show-MigrationMenu {
             }
             
             # Generate HTML report after preparation
+            Write-Progress -Activity "Single Project Preparation" -Status "Generating reports..." -PercentComplete 90 -Id 1
             try {
                 $htmlReport = New-MigrationHtmlReport -ProjectPath (Split-Path $paths.configFile -Parent)
                 if ($htmlReport) {
@@ -230,6 +246,7 @@ function Show-MigrationMenu {
             }
 
             # Generate and cache the Azure DevOps pre-migration report during preparation
+            Write-Progress -Activity "Single Project Preparation" -Status "Caching pre-migration report..." -PercentComplete 95 -Id 1
             try {
                 $preReportPath = Join-Path $paths.gitlabDir "reports\pre-migration-report.json"
                 New-MigrationPreReport -GitLabPath $SourceProjectPath -AdoProject $DestProjectName -AdoRepoName $gitlabProjectName -OutputPath $preReportPath | Out-Null
@@ -240,6 +257,7 @@ function Show-MigrationMenu {
             }
 
             # Provision team resources once during preparation instead of after every migration run
+            Write-Progress -Activity "Single Project Preparation" -Status "Provisioning team resources..." -PercentComplete 100 -Id 1
             if (Get-Command -Name Invoke-AllTeamPacks -ErrorAction SilentlyContinue) {
                 try {
                     Write-Host "[INFO] Provisioning project resources (wikis, queries, dashboards) for '$DestProjectName'..." -ForegroundColor Cyan
@@ -252,6 +270,8 @@ function Show-MigrationMenu {
             else {
                 Write-Verbose "[Menu] Invoke-AllTeamPacks not available in this session; team resources were not provisioned during preparation."
             }
+            
+            Write-Progress -Activity "Single Project Preparation" -Status "Preparation completed successfully!" -PercentComplete 100 -Id 1
         }
         '2' {
             Invoke-BulkPreparationWorkflow
@@ -483,91 +503,161 @@ function Show-MigrationMenu {
             }
         }
         '4' {
-            # Combined migration workflow - handles both single and bulk
+            # Start Planned Migration - list prepared projects for selection
             Write-Host ""
             Write-Host "=== START PLANNED MIGRATION ===" -ForegroundColor Cyan
-            Write-Host ""
-            Write-Host "Select migration type:" -ForegroundColor Cyan
-            Write-Host "  1) Single Project Migration" -ForegroundColor White
-            Write-Host "  2) Bulk Migration" -ForegroundColor White
+            Write-Host "Select a prepared project to migrate to Azure DevOps."
             Write-Host ""
             
-            $migrationChoice = Read-Host "Select option (1-2)"
+            $preparedProjects = Get-PreparedProjects
             
-            switch ($migrationChoice) {
-                '1' {
-                    # Single project migration
-                    $SourceProjectPath = Read-Host "Enter Source GitLab project path (e.g., group/my-project)"
-                    $DestProjectName = Read-Host "Enter Destination Azure DevOps project name (e.g., MyProject)"
+            if ($preparedProjects.Count -eq 0) {
+                Write-Host "No prepared projects found. Please run Option 1 or 2 first to prepare projects." -ForegroundColor Yellow
+                Write-Host ""
+                return
+            }
+            
+            Write-Host "[INFO] Projects marked [v2.1.0] use self-contained folder structures (recommended)" -ForegroundColor Cyan
+            Write-Host "[INFO] Projects marked [legacy] use flat folder structures (consider re-preparing)" -ForegroundColor DarkYellow
+            Write-Host ""
+            
+            # Display single preparations
+            $singleProjects = @($preparedProjects | Where-Object { $_.Type -eq "Single" })
+            if ($singleProjects.Count -gt 0) {
+                Write-Host "Single Project Preparations:" -ForegroundColor Green
+                for ($i = 0; $i -lt $singleProjects.Count; $i++) {
+                    $proj = $singleProjects[$i]
+                    $structureIndicator = if ($proj.Structure -eq "v2.1.0") { "[v2.1.0]" } else { "[legacy]" }
+                    $structureColor = if ($proj.Structure -eq "v2.1.0") { "Green" } else { "Yellow" }
                     
-                    if ([string]::IsNullOrWhiteSpace($SourceProjectPath) -or [string]::IsNullOrWhiteSpace($DestProjectName)) {
-                        Write-Host "[ERROR] Project path and name cannot be empty." -ForegroundColor Red
-                        return
+                    Write-Host "  $($i + 1)) $($proj.ProjectName) (from $($proj.GitLabPath)) " -ForegroundColor White -NoNewline
+                    Write-Host $structureIndicator -ForegroundColor $structureColor
+                    Write-Host "      Size: $($proj.RepoSizeMB) MB | Prepared: $($proj.PreparationTime)" -ForegroundColor Gray
+                    
+                    # Show migration status
+                    if ($proj.RepoMigrated) {
+                        Write-Host "      Status: Already migrated" -ForegroundColor Green
+                    } else {
+                        Write-Host "      Status: Ready to migrate" -ForegroundColor Cyan
                     }
+                }
+                
+                # Show helpful migration guidance if any legacy structures detected
+                $legacyCount = @($singleProjects | Where-Object { $_.Structure -eq "legacy" }).Count
+                if ($legacyCount -gt 0) {
+                    Write-Host ""
+                    Write-Host "  [NOTE] Legacy structures detected. Consider re-preparing with Option 1 for v2.1.0 self-contained folders." -ForegroundColor Yellow
+                }
+                Write-Host ""
+            }
+            
+            # Display bulk preparations
+            $bulkProjects = @($preparedProjects | Where-Object { $_.Type -eq "Bulk" })
+            $bulkStartIndex = $singleProjects.Count
+            if ($bulkProjects.Count -gt 0) {
+                Write-Host "Bulk Preparations:" -ForegroundColor Green
+                for ($i = 0; $i -lt $bulkProjects.Count; $i++) {
+                    $proj = $bulkProjects[$i]
+                    Write-Host "  $($bulkStartIndex + $i + 1)) $($proj.ProjectName) (bulk: $($proj.SuccessfulCount)/$($proj.ProjectCount) projects)" -ForegroundColor White
+                    Write-Host "      Total size: $($proj.TotalSizeMB) MB | Prepared: $($proj.PreparationTime)" -ForegroundColor Gray
                     
-                    # Check if project and repository already exist
-                    $projectExists = Test-AdoProjectExists -ProjectName $DestProjectName
-                    $repoExists = $false
-                    $repoName = ($SourceProjectPath -split '/')[-1]
-                    
-                    if ($projectExists) {
-                        Write-Host "[INFO] Project '$DestProjectName' exists in Azure DevOps" -ForegroundColor Cyan
-                        $repos = Get-AdoProjectRepositories -ProjectName $DestProjectName
-                        $repoExists = $null -ne ($repos | Where-Object { $_.name -eq $repoName })
+                    # Show migration status
+                    if ($proj.MigratedCount -ge $proj.ProjectCount) {
+                        Write-Host "      Status: All projects migrated" -ForegroundColor Green
+                    } elseif ($proj.MigratedCount -gt 0) {
+                        Write-Host "      Status: Partially migrated ($($proj.MigratedCount)/$($proj.ProjectCount))" -ForegroundColor Yellow
+                    } else {
+                        Write-Host "      Status: Ready to migrate" -ForegroundColor Cyan
+                    }
+                }
+                Write-Host ""
+            }
+            
+            $selection = Read-Host "Select a project to migrate (1-$($preparedProjects.Count))"
+            $selectionNum = 0
+            
+            if ([int]::TryParse($selection, [ref]$selectionNum) -and $selectionNum -ge 1 -and $selectionNum -le $preparedProjects.Count) {
+                $selectedProject = $preparedProjects[$selectionNum - 1]
+                
+                if ($selectedProject.Type -eq "Single") {
+                    # Check if already migrated
+                    if ($selectedProject.RepoMigrated) {
+                        Write-Host ""
+                        Write-Host "[INFO] Project '$($selectedProject.ProjectName)' appears to be already migrated." -ForegroundColor Yellow
+                        Write-Host ""
+                        Write-Host "Options:" -ForegroundColor Cyan
+                        Write-Host "  1) SYNC - Pull latest from GitLab and push to Azure DevOps (recommended)" -ForegroundColor Green
+                        Write-Host "  2) SKIP - Do nothing" -ForegroundColor Yellow
+                        Write-Host "  3) FORCE - Replace existing repository (destructive)" -ForegroundColor Red
+                        Write-Host ""
+                        $syncChoice = Read-Host "Select option (1-3)"
                         
-                        if ($repoExists) {
-                            Write-Host "[INFO] Repository '$repoName' already migrated in project '$DestProjectName'" -ForegroundColor Yellow
-                            Write-Host ""
-                            Write-Host "Options:" -ForegroundColor Cyan
-                            Write-Host "  1) SYNC - Pull latest from GitLab and push to Azure DevOps (recommended)" -ForegroundColor Green
-                            Write-Host "  2) SKIP - Do nothing" -ForegroundColor Yellow
-                            Write-Host "  3) FORCE - Replace existing repository (destructive)" -ForegroundColor Red
-                            Write-Host ""
-                            $syncChoice = Read-Host "Select option (1-3)"
-                            
-                            switch ($syncChoice) {
-                                '1' {
-                                    Write-Host "[INFO] Starting SYNC operation..." -ForegroundColor Green
-                                    Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName -AllowSync
+                        switch ($syncChoice) {
+                            '1' {
+                                Write-Host "[INFO] Starting SYNC operation..." -ForegroundColor Green
+                                Invoke-SingleMigration -SrcPath $selectedProject.GitLabPath -DestProject $selectedProject.ProjectName -AllowSync
+                            }
+                            '2' {
+                                Write-Host "[INFO] Skipping migration" -ForegroundColor Yellow
+                            }
+                            '3' {
+                                Write-Host "[WARN] This will REPLACE the existing repository!" -ForegroundColor Red
+                                $confirm = Read-Host "Are you sure? Type 'REPLACE' to confirm"
+                                if ($confirm -eq 'REPLACE') {
+                                    Write-Host "[INFO] Starting FORCE migration..." -ForegroundColor Red
+                                    Invoke-SingleMigration -SrcPath $selectedProject.GitLabPath -DestProject $selectedProject.ProjectName -Replace -Force
                                 }
-                                '2' {
-                                    Write-Host "[INFO] Skipping migration" -ForegroundColor Yellow
-                                }
-                                '3' {
-                                    Write-Host "[WARN] This will REPLACE the existing repository!" -ForegroundColor Red
-                                    $confirm = Read-Host "Are you sure? Type 'REPLACE' to confirm"
-                                    if ($confirm -eq 'REPLACE') {
-                                        Write-Host "[INFO] Starting FORCE migration..." -ForegroundColor Red
-                                        Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName -Replace -Force
-                                    }
-                                    else {
-                                        Write-Host "[INFO] Cancelling operation" -ForegroundColor Yellow
-                                    }
-                                }
-                                default {
-                                    Write-Host "[ERROR] Invalid selection" -ForegroundColor Red
+                                else {
+                                    Write-Host "[INFO] Cancelling operation" -ForegroundColor Yellow
                                 }
                             }
-                        }
-                        else {
-                            # Project exists but repo doesn't - normal migration
-                            Write-Host "[INFO] Repository '$repoName' not found in project - starting migration" -ForegroundColor Cyan
-                            Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName
+                            default {
+                                Write-Host "[ERROR] Invalid selection" -ForegroundColor Red
+                            }
                         }
                     }
                     else {
-                        # Project doesn't exist - normal migration
-                        Write-Host "[INFO] Project '$DestProjectName' not found - will create new project" -ForegroundColor Cyan
-                        Invoke-SingleMigration -SrcPath $SourceProjectPath -DestProject $DestProjectName
+                        # Normal migration
+                        Write-Host ""
+                        Write-Host "[INFO] Starting migration: $($selectedProject.GitLabPath) → $($selectedProject.ProjectName)" -ForegroundColor Cyan
+                        Invoke-SingleMigration -SrcPath $selectedProject.GitLabPath -DestProject $selectedProject.ProjectName
                     }
                 }
-                '2' {
-                    # Bulk migration
-                    Invoke-BulkMigrationWorkflow
+                elseif ($selectedProject.Type -eq "Bulk") {
+                    # Check if already fully migrated
+                    if ($selectedProject.MigratedCount -ge $selectedProject.ProjectCount) {
+                        Write-Host ""
+                        Write-Host "[INFO] All projects in bulk migration '$($selectedProject.ProjectName)' appear to be already migrated." -ForegroundColor Yellow
+                        Write-Host ""
+                        Write-Host "Options:" -ForegroundColor Cyan
+                        Write-Host "  1) SYNC - Update all repositories with latest from GitLab" -ForegroundColor Green
+                        Write-Host "  2) SKIP - Do nothing" -ForegroundColor Yellow
+                        Write-Host ""
+                        $syncChoice = Read-Host "Select option (1-2)"
+                        
+                        switch ($syncChoice) {
+                            '1' {
+                                Write-Host "[INFO] Starting SYNC operation for all repositories..." -ForegroundColor Green
+                                Invoke-BulkMigrationWorkflow -AdoProject $selectedProject.ProjectName -Force -AllowSync
+                            }
+                            '2' {
+                                Write-Host "[INFO] Skipping migration" -ForegroundColor Yellow
+                            }
+                            default {
+                                Write-Host "[ERROR] Invalid selection" -ForegroundColor Red
+                            }
+                        }
+                    }
+                    else {
+                        # Normal bulk migration
+                        Write-Host ""
+                        Write-Host "[INFO] Starting bulk migration for: $($selectedProject.ProjectName)" -ForegroundColor Cyan
+                        Invoke-BulkMigrationWorkflow -AdoProject $selectedProject.ProjectName
+                    }
                 }
-                default {
-                    Write-Host "[ERROR] Invalid selection" -ForegroundColor Red
-                }
+            }
+            else {
+                Write-Host "[ERROR] Invalid selection." -ForegroundColor Red
             }
         }
         '5' {
@@ -600,7 +690,7 @@ function Show-MigrationMenu {
                 '1' { 'Minimal' }
                 '2' { 'Standard' }
                 '3' { 'Complete' }
-                default { 'Standard' }
+                default { 'Complete' }
             }
             
             Write-Host "[INFO] Starting export with profile: $profile" -ForegroundColor Green
@@ -609,19 +699,31 @@ function Show-MigrationMenu {
                 # Call the export script - navigate from module location to project root
                 # From modules/Migration/Menu/ go up 3 levels to get to project root
                 $projectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
-                $exportScript = Join-Path $projectRoot "examples\export-gitlab-identity.ps1"
+                $exportScript = Join-Path $projectRoot "Export-GitLabIdentity.ps1"
                 
                 if (-not (Test-Path $exportScript)) {
                     throw "Export script not found at: $exportScript"
                 }
                 
-                & $exportScript -GitLabBaseUrl $script:GitLabBaseUrl -GitLabToken $script:GitLabToken -OutDirectory $exportDir -Profile $profile
+                # Import GitLab module for the export script
+                $gitLabModule = Join-Path $projectRoot "modules\GitLab\GitLab.psm1"
+                if (Test-Path $gitLabModule) {
+                    Import-Module $gitLabModule -Force -WarningAction SilentlyContinue
+                }
+                
+                # Show progress bar for export
+                Write-Progress -Activity "Export User Information" -Status "Starting GitLab identity export..." -PercentComplete 0 -Id 3
+                
+                & $exportScript -OutDirectory $exportDir -Profile $profile
+                
+                Write-Progress -Activity "Export User Information" -Status "Export completed successfully!" -PercentComplete 100 -Id 3 -Completed
                 
                 Write-Host ""
                 Write-Host "[SUCCESS] Export completed! Files saved to: $exportDir" -ForegroundColor Green
                 Write-Host "[INFO] You can now use Option 6 to import this data into Azure DevOps" -ForegroundColor Cyan
             }
             catch {
+                Write-Progress -Activity "Export User Information" -Status "Export failed!" -Id 3 -Completed
                 Write-Host "[ERROR] Export failed: $($_.Exception.Message)" -ForegroundColor Red
             }
         }
@@ -655,6 +757,14 @@ function Show-MigrationMenu {
             
             Write-Host "[INFO] Found export files in: $importDir" -ForegroundColor Green
             Write-Host ""
+            
+            $adoProjectName = Read-Host "Enter Azure DevOps project name to import into"
+            if ([string]::IsNullOrWhiteSpace($adoProjectName)) {
+                Write-Host "[ERROR] Azure DevOps project name cannot be empty." -ForegroundColor Red
+                return
+            }
+            
+            Write-Host ""
             Write-Host "Import Options:" -ForegroundColor Cyan
             Write-Host "  1) Dry Run    - Preview what would be imported (recommended first)" -ForegroundColor Yellow
             Write-Host "  2) Execute    - Perform actual import to Azure DevOps" -ForegroundColor White
@@ -675,12 +785,27 @@ function Show-MigrationMenu {
                     throw "Import script not found at: $importScript"
                 }
                 
+                # Import required modules for the import script
+                $gitLabModule = Join-Path $projectRoot "modules\GitLab\GitLab.psm1"
+                $adoModule = Join-Path $projectRoot "modules\AzureDevOps\AzureDevOps.psm1"
+                if (Test-Path $gitLabModule) {
+                    Import-Module $gitLabModule -Force -WarningAction SilentlyContinue
+                }
+                if (Test-Path $adoModule) {
+                    Import-Module $adoModule -Force -WarningAction SilentlyContinue
+                }
+                
+                # Show progress bar for import
+                Write-Progress -Activity "Import User Information" -Status "Starting GitLab identity import..." -PercentComplete 0 -Id 4
+                
                 if ($dryRun) {
-                    & $importScript -AdoPat $script:AdoPat -ExportFolder $importDir -WhatIf
+                    & $importScript -ExportFolder $importDir -AdoProjectName $adoProjectName -WhatIf
                 }
                 else {
-                    & $importScript -AdoPat $script:AdoPat -ExportFolder $importDir
+                    & $importScript -ExportFolder $importDir -AdoProjectName $adoProjectName
                 }
+                
+                Write-Progress -Activity "Import User Information" -Status "Import completed successfully!" -PercentComplete 100 -Id 4 -Completed
                 
                 Write-Host ""
                 Write-Host "[SUCCESS] Import completed!" -ForegroundColor Green
@@ -689,6 +814,7 @@ function Show-MigrationMenu {
                 }
             }
             catch {
+                Write-Progress -Activity "Import User Information" -Status "Import failed!" -Id 4 -Completed
                 Write-Host "[ERROR] Import failed: $($_.Exception.Message)" -ForegroundColor Red
             }
         }
@@ -772,7 +898,90 @@ function Show-MigrationMenu {
                 Write-Host "[TIP] Verify your Azure DevOps connection and try again." -ForegroundColor Yellow
             }
         }
-        '9' {
+        '8' {
+            # Import Requirements from Excel
+            Write-Host ""
+            Write-Host "=== IMPORT REQUIREMENTS FROM EXCEL ===" -ForegroundColor Cyan
+            Write-Host "Import work items from requirements.xlsx files in prepared project folders."
+            Write-Host ""
+            
+            try {
+                # Get migrations directory
+                $migrationsDir = Get-MigrationsDirectory
+                if (-not $migrationsDir -or -not (Test-Path $migrationsDir)) {
+                    Write-Host "[ERROR] Migrations directory not found." -ForegroundColor Red
+                    return
+                }
+                
+                # Find projects with requirements.xlsx
+                $projectsWithRequirements = @()
+                $projectFolders = Get-ChildItem -Path $migrationsDir -Directory
+                
+                foreach ($folder in $projectFolders) {
+                    $requirementsPath = Join-Path $folder.FullName "requirements.xlsx"
+                    if (Test-Path $requirementsPath) {
+                        $projectsWithRequirements += [PSCustomObject]@{
+                            Name = $folder.Name
+                            RequirementsPath = $requirementsPath
+                        }
+                    }
+                }
+                
+                if ($projectsWithRequirements.Count -eq 0) {
+                    Write-Host "[INFO] No projects with requirements.xlsx found in migrations folder." -ForegroundColor Yellow
+                    Write-Host "[TIP] Prepare projects first and ensure requirements.xlsx exists in the project folder." -ForegroundColor Gray
+                    return
+                }
+                
+                Write-Host "[INFO] Found $($projectsWithRequirements.Count) project(s) with requirements.xlsx:" -ForegroundColor Green
+                Write-Host ""
+                
+                # Display projects
+                for ($i = 0; $i -lt $projectsWithRequirements.Count; $i++) {
+                    $proj = $projectsWithRequirements[$i]
+                    Write-Host "  $($i + 1)) $($proj.Name)" -ForegroundColor White
+                    Write-Host "      File: $($proj.RequirementsPath)" -ForegroundColor Gray
+                }
+                
+                Write-Host ""
+                $selection = Read-Host "Select project number (1-$($projectsWithRequirements.Count))"
+                
+                $selectionNum = 0
+                if ([int]::TryParse($selection, [ref]$selectionNum) -and $selectionNum -ge 1 -and $selectionNum -le $projectsWithRequirements.Count) {
+                    $selectedProject = $projectsWithRequirements[$selectionNum - 1]
+                    
+                    Write-Host ""
+                    Write-Host "[INFO] Importing requirements for project '$($selectedProject.Name)'..." -ForegroundColor Cyan
+                    
+                    # Show progress bar for Excel import
+                    Write-Progress -Activity "Import Requirements" -Status "Starting Excel import..." -PercentComplete 0 -Id 5
+                    
+                    # Call the Excel import function
+                    Write-Progress -Activity "Import Requirements" -Status "Reading Excel file and validating data..." -PercentComplete 25 -Id 5
+                    $result = Invoke-ExcelRequirementsImport -ProjectName $selectedProject.Name
+                    
+                    Write-Progress -Activity "Import Requirements" -Status "Creating work items in Azure DevOps..." -PercentComplete 75 -Id 5
+                    
+                    if ($result) {
+                        Write-Host ""
+                        Write-Host "[SUCCESS] Requirements import completed for '$($selectedProject.Name)'!" -ForegroundColor Green
+                    }
+                    else {
+                        Write-Host ""
+                        Write-Host "[WARN] Requirements import did not complete successfully." -ForegroundColor Yellow
+                    }
+                    
+                    Write-Progress -Activity "Import Requirements" -Status "Import completed!" -PercentComplete 100 -Id 5
+                }
+                else {
+                    Write-Host "[ERROR] Invalid selection." -ForegroundColor Red
+                }
+            }
+            catch {
+                Write-Host "[ERROR] Failed to import requirements: $_" -ForegroundColor Red
+            }
+        }
+        '10' {
             Write-Host ""
             Write-Host "=== MIGRATE ALL PREPARED PROJECTS ===" -ForegroundColor Cyan
             Write-Host "This will migrate all projects that have already been prepared (no preparations will be performed)." -ForegroundColor Gray
@@ -802,9 +1011,36 @@ function Show-MigrationMenu {
             $successCount = 0
                 $failureCount = 0
                 $excelImportTracker = @{}
+                
+                # Initialize progress bar for unattended migration
+                Write-Progress -Activity "Unattended Migration" -Status "Starting unattended migration of $total projects..." -PercentComplete 0 -Id 6
+                $processedCount = 0
 
                 foreach ($item in $prepared) {
+                    $processedCount++
+                    $progressPercent = [math]::Round(($processedCount - 1) / $total * 100)
+                    Write-Progress -Activity "Unattended Migration" -Status "Processing project $processedCount of $total`: $($item.ProjectName)" -PercentComplete $progressPercent -Id 6
+                    
                     try {
+                        # Check if Azure DevOps project exists and initialize if needed
+                        $projectExists = Test-AdoProjectExists -ProjectName $item.ProjectName
+                        if (-not $projectExists) {
+                            Write-Host "[INFO] Azure DevOps project '$($item.ProjectName)' does not exist. Initializing project with work item templates..." -ForegroundColor Cyan
+                            try {
+                                # Initialize the project with work item templates and basic setup
+                                Initialize-AdoProject -DestProject $item.ProjectName -BulkInit
+                                Write-Host "[SUCCESS] Project '$($item.ProjectName)' initialized with work item templates" -ForegroundColor Green
+                            }
+                            catch {
+                                Write-Host "[ERROR] Failed to initialize project '$($item.ProjectName)': $($_.Exception.Message)" -ForegroundColor Red
+                                $failureCount++
+                                continue
+                            }
+                        }
+                        else {
+                            Write-Host "[INFO] Azure DevOps project '$($item.ProjectName)' already exists" -ForegroundColor Gray
+                        }
+
                         if ($item.Type -eq 'Single') {
                             # Skip already migrated repos
                             if ($item.RepoMigrated) {
@@ -854,6 +1090,8 @@ function Show-MigrationMenu {
                         continue
                     }
                 }
+                
+                Write-Progress -Activity "Unattended Migration" -Status "Migration completed! Generating final reports..." -PercentComplete 100 -Id 6
 
                 Write-Host ""
                 Write-Host "[INFO] Migration run completed. Summary:" -ForegroundColor Cyan
@@ -869,7 +1107,7 @@ function Show-MigrationMenu {
             return
         }
 
-        '10' {
+        '11' {
             Write-Host ""
             Write-Host "Thank you for using GitLab → Azure DevOps Migration Tool" -ForegroundColor Cyan
             Write-Host "Goodbye! 👋" -ForegroundColor Green
@@ -878,7 +1116,7 @@ function Show-MigrationMenu {
         }
         default {
             Write-Host ""
-            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 10." -ForegroundColor Red
+            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 11." -ForegroundColor Red
             Write-Host ""
         }
     }

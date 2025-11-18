@@ -65,21 +65,39 @@ if (-not (Test-Path $ConfigFile)) {
 
 $config = Get-Content $ConfigFile | ConvertFrom-Json
 
+# Calculate totals for progress tracking
+$totalEntries = $config.Count
+$totalProjects = ($config | ForEach-Object { $_.projects.Count } | Measure-Object -Sum).Sum
+$currentEntryIndex = 0
+$currentProjectIndex = 0
+
+Write-Progress -Activity "Bulk Migration Preparation" -Status "Starting preparation of $totalEntries entries with $totalProjects total projects..." -PercentComplete 0 -Id 1
+
 foreach ($entry in $config) {
+    $currentEntryIndex++
     $adoProject = $entry.adoproject
     $projectPaths = $entry.projects
     if (-not $adoProject -or -not $projectPaths) {
         Write-Host "[WARN] Skipping entry with missing adoproject or projects." -ForegroundColor Yellow
         continue
     }
+    
+    $entryProgress = [math]::Round((($currentEntryIndex - 1) / $totalEntries) * 100)
+    Write-Progress -Activity "Bulk Migration Preparation" -Status "Processing Azure DevOps project: $adoProject ($currentEntryIndex of $totalEntries)" -PercentComplete $entryProgress -Id 1
+    
     Write-Host "[INFO] Preparing migrations for Azure DevOps project: $adoProject" -ForegroundColor Cyan
+    
     try {
         if ($DryRun.IsPresent) {
             # Simulate bulk preparation: create directories and write minimal preflight reports
             Write-Host "[DRYRUN] Simulating bulk preparation for '$adoProject'..." -ForegroundColor Cyan
-            $bulkPaths = Get-BulkProjectPaths -AdoProject $adoProject
-            $projectsOut = @()
+            
+            $projectsOut = @()  # Initialize as empty array
+            $projectIndex = 0
             foreach ($pp in $projectPaths) {
+                $projectIndex++
+                $currentProjectIndex++
+                
                 $projName = ($pp -split '/')[-1]
                 $gitPaths = Get-BulkProjectPaths -AdoProject $adoProject -GitLabProject $projName
                 $preflight = [pscustomobject]@{
@@ -124,6 +142,9 @@ foreach ($entry in $config) {
                     preparation_status = 'SUCCESS'
                 }
             }
+
+            # Get bulk paths for the project (use first project as reference)
+            $bulkPaths = Get-BulkProjectPaths -AdoProject $adoProject -GitLabProject (($projectPaths[0] -split '/')[-1])
 
             $configOut = [pscustomobject]@{
                 description = "Bulk migration configuration for '$adoProject' - DRYRUN"
@@ -174,7 +195,11 @@ foreach ($entry in $config) {
                 Invoke-BulkPrepareGitLab -ProjectPaths $projectPaths -DestProjectName $adoProject
             }
 
+            $projectIndex = 0
             foreach ($pp in $projectPaths) {
+                $projectIndex++
+                $currentProjectIndex++
+                
                 $repoName = ($pp -split '/')[-1]
                 try {
                     $pathsForReport = Get-BulkProjectPaths -AdoProject $adoProject -GitLabProject $repoName
@@ -224,5 +249,9 @@ foreach ($entry in $config) {
         # Use subexpression to avoid PowerShell confusing "$adoProject:" as a variable namespace
         Write-Host "[ERROR] Bulk preparation failed for ${adoProject}: $($_)" -ForegroundColor Red
     }
+    
+    # Update overall progress after processing each entry
+    $overallProgress = [math]::Round(($currentEntryIndex / $totalEntries) * 100)
+    Write-Progress -Activity "Bulk Migration Preparation" -Status "Completed entry $currentEntryIndex of $totalEntries ($adoProject)" -PercentComplete $overallProgress -Id 1
 }
 Write-Host "[SUCCESS] All configured migrations prepared." -ForegroundColor Green

@@ -1262,7 +1262,8 @@ Export-ModuleMember -Function @(
     'Initialize-GitLab',
     'Invoke-BulkPrepareGitLab',
     'Export-GitLabDocumentation',
-    'Extract-DocumentationFromRepo'
+    'Extract-DocumentationFromRepo',
+    'Invoke-GitLabRest'
 )
 
 #

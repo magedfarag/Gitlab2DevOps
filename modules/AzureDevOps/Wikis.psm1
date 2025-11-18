@@ -172,41 +172,42 @@ function Set-AdoWikiPage {
                 continue
             }
             if ($status -eq 500 -or $errorMsg -match '500|Internal Server Error') {
-                Write-Host "[Wikis] Server returned 500 for $Path — saving server response to logs and skipping page creation (info)" -ForegroundColor Cyan
-                try {
-                    $rawBody = $null
-                    $actualEx = $null
-                    if ($_.Exception -and ($_.Exception -is [System.Management.Automation.ErrorRecord])) { $actualEx = $_.Exception.Exception } else { $actualEx = $_.Exception }
-                    if ($actualEx -and (Get-Member -InputObject $actualEx -Name 'Response' -MemberType Properties -ErrorAction SilentlyContinue)) {
-                        if ($actualEx.Response) {
-                            try {
-                                $reader = New-Object System.IO.StreamReader($actualEx.Response.GetResponseStream())
-                                $rawBody = $reader.ReadToEnd()
-                            }
-                            catch {
-                                $rawBody = "<failed to read response stream: $_>"
-                            }
-                        }
-                    }
-                    $logsDir = Join-Path $PSScriptRoot "..\logs"
-                    if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
-                    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-                    $safePath = ($Path -replace '[^a-zA-Z0-9\-\._]', '-')
-                    $logFile = Join-Path $logsDir ("wiki-500-" + $([uri]::EscapeDataString($Project)) + "-" + $safePath + "-" + $timestamp + ".log")
-                    $payload = [ordered]@{
-                        timestamp = (Get-Date).ToString('o')
-                        project   = $Project
-                        wikiPath  = $Path
-                        status    = $status
-                        message   = $normalizedError.message
-                        rawBody   = if ($rawBody) { $rawBody } else { '<no body captured>' }
-                    }
-                    $payload | ConvertTo-Json -Depth 5 | Out-File -FilePath $logFile -Encoding UTF8 -Force
-                    Write-Host "[Wikis] Saved server 500 response to: $logFile" -ForegroundColor Cyan
-                }
-                catch {
-                    Write-Verbose "[Wikis] Failed to write 500 diagnostic log: $_"
-                }
+                Write-Host "[Wikis] Server returned 500 for $Path — skipping page creation (info)" -ForegroundColor Cyan
+                # Debug file saving disabled
+                # try {
+                #     $rawBody = $null
+                #     $actualEx = $null
+                #     if ($_.Exception -and ($_.Exception -is [System.Management.Automation.ErrorRecord])) { $actualEx = $_.Exception.Exception } else { $actualEx = $_.Exception }
+                #     if ($actualEx -and (Get-Member -InputObject $actualEx -Name 'Response' -MemberType Properties -ErrorAction SilentlyContinue)) {
+                #         if ($actualEx.Response) {
+                #             try {
+                #                 $reader = New-Object System.IO.StreamReader($actualEx.Response.GetResponseStream())
+                #                 $rawBody = $reader.ReadToEnd()
+                #             }
+                #             catch {
+                #                 $rawBody = "<failed to read response stream: $_>"
+                #             }
+                #         }
+                #     }
+                #     $logsDir = Join-Path $PSScriptRoot "..\logs"
+                #     if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
+                #     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+                #     $safePath = ($Path -replace '[^a-zA-Z0-9\-\._]', '-')
+                #     $logFile = Join-Path $logsDir ("wiki-500-" + $([uri]::EscapeDataString($Project)) + "-" + $safePath + "-" + $timestamp + ".log")
+                #     $payload = [ordered]@{
+                #         timestamp = (Get-Date).ToString('o')
+                #         project   = $Project
+                #         wikiPath  = $Path
+                #         status    = $status
+                #         message   = $normalizedError.message
+                #         rawBody   = if ($rawBody) { $rawBody } else { '<no body captured>' }
+                #     }
+                #     $payload | ConvertTo-Json -Depth 5 | Out-File -FilePath $logFile -Encoding UTF8 -Force
+                #     Write-Host "[Wikis] Saved server 500 response to: $logFile" -ForegroundColor Cyan
+                # }
+                # catch {
+                #     Write-Verbose "[Wikis] Failed to write 500 diagnostic log: $_"
+                # }
                 return
             }
             if ($errorMsg -match 'WikiPageAlreadyExistsException|already exists|409') {
