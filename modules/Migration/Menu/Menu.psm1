@@ -137,17 +137,17 @@ function Show-MigrationMenu {
         Write-Host ""
         # From modules/Migration/Menu/ go up 3 levels to get to project root
         $projectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
-        $prepScript = Join-Path $projectRoot "Prepare-MigrationsFromConfig.ps1"
+        $prepScript = Join-Path $projectRoot "/modules/Migration/Prepare-MigrationsFromConfig.ps1"
         if (-not (Test-Path $prepScript)) {
             Write-Host "[ERROR] Prepare-MigrationsFromConfig.ps1 not found at: $prepScript" -ForegroundColor Red
             return
         }
         try {
             # Run unattended bulk preparation using projects.json at repo root and force updates
-            $configPath = Join-Path (Split-Path $projectRoot -Parent) 'projects.json'
+            $configPath = Join-Path $projectRoot 'projects.json'
             if (-not (Test-Path $configPath)) {
-                # fall back to repo root path
-                $configPath = Join-Path $projectRoot 'projects.json'
+                # fall back to parent directory (legacy location)
+                $configPath = Join-Path (Split-Path $projectRoot -Parent) 'projects.json'
             }
             & $prepScript -ConfigFile $configPath -Force
             Write-Host "[SUCCESS] Bulk preparation from config completed!" -ForegroundColor Green
@@ -699,7 +699,7 @@ function Show-MigrationMenu {
                 # Call the export script - navigate from module location to project root
                 # From modules/Migration/Menu/ go up 3 levels to get to project root
                 $projectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
-                $exportScript = Join-Path $projectRoot "Export-GitLabIdentity.ps1"
+                $exportScript = Join-Path $projectRoot "modules\Migration\Export-GitLabIdentity.ps1"
                 
                 if (-not (Test-Path $exportScript)) {
                     throw "Export script not found at: $exportScript"
@@ -731,7 +731,7 @@ function Show-MigrationMenu {
             # Import User Information
             Write-Host ""
             Write-Host "=== IMPORT USER INFORMATION ===" -ForegroundColor Cyan
-            Write-Host "Import previously exported GitLab identity data into Azure DevOps Server."
+            Write-Host "Import previously exported GitLab identity data into Azure DevOps for all projects."
             Write-Host ""
             
             $importDir = Read-Host "Enter directory containing exported JSON files (press Enter for 'exports')"
@@ -748,38 +748,32 @@ function Show-MigrationMenu {
             
             $usersFile = Join-Path $importDir "users.json"
             $groupsFile = Join-Path $importDir "groups.json"
+            $membershipsFile = Join-Path $importDir "project-memberships.json"
             
-            if (-not (Test-Path $usersFile) -or -not (Test-Path $groupsFile)) {
+            if (-not (Test-Path $usersFile) -or -not (Test-Path $groupsFile) -or -not (Test-Path $membershipsFile)) {
                 Write-Host "[ERROR] Required files not found in $importDir" -ForegroundColor Red
-                Write-Host "Expected files: users.json, groups.json" -ForegroundColor Yellow
+                Write-Host "Expected files: users.json, groups.json, project-memberships.json" -ForegroundColor Yellow
                 return
             }
             
             Write-Host "[INFO] Found export files in: $importDir" -ForegroundColor Green
             Write-Host ""
             
-            $adoProjectName = Read-Host "Enter Azure DevOps project name to import into"
-            if ([string]::IsNullOrWhiteSpace($adoProjectName)) {
-                Write-Host "[ERROR] Azure DevOps project name cannot be empty." -ForegroundColor Red
-                return
-            }
-            
-            Write-Host ""
             Write-Host "Import Options:" -ForegroundColor Cyan
             Write-Host "  1) Dry Run    - Preview what would be imported (recommended first)" -ForegroundColor Yellow
-            Write-Host "  2) Execute    - Perform actual import to Azure DevOps" -ForegroundColor White
+            Write-Host "  2) Execute    - Perform actual import to Azure DevOps for all projects" -ForegroundColor White
             Write-Host ""
             
             $importChoice = Read-Host "Select import mode (1-2)"
             $dryRun = ($importChoice -eq '1')
             
-            Write-Host "[INFO] Starting import in $(if ($dryRun) { 'DRY RUN' } else { 'EXECUTE' }) mode..." -ForegroundColor Green
+            Write-Host "[INFO] Starting import in $(if ($dryRun) { 'DRY RUN' } else { 'EXECUTE' }) mode for all projects..." -ForegroundColor Green
             
             try {
                 # Call the import script - navigate from module location to project root
                 # From modules/Migration/Menu/ go up 3 levels to get to project root
                 $projectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
-                $importScript = Join-Path $projectRoot "Import-GitLabIdentityToAdo.ps1"
+                $importScript = Join-Path $projectRoot "modules\Migration\Import-GitLabIdentityToAdo.ps1"
                 
                 if (-not (Test-Path $importScript)) {
                     throw "Import script not found at: $importScript"
@@ -799,10 +793,10 @@ function Show-MigrationMenu {
                 Write-Progress -Activity "Import User Information" -Status "Starting GitLab identity import..." -PercentComplete 0 -Id 4
                 
                 if ($dryRun) {
-                    & $importScript -ExportFolder $importDir -AdoProjectName $adoProjectName -WhatIf
+                    & $importScript -ExportFolder $importDir -WhatIf
                 }
                 else {
-                    & $importScript -ExportFolder $importDir -AdoProjectName $adoProjectName
+                    & $importScript -ExportFolder $importDir
                 }
                 
                 Write-Progress -Activity "Import User Information" -Status "Import completed successfully!" -PercentComplete 100 -Id 4 -Completed

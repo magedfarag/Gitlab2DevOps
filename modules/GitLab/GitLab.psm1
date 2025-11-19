@@ -188,8 +188,10 @@ function Invoke-GitLabRest {
             $statusCode = $null
             $errorBody = $null
 
-            Write-Log "[GitLabRest] Exception on $Method $($uri): $($_.Exception.Message)" 'ERROR'
-            Write-Verbose "[Invoke-GitLabRest] Exception: $($_.Exception.Message)"
+            # Safely get error message
+            $errorMessage = try { $_.Exception.Message } catch { "Unknown error" }
+            Write-Log "[GitLabRest] Exception on $Method $($uri): $errorMessage" 'ERROR'
+            Write-Verbose "[Invoke-GitLabRest] Exception: $errorMessage"
 
             if ($webEx.Response -and $webEx.Response.StatusCode) {
                 $statusCode = [int]$webEx.Response.StatusCode
@@ -242,8 +244,8 @@ function Invoke-GitLabRest {
                 Write-Verbose "[Invoke-GitLabRest] HTTP $statusCode on $($uri): $errorBody"
                 throw "HTTP $statusCode on $($uri): $errorBody"
             }
-            Write-Log "[GitLabRest] Unknown error on $Method $($uri): $($_.Exception.Message)" 'ERROR'
-            Write-Verbose "[Invoke-GitLabRest] Unknown error on $Method $($uri): $($_.Exception.Message)"
+            Write-Log "[GitLabRest] Unknown error on $Method $($uri): $(try { $_.Exception.Message } catch { "Unknown error" })" 'ERROR'
+            Write-Verbose "[Invoke-GitLabRest] Unknown error on $Method $($uri): $(try { $_.Exception.Message } catch { "Unknown error" })"
             throw
         }
     }

@@ -1,4 +1,3 @@
-
 param(
         [Parameter(Mandatory=$false)]
         [string]$OutDirectory,
@@ -26,10 +25,12 @@ param(
 
         [switch]$ShowStatistics
 )
-Import-Module -Name "$PSScriptRoot\..\modules\core\EnvLoader.psm1"
-Import-Module -Name "$PSScriptRoot\..\modules\core\Core.Rest.psm1"
-Import-Module -Name "$PSScriptRoot\..\modules\core\Logging.psm1"
-Import-Module -Name "$PSScriptRoot\..\modules\GitLab\GitLab.psm1"
+
+Import-Module "$PSScriptRoot\..\core\Logging.psm1" -Force -DisableNameChecking -WarningAction SilentlyContinue
+Import-Module -Name "$PSScriptRoot\..\core\EnvLoader.psm1"
+Import-Module -Name "$PSScriptRoot\..\core\Core.Rest.psm1"
+Import-Module -Name "$PSScriptRoot\..\core\Logging.psm1"
+Import-Module -Name "$PSScriptRoot\..\GitLab\GitLab.psm1"
 
 function Save-Json {
     param([string]$Path, $Data)
@@ -38,10 +39,19 @@ function Save-Json {
 
 function Invoke-GitLabPagedRequest {
     param([string]$Endpoint, [hashtable]$Query = @{})
-    $resp = Invoke-GitLabRest -Method GET -Endpoint $Endpoint -Query $Query
-    [pscustomobject]@{
-        Items = $resp.Data
-        Denied = $resp.Status -ne 200
+    try {
+        $resp = Invoke-GitLabRest -Method GET -Endpoint $Endpoint -Query $Query
+        [pscustomobject]@{
+            Items = $resp.Data
+            Denied = $resp.Status -ne 200
+        }
+    }
+    catch {
+        # For 404 or other errors, treat as denied/not available
+        [pscustomobject]@{
+            Items = $null
+            Denied = $true
+        }
     }
 }
 
@@ -207,7 +217,7 @@ try {
     }
 }
 catch {
-    Write-Log "Failed to get /user for token identity: $($_.Exception.Message)" 'WARN'
+    Write-Log "Failed to get /user for token identity: $($_.ToString())" 'WARN'
 }
 
 # ---------------------------
@@ -225,7 +235,7 @@ if ($DryRun.IsPresent) {
             $query1.per_page = 1
             $resp = Invoke-GitLabRest -Method GET -Endpoint $Endpoint -Query $query1
             $total = $resp.Headers['X-Total']
-            $total = $total -is [array] ? $total[0] : $total
+            $total = if ($total -is [array]) { $total[0] } else { $total }
             if ($total) { return [int]$total }
             return 0
         }
@@ -537,72 +547,100 @@ else {
         $gid = $g.id
         $gpath = $g.full_path
 
-        # Users: all vs direct
-        $gmAllResp = Invoke-GitLabPagedRequest -Endpoint "/groups/$gid/members/all"
-        $gmDirectResp = Invoke-GitLabPagedRequest -Endpoint "/groups/$gid/members"
+        try {
+            # Users: all vs direct
+            try {
+                $gmAllResp = Invoke-GitLabPagedRequest -Endpoint "/groups/$gid/members/all"
+            }
+            catch {
+                $gmAllResp = [pscustomobject]@{ Items = $null; Denied = $true }
+            }
+            try {
+                $gmDirectResp = Invoke-GitLabPagedRequest -Endpoint "/groups/$gid/members"
+            }
+            catch {
+                $gmDirectResp = [pscustomobject]@{ Items = $null; Denied = $true }
+            }
 
-        $allDenied = $gmAllResp.Denied
-        $dirDenied = $gmDirectResp.Denied
+            $allDenied = $gmAllResp.Denied
+            $dirDenied = $gmDirectResp.Denied
 
-        $gmAll = @(); $gmDirect = @()
-        if (-not $allDenied) { 
-            $gmAll = $gmAllResp.Items
-            if ($null -eq $gmAll) { $gmAll = @() } elseif ($gmAll -isnot [array]) { $gmAll = @($gmAll) }
-        }
-        if (-not $dirDenied) { 
-            $gmDirect = $gmDirectResp.Items
-            if ($null -eq $gmDirect) { $gmDirect = @() } elseif ($gmDirect -isnot [array]) { $gmDirect = @($gmDirect) }
-        }
+            $gmAll = @(); $gmDirect = @()
+            if (-not $allDenied) { 
+                $gmAll = $gmAllResp.Items
+                if ($null -eq $gmAll) { $gmAll = @() } elseif ($gmAll -isnot [array]) { $gmAll = @($gmAll) }
+            }
+            if (-not $dirDenied) { 
+                $gmDirect = $gmDirectResp.Items
+                if ($null -eq $gmDirect) { $gmDirect = @() } elseif ($gmDirect -isnot [array]) { $gmDirect = @($gmDirect) }
+            }
 
-        if ($allDenied -and -not $dirDenied) {
-            # No /all; use direct only and mark inherited=false
-            foreach ($m in $gmDirect) { $m | Add-Member -NotePropertyName inherited -NotePropertyValue $false -Force }
-            $usersMembers = $gmDirect
-        }
-        elseif (-not $allDenied -and -not $dirDenied) {
-            $usersMembers = Add-InheritedFlag -AllMembers $gmAll -DirectMembers $gmDirect
-        }
-        else {
-            # Both denied
-            $usersMembers = @()
-        }
+            if ($allDenied -and -not $dirDenied) {
+                # No /all; use direct only and mark inherited=false
+                foreach ($m in $gmDirect) { $m | Add-Member -NotePropertyName inherited -NotePropertyValue $false -Force }
+                $usersMembers = $gmDirect
+            }
+            elseif (-not $allDenied -and -not $dirDenied) {
+                $usersMembers = Add-InheritedFlag -AllMembers $gmAll -DirectMembers $gmDirect
+            }
+            else {
+                # Both denied
+                $usersMembers = @()
+            }
 
-        $sharedGroupsResp = Invoke-GitLabPagedRequest -Endpoint "/groups/$gid/shared_groups"
-        $groupLinks = @()
-        if (-not $sharedGroupsResp.Denied) {
-            $sharedGroups = $sharedGroupsResp.Items
-            if ($null -eq $sharedGroups) { $sharedGroups = @() } elseif ($sharedGroups -isnot [array]) { $sharedGroups = @($sharedGroups) }
-            foreach ($sg in $sharedGroups) {
-                $groupLinks += [pscustomobject]@{
-                    type               = 'group'
-                    id                 = $sg.group_id
-                    full_path          = $sg.group_full_path
-                    access_level       = $sg.group_access_level
-                    expires_at         = $sg.expires_at
-                    inherited          = $false
+            # Get shared groups (optional - may not be available for all groups or GitLab versions)
+            $groupLinks = @()
+            try {
+                try {
+                    $sharedGroupsResp = Invoke-GitLabPagedRequest -Endpoint "/groups/$gid/shared_groups"
+                }
+                catch {
+                    $sharedGroupsResp = [pscustomobject]@{ Items = $null; Denied = $true }
+                }
+                if (-not $sharedGroupsResp.Denied) {
+                    $sharedGroups = $sharedGroupsResp.Items
+                    if ($null -eq $sharedGroups) { $sharedGroups = @() } elseif ($sharedGroups -isnot [array]) { $sharedGroups = @($sharedGroups) }
+                    foreach ($sg in $sharedGroups) {
+                        $groupLinks += [pscustomobject]@{
+                            type               = 'group'
+                            id                 = $sg.group_id
+                            full_path          = $sg.group_full_path
+                            access_level       = $sg.group_access_level
+                            expires_at         = $sg.expires_at
+                            inherited          = $false
+                        }
+                    }
                 }
             }
-        }
+            catch {
+                # Shared groups endpoint may not be available or accessible
+                Write-Verbose "Shared groups not available for group '$gpath': $($_.ToString())"
+            }
 
-        # Normalize user member objects to a common shape
-        $userMembersNormalized = foreach ($m in $usersMembers) {
-            [pscustomobject]@{
-                type              = 'user'
-                id                = $m.id
-                username          = $m.username
-                name              = $m.name
-                state             = $m.state
-                access_level      = $m.access_level
-                access_level_name = (Get-AccessLevelName $m.access_level)
-                expires_at        = $m.expires_at
-                inherited         = $m.inherited
+            # Normalize user member objects to a common shape
+            $userMembersNormalized = foreach ($m in $usersMembers) {
+                [pscustomobject]@{
+                    type              = 'user'
+                    id                = $m.id
+                    username          = $m.username
+                    name              = $m.name
+                    state             = $m.state
+                    access_level      = $m.access_level
+                    access_level_name = (Get-AccessLevelName $m.access_level)
+                    expires_at        = $m.expires_at
+                    inherited         = if ($m.PSObject.Properties.Name -contains 'inherited') { $m.inherited } else { $false }
+                }
+            }
+
+            $groupMemberships += [pscustomobject]@{
+                group_id        = $gid
+                group_full_path = $gpath
+                members         = @($userMembersNormalized + $groupLinks)
             }
         }
-
-        $groupMemberships += [pscustomobject]@{
-            group_id        = $gid
-            group_full_path = $gpath
-            members         = @($userMembersNormalized + $groupLinks)
+        catch {
+            $errorMessage = $_.ToString()
+            Write-Warning "Failed to fetch memberships for group '$($g.full_path)': $errorMessage"
         }
     }
     $metadata.counts.group_memberships = $groupMemberships.Count
@@ -652,73 +690,89 @@ else {
         $projectId = $p.id
         $ppath = $p.path_with_namespace
 
-        # Users: all vs direct
-        $projectMembersAllEndpoint = "/projects/{0}/members/all" -f $projectId
-        $projectMembersDirectEndpoint = "/projects/{0}/members" -f $projectId
-        $pmAllResp = Invoke-GitLabPagedRequest -Endpoint $projectMembersAllEndpoint
-        $pmDirectResp = Invoke-GitLabPagedRequest -Endpoint $projectMembersDirectEndpoint
+        try {
+            # Users: all vs direct
+            $projectMembersAllEndpoint = "/projects/{0}/members/all" -f $projectId
+            $projectMembersDirectEndpoint = "/projects/{0}/members" -f $projectId
+            try {
+                $pmAllResp = Invoke-GitLabPagedRequest -Endpoint $projectMembersAllEndpoint
+            }
+            catch {
+                $pmAllResp = [pscustomobject]@{ Items = $null; Denied = $true }
+            }
+            try {
+                $pmDirectResp = Invoke-GitLabPagedRequest -Endpoint $projectMembersDirectEndpoint
+            }
+            catch {
+                $pmDirectResp = [pscustomobject]@{ Items = $null; Denied = $true }
+            }
 
-        $allDenied = $pmAllResp.Denied
-        $dirDenied = $pmDirectResp.Denied
+            $allDenied = $pmAllResp.Denied
+            $dirDenied = $pmDirectResp.Denied
 
-        $pmAll = @(); $pmDirect = @()
-        if (-not $allDenied) { 
-            $pmAll = $pmAllResp.Items
-            if ($null -eq $pmAll) { $pmAll = @() } elseif ($pmAll -isnot [array]) { $pmAll = @($pmAll) }
-        }
-        if (-not $dirDenied) { 
-            $pmDirect = $pmDirectResp.Items
-            if ($null -eq $pmDirect) { $pmDirect = @() } elseif ($pmDirect -isnot [array]) { $pmDirect = @($pmDirect) }
-        }
+            $pmAll = @(); $pmDirect = @()
+            if (-not $allDenied) { 
+                $pmAll = $pmAllResp.Items
+                if ($null -eq $pmAll) { $pmAll = @() } elseif ($pmAll -isnot [array]) { $pmAll = @($pmAll) }
+            }
+            if (-not $dirDenied) { 
+                $pmDirect = $pmDirectResp.Items
+                if ($null -eq $pmDirect) { $pmDirect = @() } elseif ($pmDirect -isnot [array]) { $pmDirect = @($pmDirect) }
+            }
 
-        if ($allDenied -and -not $dirDenied) {
-            foreach ($m in $pmDirect) { $m | Add-Member -NotePropertyName inherited -NotePropertyValue $false -Force }
-            $usersMembers = $pmDirect
-        }
-        elseif (-not $allDenied -and -not $dirDenied) {
-            $usersMembers = Add-InheritedFlag -AllMembers $pmAll -DirectMembers $pmDirect
-        }
-        else {
-            $usersMembers = @()
-        }
+            if ($allDenied -and -not $dirDenied) {
+                foreach ($m in $pmDirect) { $m | Add-Member -NotePropertyName inherited -NotePropertyValue $false -Force }
+                $usersMembers = $pmDirect
+            }
+            elseif (-not $allDenied -and -not $dirDenied) {
+                $usersMembers = Add-InheritedFlag -AllMembers $pmAll -DirectMembers $pmDirect
+            }
+            else {
+                $usersMembers = @()
+            }
 
-        # Group shares on project: already fetched in initial /projects call with ?with_shared=true
-        # This eliminates N+1 query pattern (was fetching /projects/:id for EVERY project)
-        $groupShares = @()
-        $sharedWithGroups = $p.shared_with_groups
-        if ($sharedWithGroups) {
-            if ($sharedWithGroups -isnot [array]) { $sharedWithGroups = @($sharedWithGroups) }
-            foreach ($gshare in $sharedWithGroups) {
-                $groupShares += [pscustomobject]@{
-                    type               = 'group'
-                    id                 = $gshare.group_id
-                    full_path          = $gshare.group_full_path
-                    access_level       = $gshare.group_access_level
-                    expires_at         = $gshare.expires_at
-                    inherited          = $false
+            # Group shares on project: already fetched in initial /projects call with ?with_shared=true
+            # This eliminates N+1 query pattern (was fetching /projects/:id for EVERY project)
+            $groupShares = @()
+            $sharedWithGroups = $p.shared_with_groups
+            if ($sharedWithGroups) {
+                if ($sharedWithGroups -isnot [array]) { $sharedWithGroups = @($sharedWithGroups) }
+                foreach ($gshare in $sharedWithGroups) {
+                    $groupShares += [pscustomobject]@{
+                        type               = 'group'
+                        id                 = $gshare.group_id
+                        full_path          = $gshare.group_full_path
+                        access_level       = $gshare.group_access_level
+                        expires_at         = $gshare.expires_at
+                        inherited          = $false
+                    }
                 }
             }
-        }
 
-        # Normalize user member objects
-        $userMembersNormalized = foreach ($m in $usersMembers) {
-            [pscustomobject]@{
-                type              = 'user'
-                id                = $m.id
-                username          = $m.username
-                name              = $m.name
-                state             = $m.state
-                access_level      = $m.access_level
-                access_level_name = (Get-AccessLevelName $m.access_level)
-                expires_at        = $m.expires_at
-                inherited         = $m.inherited
+            # Normalize user member objects
+            $userMembersNormalized = foreach ($m in $usersMembers) {
+                [pscustomobject]@{
+                    type              = 'user'
+                    id                = $m.id
+                    username          = $m.username
+                    name              = $m.name
+                    state             = $m.state
+                    access_level      = $m.access_level
+                    access_level_name = (Get-AccessLevelName $m.access_level)
+                    expires_at        = $m.expires_at
+                    inherited         = if ($m.PSObject.Properties.Name -contains 'inherited') { $m.inherited } else { $false }
+                }
+            }
+
+            $projectMemberships += [pscustomobject]@{
+                project_id            = $projectId
+                path_with_namespace   = $ppath
+                members               = @($userMembersNormalized + $groupShares)
             }
         }
-
-        $projectMemberships += [pscustomobject]@{
-            project_id            = $projectId
-            path_with_namespace   = $ppath
-            members               = @($userMembersNormalized + $groupShares)
+        catch {
+            $errorMessage = $_.ToString()
+            Write-Warning "Failed to fetch memberships for project '$($p.path_with_namespace)': $errorMessage"
         }
     }
     $metadata.counts.project_memberships = $projectMemberships.Count
@@ -743,7 +797,12 @@ if ($IncludeMemberRoles.IsPresent) {
     }
     else {
         Write-Log 'Exporting custom member roles (GET /api/v4/member_roles)...'
-        $rolesResp = Invoke-GitLabPagedRequest -Endpoint '/member_roles'
+        try {
+            $rolesResp = Invoke-GitLabPagedRequest -Endpoint '/member_roles'
+        }
+        catch {
+            $rolesResp = [pscustomobject]@{ Items = $null; Denied = $true }
+        }
         if ($rolesResp.Denied) {
             Write-Log 'Access denied to /member_roles. Skipping member roles export.' 'WARN'
             $roles = @()

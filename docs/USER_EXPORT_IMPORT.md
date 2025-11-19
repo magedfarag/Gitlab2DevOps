@@ -80,8 +80,8 @@ These options integrate seamlessly with the existing migration workflow:
 
 ## Technical Implementation
 
-- **Export Script**: `examples/export-gitlab-identity.ps1`
-- **Import Script**: `Import-GitLabIdentityToAdo.ps1`
+- **Export Script**: `modules/Migration/export-gitlab-identity.ps1`
+- **Import Script**: `modules/Migration/Import-GitLabIdentityToAdo.ps1`
 - **Menu Integration**: `modules/Migration/Menu/Menu.psm1`
 - **Path Resolution**: Robust relative path calculation from module to project root
 - **Parameter Mapping**: Correct parameter names for both scripts

@@ -1,6 +1,6 @@
 Describe "Export-GitLabIdentity safe array handling" {
     BeforeAll {
-        $scriptPath = Join-Path $PSScriptRoot '..\Export-GitLabIdentity.ps1'
+        $scriptPath = Join-Path $PSScriptRoot '../modules/Migration/Export-GitLabIdentity.ps1'
     }
 
     It "Handles single-object responses without .Count error" {
@@ -22,3 +22,4 @@ Describe "Export-GitLabIdentity safe array handling" {
         { & $scriptPath -OutDirectory "$PSScriptRoot\temp-exports" -Profile Complete -WhatIf } | Should -Not -Throw
     }
 }
+

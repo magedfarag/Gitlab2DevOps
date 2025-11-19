@@ -171,6 +171,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+write-Warning "PSScriptRoot=$($PSScriptRoot)"
 
 # Get script directory
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path

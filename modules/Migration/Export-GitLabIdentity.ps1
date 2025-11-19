@@ -23,7 +23,7 @@
     Display statistics after export completion.
 
 .EXAMPLE
-    .\Export-GitLabIdentity.ps1 -OutDirectory ".\my-exports" -Profile Complete
+    .modules/Migration/Export-GitLabIdentity.ps1 -OutDirectory ".\my-exports" -Profile Complete
 
 .NOTES
     Requires: Core.Rest, GitLab, and Logging modules
@@ -49,9 +49,9 @@ param(
 # Import required modules
 # Resolve the script root robustly so this script works when run standalone
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$coreRestPath = Join-Path $scriptRoot "modules\core\Core.Rest.psm1"
-$gitLabPath = Join-Path $scriptRoot "modules\GitLab\GitLab.psm1"
-$loggingPath = Join-Path $scriptRoot "modules\core\Logging.psm1"
+$coreRestPath = Join-Path $scriptRoot "..\core\Core.Rest.psm1"
+$gitLabPath = Join-Path $scriptRoot "..\GitLab\GitLab.psm1"
+$loggingPath = Join-Path $scriptRoot "..\core\Logging.psm1"
 
 # Try to import modules, but don't fail if they're already loaded
 $modulesImported = $false

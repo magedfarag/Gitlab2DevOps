@@ -19,7 +19,7 @@
 
 BeforeAll {
     # Import the script as module to access functions
-    $scriptPath = Join-Path $PSScriptRoot 'export-gitlab-identity.ps1'
+    $scriptPath = Join-Path $PSScriptRoot '/modules/Migration/Export-GitLabIdentity.ps1'
     
     # Mock external dependencies
     Mock Invoke-WebRequest { throw "Invoke-WebRequest should be mocked in tests" }
