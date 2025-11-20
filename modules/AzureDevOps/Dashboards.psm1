@@ -378,7 +378,7 @@ function Search-Adodashboard {
         Write-LogLevelVerbose "[Search-Adodashboard] Could not check existing dashboards: $_"
     }
     
-    # Create dashboard
+    # Create dashboard if it doesn't exist
     try {
         Write-LogLevelVerbose "[Search-Adodashboard] Creating dashboard: $dashboardName"
         
@@ -465,7 +465,7 @@ function Search-Adodashboard {
                 $lastPostError = $_
                 $postErr = $_.Exception.Message
                 # If duplicate dashboard name was reported, try to locate and return existing dashboard instead
-                if ($postErr -and ($postErr -match 'DuplicateDashboardNameException' -or $postErr -match 'DuplicateDashboardName')) {
+                if ($postErr -and ($postErr -match 'DuplicateDashboardNameException' -or $postErr -match 'DuplicateDashboardName' -or $postErr -match 'already exists' -or $postErr -match '409')) {
                     Write-LogLevelVerbose "[Search-Adodashboard] Duplicate dashboard name detected when posting to $ep - attempting to find existing dashboard"
                     try {
                         $existingDashboards = Invoke-AdoDashboardRest -Method GET -Endpoint $ep

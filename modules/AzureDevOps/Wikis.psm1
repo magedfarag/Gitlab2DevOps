@@ -135,23 +135,58 @@ function Set-AdoWikiPage {
         Write-Verbose "[Wikis] Wiki backend not ready after $wikiReadyTimeout seconds, proceeding with page creation attempts."
     }
 
+    # Check if page already exists before attempting creation
+    $pageExists = $false
+    try {
+        $existingPage = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -ReturnNullOnNotFound -MaxAttempts 1 -DelaySeconds 0
+        if ($existingPage) {
+            $pageExists = $true
+            Write-Verbose "[Wikis] Page $Path already exists, will update instead of create"
+        }
+    } catch {
+        Write-Verbose "[Wikis] Could not check if page exists: $_"
+    }
+
     # Azure DevOps Wiki API behavior:
     # - PUT: Create new page (fails if page exists)
     # - PATCH: Update existing page (fails if page doesn't exist with 405)
-    # Strategy: Try PUT first, if it fails with "already exists", use PATCH
+    # Strategy: If page exists, use PATCH; otherwise try PUT first
 
     $maxWikiRetries = 5  # Increased from 3
     $wikiRetryDelay = 3  # Increased from 2
     $lastError = $null
-    $pageAlreadyExists = $false
 
     for ($wikiAttempt = 1; $wikiAttempt -le $maxWikiRetries; $wikiAttempt++) {
         try {
-            if ($pageAlreadyExists) { break }
-            Write-Verbose "[Wikis] Creating wiki page: $Path (attempt $wikiAttempt)"
-            Invoke-AdoRest PUT "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{ content = $Markdown } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
-            Write-Verbose "[Wikis] Successfully created wiki page: $Path"
-            return
+            if ($pageExists) {
+                # Page exists, use PATCH to update
+                Write-Verbose "[Wikis] Updating existing wiki page: $Path (attempt $wikiAttempt)"
+                
+                # Acquire existing page to retrieve ETag
+                $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -ReturnNullOnNotFound -MaxAttempts 1 -DelaySeconds 0
+                $etag = $null
+                if ($existing -and $existing.PSObject.Properties['eTag'] -and $existing.eTag) { $etag = $existing.eTag }
+
+                # Temporarily add If-Match header to module ADO headers
+                $origIfMatch = $null
+                if ($script:AdoHeaders.ContainsKey('If-Match')) { $origIfMatch = $script:AdoHeaders['If-Match'] }
+                if ($etag) { $script:AdoHeaders['If-Match'] = $etag }
+
+                $patchBody = @{ content = $Markdown }
+                Invoke-AdoRest PATCH "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body $patchBody -MaxAttempts 1 -DelaySeconds 0 | Out-Null
+
+                # Restore original If-Match header state
+                if ($null -ne $origIfMatch) { $script:AdoHeaders['If-Match'] = $origIfMatch } else { $script:AdoHeaders.Remove('If-Match') | Out-Null }
+
+                Write-Verbose "[Wikis] Successfully updated wiki page: $Path"
+                return
+            } else {
+                # Try to create new page
+                Write-Verbose "[Wikis] Creating wiki page: $Path (attempt $wikiAttempt)"
+                Invoke-AdoRest PUT "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{ content = $Markdown } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
+                Write-Verbose "[Wikis] Successfully created wiki page: $Path"
+                return
+            }
         }
         catch {
             $errorMsg = $_.Exception.Message
@@ -173,47 +208,12 @@ function Set-AdoWikiPage {
             }
             if ($status -eq 500 -or $errorMsg -match '500|Internal Server Error') {
                 Write-Host "[Wikis] Server returned 500 for $Path — skipping page creation (info)" -ForegroundColor Cyan
-                # Debug file saving disabled
-                # try {
-                #     $rawBody = $null
-                #     $actualEx = $null
-                #     if ($_.Exception -and ($_.Exception -is [System.Management.Automation.ErrorRecord])) { $actualEx = $_.Exception.Exception } else { $actualEx = $_.Exception }
-                #     if ($actualEx -and (Get-Member -InputObject $actualEx -Name 'Response' -MemberType Properties -ErrorAction SilentlyContinue)) {
-                #         if ($actualEx.Response) {
-                #             try {
-                #                 $reader = New-Object System.IO.StreamReader($actualEx.Response.GetResponseStream())
-                #                 $rawBody = $reader.ReadToEnd()
-                #             }
-                #             catch {
-                #                 $rawBody = "<failed to read response stream: $_>"
-                #             }
-                #         }
-                #     }
-                #     $logsDir = Join-Path $PSScriptRoot "..\logs"
-                #     if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
-                #     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-                #     $safePath = ($Path -replace '[^a-zA-Z0-9\-\._]', '-')
-                #     $logFile = Join-Path $logsDir ("wiki-500-" + $([uri]::EscapeDataString($Project)) + "-" + $safePath + "-" + $timestamp + ".log")
-                #     $payload = [ordered]@{
-                #         timestamp = (Get-Date).ToString('o')
-                #         project   = $Project
-                #         wikiPath  = $Path
-                #         status    = $status
-                #         message   = $normalizedError.message
-                #         rawBody   = if ($rawBody) { $rawBody } else { '<no body captured>' }
-                #     }
-                #     $payload | ConvertTo-Json -Depth 5 | Out-File -FilePath $logFile -Encoding UTF8 -Force
-                #     Write-Host "[Wikis] Saved server 500 response to: $logFile" -ForegroundColor Cyan
-                # }
-                # catch {
-                #     Write-Verbose "[Wikis] Failed to write 500 diagnostic log: $_"
-                # }
                 return
             }
             if ($errorMsg -match 'WikiPageAlreadyExistsException|already exists|409') {
                 Write-Verbose "[Wikis] Page $Path already exists, switching to PATCH mode"
-                $pageAlreadyExists = $true
-                break
+                $pageExists = $true
+                continue  # Retry with PATCH
             }
             else {
                 if ($wikiAttempt -eq $maxWikiRetries) { throw }
@@ -224,65 +224,8 @@ function Set-AdoWikiPage {
         }
     }
     
-    # If we get here, either page already exists (switch to PATCH) or all PUT retries failed
-    if ($pageAlreadyExists) {
-        Write-Verbose "[Wikis] Page $Path already exists, attempting PATCH with ETag"
-
-        # Acquire existing page to retrieve ETag
-        try {
-            # GET should not perform long retry loops for wiki page retrieval
-        $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -ReturnNullOnNotFound -MaxAttempts 1 -DelaySeconds 0
-        }
-        catch {
-            Write-Warning ("[Wikis] Could not retrieve existing page for {0}: {1}" -f $Path, $_)
-            return
-        }
-
-        $etag = $null
-        if ($existing -and $existing.PSObject.Properties['eTag'] -and $existing.eTag) { $etag = $existing.eTag }
-
-        $maxAttempts = 3
-        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-            try {
-                # Temporarily add If-Match header to module ADO headers
-                $origIfMatch = $null
-                if ($script:AdoHeaders.ContainsKey('If-Match')) { $origIfMatch = $script:AdoHeaders['If-Match'] }
-                if ($etag) { $script:AdoHeaders['If-Match'] = $etag }
-
-                $patchBody = @{ content = $Markdown }
-
-                # Disable REST-layer retries for wiki PATCH (we handle retries at wiki layer)
-                Invoke-AdoRest PATCH "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body $patchBody -MaxAttempts 1 -DelaySeconds 0 | Out-Null
-
-                # Restore original If-Match header state
-                if ($null -ne $origIfMatch) { $script:AdoHeaders['If-Match'] = $origIfMatch } else { $script:AdoHeaders.Remove('If-Match') | Out-Null }
-
-                Write-Verbose "[Wikis] Successfully updated wiki page: $Path (attempt $attempt)"
-                return
-            }
-            catch {
-                # Restore header before retrying
-                if ($null -ne $origIfMatch) { $script:AdoHeaders['If-Match'] = $origIfMatch } else { if ($script:AdoHeaders.ContainsKey('If-Match')) { $script:AdoHeaders.Remove('If-Match') | Out-Null } }
-
-                $err = $_
-                Write-Warning ("[Wikis] PATCH attempt {0} failed for {1}: {2}" -f $attempt, $Path, $err)
-                if ($attempt -lt $maxAttempts) {
-                    Start-Sleep -Seconds (2 * $attempt)
-                    # Refresh ETag in case another client updated the page
-                    try { $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -ReturnNullOnNotFound -MaxAttempts 1 -DelaySeconds 0; if ($existing -and $existing.eTag) { $etag = $existing.eTag } } catch { }
-                    continue
-                }
-                else {
-                    Write-Warning ("[Wikis] Could not update page {0} after {1} attempts: {2}" -f $Path, $maxAttempts, $err)
-                    return
-                }
-            }
-        }
-    }
-    else {
-        # If we get here, all retries failed
-        throw $lastError
-    }
+    # If we get here, all retries failed
+    throw $lastError
 }
 
 
