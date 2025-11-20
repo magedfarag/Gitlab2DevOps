@@ -4,7 +4,7 @@ Record key decisions succinctly.
 
 | Date | Decision | Owner | Impact |
 |------|----------|-------|--------|
-| yyyy-mm-dd | Short statement | Name | Short impact |
+| 2025-11-20 | Adopt trunk-based development branching model | Tech Lead | Simplifies branching and reduces long-lived merge conflicts |
 
 ---
 

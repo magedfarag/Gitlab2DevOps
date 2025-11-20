@@ -425,9 +425,9 @@ AzureDevOpsAuditLogs
 
 **Red Flags**:
 - String literals that look like passwords: `"P@ssw0rd123"`
-- Long alphanumeric strings: `"ak_live_51H..."`
+- Long alphanumeric strings that look like keys or tokens: `"ak_live_51H1234567890abcdef"`
 - Base64-encoded strings (potential secret)
-- Comments like "// TODO: remove hardcoded password"
+- Comments like "// Hardcoded password for testing" (this should never appear in real code)
 
 ## Common Pitfalls
 

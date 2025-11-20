@@ -6,8 +6,8 @@
 
 This page provides a centralized view of program health metrics, KPIs, and performance indicators. Dashboards are updated in real-time and reviewed weekly with leadership.
 
-**Last Updated**: [Auto-updated via Azure DevOps]  
-**Report Period**: [Current Sprint/Quarter]
+**Last Updated**: Automatically updated from Azure DevOps dashboards (refreshed daily).  
+**Report Period**: Current sprint (Sprint 18, 2025-01-13 to 2025-01-24).
 
 ---
 

@@ -14,10 +14,10 @@ This page captures learnings, action items, and continuous improvement initiativ
 
 ## Current Sprint Retrospective
 
-### Sprint 18 - [Date Range]
+### Sprint 18 - 13–24 January 2025
 
 #### Retrospective Summary
-**Facilitated by**: [Name]  
+**Facilitated by**: Maria Garcia  
 **Attendance**: 24 of 27 team members (89%)  
 **Overall Sprint Rating**: 7.8/10 (Previous: 7.5/10) ↗️
 

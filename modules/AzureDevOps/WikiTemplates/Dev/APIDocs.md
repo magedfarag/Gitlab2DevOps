@@ -19,7 +19,7 @@ Comprehensive guide to the project's APIs and integration contracts.
 **Type**: Bearer Token (JWT)
 
 ````````````http
-Authorization: Bearer <your-jwt-token>
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example-token-123
 ````````````
 
 ### Common Headers
@@ -41,7 +41,7 @@ Get list of users.
 **Request**:
 ````````````http
 GET /api/users?page=1&size=20
-Authorization: Bearer <token>
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example-token-123
 ````````````
 
 **Response** (200 OK):
@@ -135,9 +135,9 @@ POST /api/webhooks
 Content-Type: application/json
 
 {
-  "url": "https://your-app.com/webhook",
+  "url": "https://billing.example.com/webhook",
   "events": ["user.created", "user.updated"],
-  "secret": "your-webhook-secret"
+  "secret": "whk_0000000000000000"
 }
 ````````````
 
@@ -166,7 +166,7 @@ Full OpenAPI (Swagger) specification available at:
 
 ````````````bash
 curl -X GET "http://localhost:5000/api/users" \
-  -H "Authorization: Bearer <token>" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example-token-123" \
   -H "Accept: application/json"
 ````````````
 

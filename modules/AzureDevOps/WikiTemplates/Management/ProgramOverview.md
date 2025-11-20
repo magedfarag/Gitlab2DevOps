@@ -11,46 +11,46 @@ This page provides a high-level overview of the program, its objectives, scope, 
 ## Program Mission & Vision
 
 ### Mission Statement
-_Replace with your program's mission - why does this program exist?_
+Our mission is to provide a secure, reliable, and scalable digital delivery platform that enables product teams to ship high-quality features faster with lower operational risk.
 
 ### Vision Statement
-_Replace with your program's vision - what success looks like in 3-5 years_
+Within 3–5 years, this program will be the default way business and technology teams launch new digital services, with predictable delivery, strong compliance, and clear visibility into value and risk.
 
 ---
 
 ## Program Objectives
 
 ### Primary Objectives
-1. **Objective 1**: Description and success criteria
-2. **Objective 2**: Description and success criteria
-3. **Objective 3**: Description and success criteria
+1. **Improve delivery reliability**: Shorten lead time for changes and reduce failed releases while keeping teams within sustainable capacity.
+2. **Increase product quality**: Reduce production incidents and increase automated test coverage across critical services.
+3. **Strengthen stakeholder trust**: Provide transparent, data-driven reporting so executives, business owners, and teams share the same view of status and risk.
 
 ### Key Results (OKRs)
 | Objective | Key Result | Target | Current | Status |
 |-----------|------------|--------|---------|--------|
-| Example | Improve delivery speed | 50% reduction | 20% | 🟡 On Track |
-| Example | Increase quality | < 5 P1 bugs/sprint | 8 | 🔴 At Risk |
-| Example | Team satisfaction | > 8.0 score | 7.5 | 🟡 On Track |
+| Delivery reliability | Reduce lead time for changes | 50% reduction vs. baseline | 20% | 🟡 On Track |
+| Product quality | Keep P1 production bugs | < 5 per sprint | 8 | 🔴 At Risk |
+| Team health | Maintain team satisfaction score | > 8.0 / 10 | 7.5 | 🟡 On Track |
 
 ---
 
 ## Program Scope
 
 ### In Scope
-- Feature/capability 1
-- Feature/capability 2
-- Feature/capability 3
+- Shared digital customer portal and self-service experiences
+- Core APIs and integration layer with existing line-of-business systems
+- Observability, deployment, and security tooling that support these products
 
 ### Out of Scope
-- Explicitly excluded items
-- Future considerations
-- Dependencies managed elsewhere
+- Standalone experimental apps that do not use the shared platform
+- Corporate IT tooling unrelated to digital products (for example, HR and finance systems)
+- Legacy systems that remain under separate maintenance teams
 
 ### Boundaries & Constraints
-- **Budget**: $X million over Y years
-- **Timeline**: Start date to end date
-- **Resources**: X teams, Y FTEs
-- **Technology**: Approved tech stack
+- **Budget**: Approximately $2.5 million over 2 years
+- **Timeline**: January 2025 to December 2026
+- **Resources**: 4 cross-functional product teams (around 26 FTEs)
+- **Technology**: Azure DevOps Server, Git, containerized services, and approved enterprise integration platforms
 
 ---
 
@@ -59,24 +59,24 @@ _Replace with your program's vision - what success looks like in 3-5 years_
 ### Program Leadership
 
 #### Program Manager
-**Name**: [Your Name]  
-**Email**: [email@example.com]  
-**Responsibilities**: Overall program delivery, stakeholder management, budget oversight
+**Name**: Maged Farag  
+**Email**: maged.farag@company.com  
+**Responsibilities**: Overall program delivery, stakeholder management, and budget oversight
 
 #### Product Owner
-**Name**: [Name]  
-**Email**: [email@example.com]  
-**Responsibilities**: Product strategy, backlog prioritization, business value
+**Name**: Alex Chen  
+**Email**: alex.chen@company.com  
+**Responsibilities**: Product strategy, backlog prioritization, and maximizing business value
 
 #### Delivery Lead
-**Name**: [Name]  
-**Email**: [email@example.com]  
-**Responsibilities**: Agile delivery, team coordination, velocity optimization
+**Name**: Maria Garcia  
+**Email**: maria.garcia@company.com  
+**Responsibilities**: Agile delivery, coordination across teams, and flow efficiency
 
 #### Technical Architect
-**Name**: [Name]  
-**Email**: [email@example.com]  
-**Responsibilities**: Technical strategy, architecture decisions, technology standards
+**Name**: David Kim  
+**Email**: david.kim@company.com  
+**Responsibilities**: Technical strategy, architecture decisions, and technology standards
 
 ---
 
@@ -96,10 +96,10 @@ graph TD
 #### Development Teams
 | Team Name | Focus Area | Team Lead | Members |
 |-----------|------------|-----------|---------|
-| Team Alpha | Frontend & UX | [Name] | 8 |
-| Team Beta | Backend Services | [Name] | 7 |
-| Team Gamma | Platform & DevOps | [Name] | 5 |
-| Team Delta | Data & Analytics | [Name] | 6 |
+| Team Alpha | Frontend & UX | Henry Brown | 8 |
+| Team Beta | Backend Services | Nina Patel | 7 |
+| Team Gamma | Platform & DevOps | Uma Singh | 5 |
+| Team Delta | Data & Analytics | Amy Foster | 6 |
 
 ---
 
@@ -204,7 +204,7 @@ View current sprint progress: [Sprint Planning](/Sprint-Planning)
 ## Program Artifacts
 
 ### Key Documents
-- 📊 [Program Charter](link-to-document)
+- 📊 [Program Charter](/Program-Charter)
 - 🗺️ [Product Roadmap](/Roadmap)
 - 📅 [Sprint Planning](/Sprint-Planning)
 - 👥 [Capacity Planning](/Capacity-Planning)
@@ -213,9 +213,9 @@ View current sprint progress: [Sprint Planning](/Sprint-Planning)
 - 🔄 [Retrospective Insights](/Retrospectives)
 
 ### Code Repositories
-- **Frontend**: [Link to repo]
-- **Backend**: [Link to repo]
-- **Infrastructure**: [Link to repo]
+- **Frontend**: Azure DevOps Git repo `digital-platform-frontend`
+- **Backend**: Azure DevOps Git repo `digital-platform-backend`
+- **Infrastructure**: Azure DevOps Git repo `digital-platform-infrastructure`
 
 ### External Resources
 - **Confluence/SharePoint**: [Link]
@@ -266,8 +266,8 @@ View current sprint progress: [Sprint Planning](/Sprint-Planning)
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
-| 1.0 | 2025-01-15 | [Your Name] | Initial program overview |
-| 1.1 | 2025-02-01 | [Your Name] | Updated team structure |
+| 1.0 | 2025-01-15 | Maged Farag | Initial program overview |
+| 1.1 | 2025-02-01 | Maged Farag | Updated team structure |
 
 ---
 

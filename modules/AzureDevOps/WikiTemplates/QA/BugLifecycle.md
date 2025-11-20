@@ -64,7 +64,7 @@ Additional Info:
 ```markdown
 Root Cause Analysis:
 - Authentication service returns different response format
-- Frontend expects {token: "..."} but receives {accessToken: "..."}
+- Frontend expects { token: "abc123" } but receives { accessToken: "abc123" }
 - Backend API changed in PR #1234
 
 Fix Approach:

@@ -44,7 +44,7 @@ graph TD
 
 | Name | Role | Interest | Influence | Communication Preference | Frequency |
 |------|------|----------|-----------|-------------------------|-----------|
-| [Your Name] | Program Manager | High | High | All channels | Daily |
+| Maged Farag | Program Manager | High | High | All channels | Daily |
 | Alex Chen | Product Owner | High | High | Daily standup + Teams | Daily |
 | Maria Garcia | Delivery Lead | High | Medium | Sprint ceremonies + Slack | Daily |
 | David Kim | Tech Architect | High | Medium | Design reviews + email | Weekly |
@@ -162,70 +162,72 @@ graph TD
 
 ## Communication Templates
 
-### Weekly Status Report Template
+### Weekly Status Report Example
 
 ```markdown
-Subject: [Program Name] - Weekly Status Report - [Date]
+Subject: Digital Delivery Program – Weekly Status Report – 2025-01-24
 
 Executive Summary:
-[2-3 sentences on overall status: Green/Yellow/Red]
+Overall status: Green. Sprint 18 remains on track, authentication is ready for production, and payment integration is progressing as planned. One infrastructure risk is being monitored but does not affect this sprint goal.
 
 Key Accomplishments This Week:
-✅ [Accomplishment 1]
-✅ [Accomplishment 2]
-✅ [Accomplishment 3]
+✅ Completed OAuth2 login and session management on web and mobile
+✅ Reduced average code review turnaround time from 8 hours to 4.2 hours
+✅ Deployed new observability dashboards for payments and authentication
 
 Planned for Next Week:
-📅 [Planned item 1]
-📅 [Planned item 2]
-📅 [Planned item 3]
+📅 Enable payments in staging for end-to-end testing
+📅 Complete performance testing for the new dashboard APIs
+📅 Finalize rollback and cutover plan for Sprint 18 production release
 
 Top 3 Risks/Issues:
-🔴 [Critical issue/risk] - [Mitigation plan]
-🟡 [High risk] - [Status update]
-🟢 [Medium issue] - [Tracking]
+🔴 Payment latency in EU region remains above target – mitigation: dedicated performance swarm and database index review
+🟡 Infrastructure quota increase pending with hosting provider – mitigation: escalation raised, capacity monitored daily
+🟢 Several low-severity UI defects in the dashboard – mitigation: scheduled for fix in the next sprint
 
 Metrics:
-- Sprint Velocity: 87 SP (target: 85 SP) ✅
-- Defect Count: 12 (target: <15) ✅
-- Test Coverage: 82% (target: >80%) ✅
-- Team Satisfaction: 7.8/10 (target: >7.5) ✅
+- Sprint Velocity (3-sprint avg): 82 SP (target: 80 SP) ✅
+- Defect Count (P1+P2 open): 10 (target: <15) ✅
+- Automated Test Coverage (critical services): 82% (target: >80%) ✅
+- Team Satisfaction (last survey): 7.8/10 (target: >7.5) ✅
 
 Decisions Needed:
-❓ [Decision 1] - [Context and options]
+❓ Confirm go/no-go criteria for enabling payments in production during Sprint 18
+❓ Approve additional test environment for load testing if existing capacity is insufficient
 
 Budget Status:
-💰 $450K spent of $600K budget (75% - on track)
+💰 $1.2M spent of $2.5M budget to date (48% of allocated budget, on track)
 
 Timeline Status:
-📅 Milestone 1: Complete ✅
-📅 Milestone 2: On track for Feb 28 🟢
-📅 Milestone 3: At risk - 1 week delay 🟡
+📅 Milestone 1 (MVP authentication): Complete ✅
+📅 Milestone 2 (Payments GA): On track for 2025-02-28 🟢
+📅 Milestone 3 (Mobile parity with web): At risk of 1-week delay due to device lab constraints 🟡
 
 Attachments:
 - Sprint burndown chart
 - Velocity trend
+- Latest DORA metrics snapshot
 ```
 
 ---
 
-### Sprint Summary Template
+### Sprint Summary Example
 
 ```markdown
-Subject: Sprint [Number] Summary - [Sprint Name/Goal]
+Subject: Sprint 18 Summary – Secure Auth & Payments
 
-Sprint Goal: [Clear statement of what was planned]
-Status: ✅ Goal Achieved / 🟡 Partially Achieved / ❌ Not Achieved
+Sprint Goal: Deliver secure user authentication and initial payment integration to production.
+Status: ✅ Goal Achieved
 
 Highlights:
-✨ [Major feature completed]
-✨ [Significant improvement]
-✨ [Team achievement]
+✨ Web and mobile clients now use OAuth2-based authentication with enforced MFA for admins
+✨ New observability dashboards provide end-to-end tracing for the payment flow
+✨ Cross-team pairing between Alpha and Beta eliminated a long-standing integration bottleneck
 
 Delivered Features:
-- [Feature 1]: [Brief description] - [Link to demo/docs]
-- [Feature 2]: [Brief description] - [Link to demo/docs]
-- [Feature 3]: [Brief description] - [Link to demo/docs]
+- Authentication: Email/password, OAuth2 with Microsoft, session management, and password reset – demo: /demos/sprint18-auth
+- Payments: Initial Stripe integration for card payments in staging – demo: /demos/sprint18-payments
+- Observability: New dashboards for login, checkout, and error-rate monitoring – demo: /demos/sprint18-observability
 
 Metrics:
 - Committed: 87 story points
@@ -233,79 +235,86 @@ Metrics:
 - Velocity: 3-sprint average = 81.7 SP
 
 Quality:
-- Bugs found: 3 (2 fixed, 1 in progress)
-- Test coverage: 85% (+3% from last sprint)
+- Bugs found: 3 (2 fixed, 1 scheduled for next sprint)
+- Test coverage (critical services): 85% (+3% from last sprint)
 - Code review cycle time: 4.2 hours (target: <6 hours)
 
 Team Health:
 - Team satisfaction: 8.2/10
 - Sprint retrospective rating: 4.5/5
-- Key improvement action: [Action item]
+- Key improvement action: Reserve 20% capacity for technical debt reduction in Sprint 19
 
 Next Sprint Preview:
-🎯 Sprint Goal: [Next sprint goal]
-📅 Dates: [Start] - [End]
+🎯 Sprint Goal: Expand payment options and harden observability
+📅 Dates: 2025-01-27 – 2025-02-07
 🚀 Major focus areas:
-   - [Focus area 1]
-   - [Focus area 2]
-   - [Focus area 3]
+   - Support additional payment methods and currencies
+   - Improve performance of dashboard queries
+   - Reduce flaky tests in the checkout flow
 
-View full sprint details: [Link to Sprint Planning page]
+View full sprint details: /Sprint-Planning
 ```
 
 ---
 
-### Quarterly Business Review Template
+### Quarterly Business Review Example
 
 ```markdown
-# Q[X] 20XX Business Review
-[Program Name]
+# Q1 2025 Business Review
+Digital Delivery Program
 
 ## Executive Summary
-[1-page overview of quarter performance]
+Q1 2025 focused on establishing the core platform: authentication, initial payments, and observability. Delivery performance improved compared to the previous quarter, with stable velocity and fewer production incidents. The program remains within budget and aligned with the strategic roadmap.
 
 ## Objectives Review
-[Review OKRs set for the quarter]
 
 | Objective | Target | Actual | Status |
 |-----------|--------|--------|--------|
-| [Objective 1] | [Target] | [Actual] | ✅/🟡/❌ |
+| Reduce lead time for changes | 30% reduction vs. baseline | 18% reduction | 🟡 Partially Achieved |
+| Decrease P1 production incidents | < 3 per quarter | 2 incidents | ✅ Achieved |
+| Improve team satisfaction | ≥ 8.0 / 10 | 7.8 / 10 | 🟡 Partially Achieved |
 
 ## Key Achievements
-1. [Major achievement 1]
-2. [Major achievement 2]
-3. [Major achievement 3]
+1. Delivered OAuth2-based authentication and initial payment integration for the flagship product
+2. Introduced DORA metrics and a shared delivery dashboard for all teams
+3. Implemented a standard rollback and cutover playbook for production releases
 
 ## Metrics Dashboard
-[Include charts/graphs]
-- User growth
-- Feature adoption
-- System performance
-- Team velocity
-- Quality metrics
-- Budget vs. actuals
+- User growth: +22% active users vs. previous quarter
+- Feature adoption: 65% of users have used at least one new Q1 feature
+- System performance: 99.92% uptime, p95 latency < 250 ms on core APIs
+- Delivery performance (DORA metrics):
+  - Deployment frequency: Weekly to multiple times per week
+  - Lead time for changes: Median 2.5 days
+  - Change failure rate: 12%
+  - Mean time to restore (MTTR): 90 minutes
+- Budget vs. actuals: 48% of annual budget consumed, in line with plan
 
 ## Challenges & Learnings
-[What went wrong and what we learned]
+- Payment latency in certain regions required joint work between DevOps and database teams.
+- Several features were started without clear acceptance criteria, leading to rework.
+- Retrospectives highlighted meeting overload; an ongoing initiative is reducing low-value meetings.
 
 ## Next Quarter Priorities
-[Top 3-5 priorities for next quarter]
+1. Expand payment capabilities and finalize GA readiness for the payments module
+2. Improve change failure rate and MTTR by strengthening automated tests and runbooks
+3. Increase investment in onboarding and documentation to reduce time-to-productivity for new team members
 
 ## Financial Summary
-- Budget: $X allocated, $Y spent (Z% utilization)
-- ROI: [If applicable]
-- Cost per feature: [Calculated metric]
+- Budget: $2.5M allocated for the year, $1.2M spent to date (48% utilization)
+- Cost per delivered feature (Q1): approximately $38K per major feature
+- No unplanned capital expenditures this quarter
 
 ## Team Health
-- Headcount: Started with X, ended with Y
-- Attrition: Z%
-- Team satisfaction: Score/trend
-- Training hours: Total hours invested
+- Headcount: Started with 24 FTEs, ended with 26 FTEs
+- Attrition: 0 voluntary leavers in Q1
+- Team satisfaction: 7.8 / 10 (slightly below target but stable)
+- Training: 120 hours of structured training across agile, security, and platform topics
 
 ## Appendix
-- Detailed metrics
-- Risk register
-- Dependency analysis
+- Detailed metrics from the delivery dashboard
+- Current RAID log snapshot
+- Updated dependency map for key initiatives
 ```
 
 ---

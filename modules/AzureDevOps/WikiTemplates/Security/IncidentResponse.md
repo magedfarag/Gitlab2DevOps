@@ -67,11 +67,11 @@ Procedures for detecting, responding to, and recovering from security incidents.
 
 **Contact List**:
 - Security Team: security@company.com, #security-incidents
-- CISO: [Name], [Phone], [Email]
-- IT Operations: [24/7 number]
-- Legal: [Name], [Phone]
-- PR: [Name], [Phone]
-- External: IR firm, law firm, cyber insurance
+- CISO: Jane Doe, +1-555-0100, ciso@company.com
+- IT Operations: +1-555-0200 (24/7 on-call)
+- Legal: Legal Counsel, +1-555-0300, legal@company.com
+- PR: PR Lead, +1-555-0400, pr@company.com
+- External: Incident response firm, law firm, cyber insurance (see vendor list)
 
 ### Phase 2: Detection & Analysis
 

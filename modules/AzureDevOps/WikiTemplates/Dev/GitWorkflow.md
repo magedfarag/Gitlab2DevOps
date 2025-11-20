@@ -22,7 +22,7 @@ main (protected) ─────────────────────
 
 ## Branch Naming Conventions
 
-**Pattern**: \``<type>/<ticket-number>-<brief-description>\``
+**Pattern**: `type/id-short-description` (for example, `feature/123-add-user-authentication`)
 
 ### Branch Types
 
@@ -53,11 +53,15 @@ main (protected) ─────────────────────
 ### Format
 
 ````````````
-<type>(<scope>): <subject>
+feat(auth): add JWT validation middleware
 
-[optional body]
+Optional body:
+- Explain why the change is needed
+- Summarize main technical decisions
 
-[optional footer]
+Optional footer:
+- Closes #123
+- BREAKING CHANGE: describe impact
 ````````````
 
 ### Types
@@ -273,7 +277,7 @@ git stash pop
 
 ````````````bash
 # Copy commit to current branch
-git cherry-pick <commit-hash>
+git cherry-pick abc1234  # replace with the commit hash you need
 ````````````
 
 ## Conflict Resolution

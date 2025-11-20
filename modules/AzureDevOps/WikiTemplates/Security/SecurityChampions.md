@@ -94,7 +94,7 @@ A **Security Champion** is a developer who:
 4. **Onboarding**: Complete Security Champion onboarding (2-week program)
 5. **Assignment**: Assigned to your team
 
-**Nomination Form**: [Link to form]
+**Nomination Form**: See `/Security/Security-Champions-Nomination` in the internal wiki.
 
 ### Onboarding Program (2 Weeks)
 
@@ -143,7 +143,7 @@ A **Security Champion** is a developer who:
 - Document threat model
 - Track mitigation implementation
 
-**Threat Model Template**: [Link to template in Security/Threat-Modeling-Guide]
+**Threat Model Template**: See `/Security/Threat-Modeling-Guide#threat-model-template`.
 
 ### Security Code Review
 
@@ -213,15 +213,15 @@ A **Security Champion** is a developer who:
 
 - **OWASP Top 10**: https://owasp.org/Top10/
 - **OWASP Cheat Sheets**: https://cheatsheetseries.owasp.org/
-- **Security Policies**: [Link to Security/Security-Policies]
-- **Threat Modeling Guide**: [Link to Security/Threat-Modeling-Guide]
-- **Incident Response Plan**: [Link to Security/Incident-Response-Plan]
-- **Secret Management**: [Link to Security/Secret-Management]
+- **Security Policies**: `/Security/Security-Policies`
+- **Threat Modeling Guide**: `/Security/Threat-Modeling-Guide`
+- **Incident Response Plan**: `/Security/Incident-Response-Plan`
+- **Secret Management**: `/Security/Secret-Management`
 
 ### Tools
 
 **SAST**:
-- SonarQube: [Link]
+- SonarQube: https://www.sonarqube.org/
 - Semgrep: https://semgrep.dev/
 
 **DAST**:
@@ -229,7 +229,7 @@ A **Security Champion** is a developer who:
 - Burp Suite Community: https://portswigger.net/burp/communitydownload
 
 **Dependency Scanning**:
-- Snyk: [Link]
+- Snyk: https://snyk.io/
 - Dependabot: Built into GitHub
 
 **Threat Modeling**:
@@ -270,7 +270,7 @@ A **Security Champion** is a developer who:
 - Champion satisfaction (target: ≥4.0/5.0)
 - Security culture survey score (target: ≥4.0/5.0)
 
-**Dashboard**: [Link to Power BI dashboard]
+**Dashboard**: See the `Security-Champions` Power BI dashboard in the analytics workspace.
 
 ## Recognition & Rewards
 
@@ -360,7 +360,7 @@ A **Security Champion** is a developer who:
 - Recognition and rewards
 - Join a community of security-minded engineers
 
-**Ready to Apply?** [Link to nomination form]
+**Ready to Apply?** Submit the nomination in `/Security/Security-Champions-Nomination`.
 
 **Questions?** Reach out to security-champions@company.com or #security-champions
 

@@ -511,32 +511,33 @@ Every repository needs:
 
 ## 🆘 Getting Help
 
-**Stuck? Try These**:
-1. 🔍 Search this wiki
-2. 💬 Ask in team chat
-3. 📋 Check [Tag Guidelines](/Tag-Guidelines)
-4. 📊 Review dashboard metrics
-5. 👥 Pair with teammate
+If something in these practices is unclear or you are unsure how to apply it:
 
-**Remember**: No question is too small!
+1. Search this wiki or project documentation.
+2. Ask in the team chat channel.
+3. Review the team’s tag and naming guidelines.
+4. Check dashboards and alerts for additional context.
+5. Pair with a teammate when the change is large or risky.
 
 ---
 
 ## 🔄 Continuous Improvement
 
-**This document is living**:
-- Review quarterly
-- Update based on retrospective action items
-- Add team-specific practices
-- Remove outdated guidance
+Treat this document as living guidance:
 
-**Suggest Changes**:
-- Create work item tagged \``documentation\``
-- Propose changes in retrospectives
-- Edit this wiki page directly (with team agreement)
+- Review it at least once per quarter.
+- Update it based on retrospective action items.
+- Add team-specific examples as patterns emerge.
+- Remove practices that are no longer relevant.
+
+To suggest a change:
+
+- Create a work item tagged `documentation`.
+- Propose the change in a retrospective or planning session.
+- Update the wiki page after the team agrees.
 
 ---
 
-*Last Updated: $(Get-Date -Format 'yyyy-MM-dd')*
+*Last updated: 2025-11-20*
 
-*This page is maintained by the team. Questions? Create a work item tagged 'documentation'.*
+*This page is maintained by the team. Create a work item tagged `documentation` if something is missing or incorrect.*

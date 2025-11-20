@@ -20,6 +20,10 @@ $loggingPath = Join-Path $migrationRoot "core\Logging.psm1"
 if (-not (Get-Module -Name 'Logging') -and (Test-Path $loggingPath)) {
     Import-Module -WarningAction SilentlyContinue $loggingPath -Force -Global -ErrorAction Stop
 }
+$templatesPath = Join-Path $migrationRoot "Templates\Templates.psm1"
+if (-not (Get-Module -Name 'Templates') -and (Test-Path $templatesPath)) {
+    Import-Module -WarningAction SilentlyContinue $templatesPath -Force -Global -ErrorAction Stop
+}
 
 function Measure-Adoprojectwiki {
     [CmdletBinding()]
@@ -253,6 +257,7 @@ This section contains QA guidelines, testing strategies, and quality management 
 - Test Data Management
 - Automation Framework & Best Practices
 - Bug Lifecycle & Quality Metrics
+- Non-Functional Testing
 
 Use the subpages navigation to explore each topic.
 "@
@@ -271,7 +276,8 @@ Use the subpages navigation to explore each topic.
         @{ path = '/QA/Test-Strategy'; template = 'QA/TestStrategy.md'; title = 'Test Strategy' },
         @{ path = '/QA/Test-Data-Management'; template = 'QA/TestDataManagement.md'; title = 'Test Data Management' },
         @{ path = '/QA/Automation-Framework'; template = 'QA/AutomationFramework.md'; title = 'Automation Framework' },
-        @{ path = '/QA/Bug-Lifecycle'; template = 'QA/BugLifecycle.md'; title = 'Bug Lifecycle' }
+        @{ path = '/QA/Bug-Lifecycle'; template = 'QA/BugLifecycle.md'; title = 'Bug Lifecycle' },
+        @{ path = '/QA/Non-Functional-Testing'; template = 'QA/NonFunctionalTesting.md'; title = 'Non-Functional Testing' }
     )
     
     foreach ($page in $pages) {
@@ -286,12 +292,13 @@ Use the subpages navigation to explore each topic.
     }
     
     Write-Host ""
-    Write-Host "[INFO] QA wiki structure created with 5 comprehensive guides:" -ForegroundColor Cyan
+    Write-Host "[INFO] QA wiki structure created with 6 comprehensive guides:" -ForegroundColor Cyan
     Write-Host "  📋 QA Guidelines: Testing standards and practices" -ForegroundColor Gray
     Write-Host "  🎯 Test Strategy: Planning and execution frameworks" -ForegroundColor Gray
     Write-Host "  � Test Data: Data management and generation strategies" -ForegroundColor Gray
     Write-Host "  🤖 Automation: Framework architecture and best practices" -ForegroundColor Gray
     Write-Host "  🐛 Bug Lifecycle: Defect management and quality metrics" -ForegroundColor Gray
+    Write-Host "  ⚡ Non-Functional Testing: Performance, security, and scalability testing" -ForegroundColor Gray
 }
 
 
@@ -315,10 +322,12 @@ function Measure-Adobestpracticeswiki {
 This section contains Azure DevOps best practices, coding standards, and development guidelines.
 
 ## Contents
+- Architecture and Design Guidelines
 - Azure DevOps Best Practices
 - Performance Optimization
 - Error Handling & Resilience
 - Logging Standards
+- Monitoring and Alerting Standards
 - Testing Strategies
 - Documentation Guidelines
 
@@ -335,12 +344,14 @@ Use the subpages navigation to explore each topic.
     
     # Define all Best Practices wiki pages
     $pages = @(
-        @{ path = '/Best-Practices/Overview'; template = 'BestPractices/BestPractices'; title = 'Best Practices Overview' },
-        @{ path = '/Best-Practices/Performance-Optimization'; template = 'BestPractices/PerformanceOptimization'; title = 'Performance Optimization' },
-        @{ path = '/Best-Practices/Error-Handling'; template = 'BestPractices/ErrorHandling'; title = 'Error Handling' },
-        @{ path = '/Best-Practices/Logging-Standards'; template = 'BestPractices/LoggingStandards'; title = 'Logging Standards' },
-        @{ path = '/Best-Practices/Testing-Strategies'; template = 'BestPractices/TestingStrategies'; title = 'Testing Strategies' },
-        @{ path = '/Best-Practices/Documentation-Guidelines'; template = 'BestPractices/DocumentationGuidelines'; title = 'Documentation Guidelines' }
+        @{ path = '/Best-Practices/Architecture-and-Design-Guidelines'; template = 'BestPractices/ArchitectureAndDesignGuidelines.md'; title = 'Architecture and Design Guidelines' },
+        @{ path = '/Best-Practices/Overview'; template = 'BestPractices/BestPractices.md'; title = 'Best Practices Overview' },
+        @{ path = '/Best-Practices/Performance-Optimization'; template = 'BestPractices/PerformanceOptimization.md'; title = 'Performance Optimization' },
+        @{ path = '/Best-Practices/Error-Handling'; template = 'BestPractices/ErrorHandling.md'; title = 'Error Handling' },
+        @{ path = '/Best-Practices/Logging-Standards'; template = 'BestPractices/LoggingStandards.md'; title = 'Logging Standards' },
+        @{ path = '/Best-Practices/Monitoring-and-Alerting-Standards'; template = 'BestPractices/MonitoringAndAlertingStandards.md'; title = 'Monitoring and Alerting Standards' },
+        @{ path = '/Best-Practices/Testing-Strategies'; template = 'BestPractices/TestingStrategies.md'; title = 'Testing Strategies' },
+        @{ path = '/Best-Practices/Documentation-Guidelines'; template = 'BestPractices/DocumentationGuidelines.md'; title = 'Documentation Guidelines' }
     )
     
     foreach ($page in $pages) {
@@ -355,11 +366,13 @@ Use the subpages navigation to explore each topic.
     }
     
     Write-Host ""
-    Write-Host "[INFO] Best Practices wiki structure created with 6 comprehensive guides:" -ForegroundColor Cyan
+    Write-Host "[INFO] Best Practices wiki structure created with 8 comprehensive guides:" -ForegroundColor Cyan
+    Write-Host "  🏗️ Architecture and Design: System design principles and patterns" -ForegroundColor Gray
     Write-Host "  💎 Best Practices: Work items, boards, and team productivity" -ForegroundColor Gray
     Write-Host "  🚀 Performance: Optimization strategies for frontend and backend" -ForegroundColor Gray
     Write-Host "  🛡️ Error Handling: Resilience patterns and error management" -ForegroundColor Gray
     Write-Host "  📝 Logging: Structured logging and monitoring best practices" -ForegroundColor Gray
+    Write-Host "  📊 Monitoring and Alerting: Observability and alerting standards" -ForegroundColor Gray
     Write-Host "  🧪 Testing: Comprehensive testing strategies and patterns" -ForegroundColor Gray
     Write-Host "  📚 Documentation: Guidelines for effective technical documentation" -ForegroundColor Gray
 }
@@ -383,6 +396,7 @@ This section contains business-focused documentation, decision logs, and migrati
 - Business Welcome & Overview
 - Decision Log
 - Risks & Issues
+- Risk Appetite and Guardrails
 - Glossary
 - Ways of Working
 - KPIs and Success Metrics
@@ -406,6 +420,7 @@ Use the subpages navigation to explore each topic.
         @{ path = '/Business/Welcome'; content = Get-WikiTemplate "Business/BusinessWelcome.md" },
         @{ path = '/Business/Decision-Log'; content = Get-WikiTemplate "Business/DecisionLog.md" },
         @{ path = '/Business/Risks-Issues'; content = Get-WikiTemplate "Business/RisksIssues.md" },
+        @{ path = '/Business/Risk-Appetite-and-Guardrails'; content = Get-WikiTemplate "Business/RiskAppetiteAndGuardrails.md" },
         @{ path = '/Business/Glossary'; content = Get-WikiTemplate "Business/Glossary.md" },
         @{ path = '/Business/Ways-of-Working'; content = Get-WikiTemplate "Business/WaysOfWorking.md" },
         @{ path = '/Business/KPIs-and-Success'; content = Get-WikiTemplate "Business/KPIsAndSuccess.md" },
@@ -450,7 +465,9 @@ This section contains development-focused documentation and guidelines.
 - Development Setup
 - API Documentation
 - Git Workflow
+- CI/CD Pipelines
 - Code Review Checklist
+- Observability for Developers
 - Troubleshooting
 - Dependencies
 
@@ -477,8 +494,14 @@ Use the subpages navigation to explore each topic.
     # Git Workflow
     $gitWorkflowContent = Get-WikiTemplate "Dev/GitWorkflow.md"
 
+    # CI/CD Pipelines
+    $cicdContent = Get-WikiTemplate "Dev/CICDPipelines.md"
+
     # Code Review Checklist
     $codeReviewContent = Get-WikiTemplate "Dev/CodeReview.md"
+
+    # Observability for Developers
+    $observabilityContent = Get-WikiTemplate "Dev/ObservabilityForDevelopers.md"
 
     # Troubleshooting Guide
     $troubleshootingContent = Get-WikiTemplate "Dev/Troubleshooting.md"
@@ -500,8 +523,14 @@ Use the subpages navigation to explore each topic.
         Set-AdoWikiPage $Project $WikiId "/Development/Git-Workflow" $gitWorkflowContent
         Write-Host "  ✅ Git Workflow" -ForegroundColor Gray
         
+        Set-AdoWikiPage $Project $WikiId "/Development/CI-CD-Pipelines" $cicdContent
+        Write-Host "  ✅ CI/CD Pipelines" -ForegroundColor Gray
+        
         Set-AdoWikiPage $Project $WikiId "/Development/Code-Review-Checklist" $codeReviewContent
         Write-Host "  ✅ Code Review Checklist" -ForegroundColor Gray
+        
+        Set-AdoWikiPage $Project $WikiId "/Development/Observability-for-Developers" $observabilityContent
+        Write-Host "  ✅ Observability for Developers" -ForegroundColor Gray
         
         Set-AdoWikiPage $Project $WikiId "/Development/Troubleshooting" $troubleshootingContent
         Write-Host "  ✅ Troubleshooting" -ForegroundColor Gray
@@ -542,6 +571,8 @@ This section contains security policies, guidelines, and procedures.
 - Compliance Requirements
 - Secret Management
 - Security Champions Program
+- Security Requirements
+- Vulnerability Management
 
 Use the subpages navigation to explore each topic.
 "@
@@ -597,7 +628,19 @@ Use the subpages navigation to explore each topic.
         Set-AdoWikiPage $Project $WikiId "/Security/Security-Champions-Program" $securityChampionsContent
         Write-Host "  ✅ Security Champions Program" -ForegroundColor Gray
         
-        Write-Host "[SUCCESS] All 7 security wiki pages created" -ForegroundColor Green
+        # Security Requirements
+        $securityRequirementsContent = Get-WikiTemplate "Security/SecurityRequirements.md"
+
+        Set-AdoWikiPage $Project $WikiId "/Security/Security-Requirements" $securityRequirementsContent
+        Write-Host "  ✅ Security Requirements" -ForegroundColor Gray
+        
+        # Vulnerability Management
+        $vulnerabilityManagementContent = Get-WikiTemplate "Security/VulnerabilityManagement.md"
+
+        Set-AdoWikiPage $Project $WikiId "/Security/Vulnerability-Management" $vulnerabilityManagementContent
+        Write-Host "  ✅ Vulnerability Management" -ForegroundColor Gray
+        
+        Write-Host "[SUCCESS] All 9 security wiki pages created" -ForegroundColor Green
     }
     catch {
         Write-Warning "Failed to create some security wiki pages: $_"
@@ -630,6 +673,7 @@ This section contains program management and PMO documentation.
 - RAID Log
 - Stakeholder Communications
 - Retrospectives
+- Change Management and Release Governance
 - Metrics Dashboard
 
 Use the subpages navigation to explore each topic.
@@ -652,6 +696,7 @@ Use the subpages navigation to explore each topic.
         @{ path = '/Management/RAID-Log'; template = 'Management/RAID.md'; title = 'RAID Log (Risks, Assumptions, Issues, Dependencies)' },
         @{ path = '/Management/Stakeholder-Communications'; template = 'Management/StakeholderComms.md'; title = 'Stakeholder Communications' },
         @{ path = '/Management/Retrospectives'; template = 'Management/Retrospectives.md'; title = 'Retrospective Insights' },
+        @{ path = '/Management/Change-Management-and-Release-Governance'; template = 'Management/ChangeManagementAndReleaseGovernance.md'; title = 'Change Management and Release Governance' },
         @{ path = '/Management/Metrics-Dashboard'; template = 'Management/MetricsDashboard.md'; title = 'Metrics Dashboard' }
     )
     
@@ -667,7 +712,7 @@ Use the subpages navigation to explore each topic.
     }
     
     Write-Host ""
-    Write-Host "[INFO] Management wiki structure created with 8 comprehensive guides:" -ForegroundColor Cyan
+    Write-Host "[INFO] Management wiki structure created with 9 comprehensive guides:" -ForegroundColor Cyan
     Write-Host "  📊 Program Overview: Mission, structure, and governance" -ForegroundColor Gray
     Write-Host "  📅 Sprint Planning: Sprint goals, backlog, and ceremonies" -ForegroundColor Gray
     Write-Host "  👥 Capacity Planning: Team capacity and resource allocation" -ForegroundColor Gray
@@ -675,6 +720,7 @@ Use the subpages navigation to explore each topic.
     Write-Host "  🎯 RAID Log: Risks, assumptions, issues, dependencies tracking" -ForegroundColor Gray
     Write-Host "  📢 Stakeholder Communications: Communication plan and templates" -ForegroundColor Gray
     Write-Host "  🔄 Retrospectives: Sprint insights and continuous improvement" -ForegroundColor Gray
+    Write-Host "  🔄 Change Management: Release governance and deployment processes" -ForegroundColor Gray
     Write-Host "  📈 Metrics Dashboard: KPIs, health metrics, and performance indicators" -ForegroundColor Gray
 }
 
@@ -704,6 +750,8 @@ function Initialize-AdoProjectWikis {
 
     $handlers = @(
         @{ Name = 'Project'; Func = { Measure-Adoprojectwiki -Project $Project -WikiId $WikiId } },
+        @{ Name = 'Home'; Func = { New-AdoProjectHomeWikiPage -Project $Project -WikiId $WikiId } },
+        @{ Name = 'TagGuidelines'; Func = { New-AdoTagGuidelinesWikiPage -Project $Project -WikiId $WikiId } },
         @{ Name = 'QA'; Func = { New-AdoQAGuidelinesWiki -Project $Project -WikiId $WikiId } },
         @{ Name = 'BestPractices'; Func = { Measure-Adobestpracticeswiki -Project $Project -WikiId $WikiId } },
         @{ Name = 'Business'; Func = { Measure-Adobusinesswiki -Project $Project -WikiId $WikiId } },
@@ -734,7 +782,31 @@ function Initialize-AdoProjectWikis {
 }
 
 
-function New-AdoProjectSummaryWikiPage {
+function New-AdoProjectHomeWikiPage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$WikiId
+    )
+    
+    Write-Host "[INFO] Creating project home wiki page..." -ForegroundColor Cyan
+    
+    try {
+        # Load welcome template from Templates module
+        $welcomeContent = Get-EmbeddedWikiTemplate -TemplateName "welcome-wiki" -Parameters @{
+            PROJECT_NAME = $Project
+        }
+        
+        Set-AdoWikiPage $Project $WikiId "/Home" $welcomeContent
+        Write-Host "[SUCCESS] Created project home page" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Failed to create project home page: $_"
+    }
+}
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Project,
@@ -1010,6 +1082,32 @@ $repoSection
     }
 }
 
+function New-AdoTagGuidelinesWikiPage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$WikiId
+    )
+    
+    Write-Host "[INFO] Creating tag guidelines wiki page..." -ForegroundColor Cyan
+    
+    try {
+        # Load tag guidelines template from Templates module
+        $tagContent = Get-EmbeddedWikiTemplate -TemplateName "TagGuidelines" -Parameters @{
+            CURRENT_DATE = (Get-Date -Format 'yyyy-MM-dd')
+        }
+        
+        Set-AdoWikiPage $Project $WikiId "/Tag-Guidelines" $tagContent
+        Write-Host "[SUCCESS] Created tag guidelines page" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Failed to create tag guidelines page: $_"
+    }
+}
+
 Export-ModuleMember -Function @(
     'Measure-Adoprojectwiki',
     'Set-AdoWikiPage',
@@ -1019,6 +1117,8 @@ Export-ModuleMember -Function @(
     'Measure-Adodevwiki',
     'New-AdoSecurityWiki',
     'Measure-Adomanagementwiki',
+    'New-AdoProjectHomeWikiPage',
+    'New-AdoTagGuidelinesWikiPage',
     'New-AdoProjectSummaryWikiPage'
 )
 

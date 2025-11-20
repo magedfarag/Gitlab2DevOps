@@ -62,7 +62,7 @@ Common issues and solutions for development, deployment, and runtime problems.
 netstat -ano | findstr :5000
 
 # Kill process
-taskkill /PID <PID> /F
+taskkill /PID 12345 /F  # replace 12345 with the actual PID
 ````````````
 
 **Linux/Mac**:
@@ -71,7 +71,7 @@ taskkill /PID <PID> /F
 lsof -i :5000
 
 # Kill process
-kill -9 <PID>
+kill -9 12345  # replace 12345 with the actual PID
 ````````````
 
 **Or Change Port**:
@@ -178,8 +178,8 @@ pip install -r requirements.txt
 
 1. **Check Network**: Verify service is reachable
    ````````````bash
-   ping <hostname>
-   telnet <hostname> <port>
+   ping staging-api.example.com
+   telnet staging-api.example.com 5432
    ````````````
 
 2. **Increase Timeout**:
@@ -247,13 +247,13 @@ pip install -r requirements.txt
 
 2. **Remove Failed Migration**:
    ````````````bash
-   dotnet ef database update <last-good-migration>
+   dotnet ef database update 202401151030_AddUsersTable
    dotnet ef migrations remove
    ````````````
 
 3. **Recreate Migration**:
    ````````````bash
-   dotnet ef migrations add <MigrationName>
+   dotnet ef migrations add AddOrderStatusColumn
    dotnet ef database update
    ````````````
 
@@ -392,7 +392,7 @@ pip install -r requirements.txt
    - Look for \``<<<<<<\``, \``======\``, \``>>>>>>\``
    - Edit to keep desired changes
    - Remove markers
-   - \``git add <file>\``
+   - \``git add Startup.cs\``
    - \``git commit\`` or \``git rebase --continue\``
 
 3. **Use Merge Tool**:
@@ -463,7 +463,7 @@ What I've tried:
 - Checked connection string
 
 Stack trace:
-[paste full stack trace]
+Stack trace: System.NullReferenceException: Object reference not set to an instance of an object at Startup.Configure(...)
 ````````````
 
 ### Escalation Path

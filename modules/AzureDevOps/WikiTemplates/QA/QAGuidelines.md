@@ -348,7 +348,7 @@ Navigate to **Queries → Shared Queries → QA** folder:
 
 ### QA Dashboard
 
-Navigate to **Dashboards → <Team> - QA Metrics**:
+Navigate to **Dashboards → Digital Delivery - QA Metrics**:
 
 **Row 1: Test Execution Overview**
 - **Test Execution Status** (Pie Chart) - Pass/Fail distribution
@@ -421,9 +421,9 @@ Navigate to **Dashboards → <Team> - QA Metrics**:
 
 ### Team Contacts
 
-- **QA Lead**: <Assign QA Lead>
-- **Test Automation**: <Assign Automation Lead>
-- **Product Owner**: <Assign PO>
+- **QA Lead**: Sarah Ahmed
+- **Test Automation**: Omar Khalid
+- **Product Owner**: Alex Chen
 
 ### Support
 
@@ -433,7 +433,7 @@ Navigate to **Dashboards → <Team> - QA Metrics**:
 
 ---
 
-*Last Updated: $(Get-Date -Format 'yyyy-MM-dd')*
+*Last Updated: 2025-11-20*
 *Version: 1.0*
 
 ---

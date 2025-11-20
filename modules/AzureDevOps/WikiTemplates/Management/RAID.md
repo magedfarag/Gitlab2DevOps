@@ -6,8 +6,8 @@
 
 The RAID log is a project management tool for tracking Risks, Assumptions, Issues, and Dependencies. This living document is updated weekly and reviewed in program sync meetings.
 
-**Last Updated**: [Date]  
-**Next Review**: [Date]
+**Last Updated**: 2025-11-20  
+**Next Review**: 2025-11-27
 
 ---
 

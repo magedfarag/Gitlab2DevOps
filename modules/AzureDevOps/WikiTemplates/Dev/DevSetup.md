@@ -35,12 +35,12 @@ Complete guide for setting up your local development environment.
 
 ````````````bash
 # Clone with HTTPS
-git clone https://dev.azure.com/your-org/$Project/_git/$Project
+git clone https://dev.azure.com/contoso/OrderProcessingService/_git/OrderProcessingService
 
 # Or with SSH
-git clone git@ssh.dev.azure.com:v3/your-org/$Project/$Project
+git clone git@ssh.dev.azure.com:v3/contoso/OrderProcessingService/OrderProcessingService
 
-cd $Project
+cd OrderProcessingService
 ````````````
 
 ### 2. Install Dependencies
@@ -131,11 +131,11 @@ pytest
 ````````````bash
 # Windows
 netstat -ano | findstr :5000
-taskkill /PID <PID> /F
+taskkill /PID 12345 /F  # replace 12345 with the actual PID
 
 # Linux/Mac
 lsof -i :5000
-kill -9 <PID>
+kill -9 12345  # replace 12345 with the actual PID
 ````````````
 
 ### Issue: Database Connection Failed

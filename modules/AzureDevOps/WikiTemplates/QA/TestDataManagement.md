@@ -201,7 +201,7 @@ public void ProcessOrder_VariousScenarios_HandlesCorrectly(OrderTestCase testCas
 // orders.json
 [
   {
-    "order": { "customerId": 1, "items": [...] },
+    "order": { "customerId": 1, "items": [ { "productId": 1, "quantity": 2 }, { "productId": 2, "quantity": 1 } ] },
     "expectedResult": "Success"
   },
   {

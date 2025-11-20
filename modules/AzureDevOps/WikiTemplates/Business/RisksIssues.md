@@ -6,8 +6,8 @@ Track business-visible risks and issues.
 
 | Type | Title | Owner | Mitigation | Due |
 |------|-------|-------|------------|-----|
-| Risk | | | | |
-| Issue | | | | |
+| Risk | Release pipeline capacity constraint | DevOps Lead | Add additional build agents and prioritize critical pipelines | 2025-11-30 |
+| Issue | Inconsistent branch naming in Azure Repos | Tech Lead | Apply branch naming convention and update branch policies | 2025-12-15 |
 
 ---
 

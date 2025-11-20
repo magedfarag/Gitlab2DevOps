@@ -244,8 +244,8 @@ See [Compliance Requirements](/Security/Compliance-Requirements) for detailed re
 ---
 
 **Policy Owner**: CISO  
-**Last Review**: [Date]  
-**Next Review**: [Date + 1 year]  
+**Last Review**: 2025-11-20  
+**Next Review**: 2026-11-20  
 **Questions**: #security or security@company.com
 
 ---

@@ -18,61 +18,61 @@ Create an ADR when you make a decision that:
 
 ## ADR Template
 
-Use this template for new ADRs:
+Use this structure for new ADRs. Adapt the titles and text, but keep the sections consistent so decisions are easy to scan and compare.
 
 ````````````markdown
-# ADR-001: [Short Title of Decision]
+# ADR-001: Adopt REST API for User Service
 
-**Status**: Proposed | Accepted | Superseded | Deprecated  
-**Date**: YYYY-MM-DD  
-**Deciders**: [List of people involved]  
-**Technical Story**: [Link to work item or ticket]
+**Status**: Accepted  
+**Date**: 2025-01-15  
+**Deciders**: Tech Lead, Backend Team  
+**Technical Story**: OPS-123 – Public User API
 
 ## Context
 
-[Describe the forces at play: technical, business, political, social. 
-What is the problem we're trying to solve?]
+We need to choose an API style for the new User Service that will be consumed by multiple internal web and mobile applications. The team already supports several REST APIs, and existing consumers and monitoring assume HTTP/JSON semantics.
 
 ## Decision
 
-[Describe the decision we made. Use active voice: "We will..."]
+We will expose the User Service as a REST API documented with OpenAPI and secured with OAuth2 access tokens.
 
 ## Consequences
 
 ### Positive
-- [Benefit 1]
-- [Benefit 2]
+- Aligns with existing team experience and tooling around REST.
+- Works with existing API gateway, monitoring, and documentation tooling.
 
 ### Negative
-- [Drawback 1]
-- [Drawback 2]
+- Requires more endpoints to cover different use cases compared with a single GraphQL schema.
+- Some clients may need multiple round trips to fetch related data.
 
 ### Neutral
-- [Impact 1]
+- Future services can still adopt other styles (for example, gRPC) if justified by performance or streaming requirements.
 
 ## Alternatives Considered
 
-### Option A: [Name]
-- **Pros**: ...
-- **Cons**: ...
-- **Why Not Chosen**: ...
+### Option A: GraphQL
+- **Pros**: Flexible querying; clients can request exactly the fields they need.
+- **Cons**: Adds a new technology for the team to learn and operate; more complex server-side implementation.
+- **Why Not Chosen**: Higher operational complexity without a clear current need.
 
-### Option B: [Name]
-- **Pros**: ...
-- **Cons**: ...
-- **Why Not Chosen**: ...
+### Option B: gRPC
+- **Pros**: Efficient binary protocol; good for internal service-to-service communication.
+- **Cons**: Browser support is limited; tooling for some consumers is weaker.
+- **Why Not Chosen**: Primary consumers are browser and mobile clients that already integrate well with REST.
 
 ## Implementation Notes
 
-[Any specific guidance for implementation]
+- Define and maintain an OpenAPI contract in the repository.
+- Enforce contract changes through pull requests and automated tests.
+- Monitor latency and error rates for key endpoints.
 
 ## References
 
-- [Link to design doc]
-- [Link to spike/POC]
-- [External resources]
+- OpenAPI definition for the User Service.
+- Spike document comparing REST, GraphQL, and gRPC for this system.
+- Platform architecture overview for the API layer.
 ````````````
-
 ## Example ADRs
 
 ### ADR-001: Use REST API instead of GraphQL

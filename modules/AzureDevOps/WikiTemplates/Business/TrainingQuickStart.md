@@ -12,8 +12,8 @@ Agenda:
 3) Review dashboards; stand-up checklist
 
 Cheat sheets:
-- Top 10 daily tasks
-- GitLab vs Azure DevOps differences
+- Top 10 daily tasks in Azure DevOps (create and update work items, link pull requests, check pipeline status, review dashboards, update tags, comment on items, move work across boards, search using queries, check branch policies, and review recent deployments).
+- GitLab vs Azure DevOps differences (Merge Request → Pull Request, Issue → Work Item, Labels → Tags, Issue Boards → Azure Boards, CI pipelines → Azure Pipelines).
 
 ---
 

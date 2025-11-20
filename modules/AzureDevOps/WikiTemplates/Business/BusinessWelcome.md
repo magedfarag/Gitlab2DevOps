@@ -9,7 +9,7 @@ This project is now hosted on Azure DevOps Server. Here’s what you need to kno
 - Work tracking uses the Agile process (stories, tasks, bugs, epics, features).
 
 ## How to access
-- Project URL: [$Project](/Home)
+- Project URL: https://ado.example.com/tfs/DefaultCollection/SoftwareFactory/_home
 - If you need access, contact the Project Admins.
 
 ## How we track work

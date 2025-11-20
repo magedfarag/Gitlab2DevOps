@@ -36,48 +36,44 @@ Best practices for creating and maintaining effective technical documentation.
 
 **Project README Template**
 ```markdown
-# Project Name
+# Order Processing Service
 
-Brief one-paragraph description of what the project does.
+Service that handles order capture, payment processing, and customer email notifications for an e-commerce site.
 
 ## Features
 
-- Feature 1
-- Feature 2
-- Feature 3
+- Create and query customer orders through a REST API.
+- Integrate with a payment provider.
+- Send email notifications for important order events (confirmation, failure).
 
 ## Prerequisites
 
-- Node.js 18+
-- Docker Desktop
-- Azure CLI
+- Node.js 18 or later.
+- Docker Desktop.
+- Azure CLI.
 
-## Quick Start
+## Quick start
 
-\`\`\`bash
-# Clone and install
-git clone <repository-url>
-cd project-name
-npm install
-
-# Run locally
-npm run dev
-\`\`\`
+1. Clone the repository: `git clone https://github.com/example-org/order-processing-service.git`
+2. Change directory: `cd order-processing-service`
+3. Install dependencies: `npm install`
+4. Run locally: `npm run dev`
 
 ## Configuration
 
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| API_URL | Backend API endpoint | http://localhost:3000 | Yes |
-| LOG_LEVEL | Logging verbosity | info | No |
+| Variable   | Description          | Default               | Required |
+|-----------|----------------------|-----------------------|----------|
+| API_URL   | Backend API endpoint | http://localhost:3000 | Yes      |
+| LOG_LEVEL | Logging verbosity    | info                  | No       |
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
+See `CONTRIBUTING.md` for development guidelines.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file.
+MIT License – see `LICENSE` file.
+
 ```
 
 ### API Documentation
@@ -129,7 +125,16 @@ Create a new order.
 curl -X POST https://api.example.com/orders \\
   -H "Authorization: Bearer <token>" \\
   -H "Content-Type: application/json" \\
-  -d '{"customerId": 123, "items": [...]}'
+-d '{
+  "customerId": 123,
+  "items": [
+    {
+      "productId": 456,
+      "quantity": 2,
+      "price": 19.99
+    }
+  ]
+}'
 \`\`\`
 ```
 
@@ -153,7 +158,13 @@ curl -X POST https://api.example.com/orders \\
 /// </remarks>
 /// <example>
 /// <code>
-/// var order = new Order { Items = [...] };
+/// var order = new Order
+/// {
+///     Items = new[]
+///     {
+///         new OrderItem { ProductId = 1, Quantity = 2, Price = 10m }
+///     }
+/// };
 /// var total = CalculateTotal(order, ShippingMethod.Express);
 /// Console.WriteLine($"Total: {total.GrandTotal:C}");
 /// </code>

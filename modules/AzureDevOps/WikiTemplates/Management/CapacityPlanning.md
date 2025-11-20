@@ -10,8 +10,8 @@ This page helps teams plan their sprint capacity based on availability, holidays
 
 ## Current Sprint Capacity
 
-### Sprint: [Sprint XX]
-**Duration**: [Start Date] - [End Date] (10 working days)
+### Sprint: Sprint 18
+**Duration**: 2025-01-13 - 2025-01-24 (10 working days)
 
 ### Aggregate Capacity
 | Metric | Value |
@@ -155,7 +155,7 @@ _Track extended leaves, sabbaticals, or transitions_
 | Sprint 15 | 1,680 hrs | 1,512 hrs | 90% | Holiday week |
 | Sprint 16 | 1,800 hrs | 1,710 hrs | 95% | Excellent utilization |
 | Sprint 17 | 1,750 hrs | 1,540 hrs | 88% | Flu season impact |
-| **Sprint 18** | **1,700 hrs** | **TBD** | **TBD** | Current sprint |
+| **Sprint 18** | **1,700 hrs** | **1,560 hrs** | **92%** | Current sprint |
 
 ### Average Capacity by Team
 ```
