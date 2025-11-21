@@ -171,16 +171,12 @@ function Set-AdoWikiPage {
                 $etag = $null
                 if ($existing -and $existing.PSObject.Properties['eTag'] -and $existing.eTag) { $etag = $existing.eTag }
 
-                # Temporarily add If-Match header to module ADO headers
-                $origIfMatch = $null
-                if ($script:AdoHeaders.ContainsKey('If-Match')) { $origIfMatch = $script:AdoHeaders['If-Match'] }
-                if ($etag) { $script:AdoHeaders['If-Match'] = $etag }
+                # Create headers with If-Match for PATCH
+                $patchHeaders = @{}
+                if ($etag) { $patchHeaders['If-Match'] = $etag }
 
                 $patchBody = @{ content = $Markdown }
-                Invoke-AdoRest PATCH "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body $patchBody -MaxAttempts 1 -DelaySeconds 0 | Out-Null
-
-                # Restore original If-Match header state
-                if ($null -ne $origIfMatch) { $script:AdoHeaders['If-Match'] = $origIfMatch } else { $script:AdoHeaders.Remove('If-Match') | Out-Null }
+                Invoke-AdoRest PATCH "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body $patchBody -Headers $patchHeaders -MaxAttempts 1 -DelaySeconds 0 | Out-Null
 
                 Write-Verbose "[Wikis] Successfully updated wiki page: $Path"
                 return
@@ -425,9 +421,7 @@ Use the subpages navigation to explore each topic.
         @{ path = '/Business/Ways-of-Working'; content = Get-WikiTemplate "Business/WaysOfWorking.md" },
         @{ path = '/Business/KPIs-and-Success'; content = Get-WikiTemplate "Business/KPIsAndSuccess.md" },
         @{ path = '/Business/Training-Quick-Start'; content = Get-WikiTemplate "Business/TrainingQuickStart.md" },
-        @{ path = '/Business/Communication-Templates'; content = Get-WikiTemplate "Business/CommunicationTemplates.md" },
-        @{ path = '/Business/Cutover-Timeline'; content = Get-WikiTemplate "Business/CutoverTimeline.md" },
-        @{ path = '/Business/Post-Cutover-Summary'; content = Get-WikiTemplate "Business/PostCutoverSummary.md" }
+        @{ path = '/Business/Communication-Templates'; content = Get-WikiTemplate "Business/CommunicationTemplates.md" }
     )
 
     foreach ($p in $pages) {
@@ -807,6 +801,8 @@ function New-AdoProjectHomeWikiPage {
         Write-Warning "Failed to create project home page: $_"
     }
 }
+
+function New-AdoProjectSummaryWikiPage {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Project,
