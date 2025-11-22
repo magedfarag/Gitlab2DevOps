@@ -395,7 +395,7 @@ function Initialize-GitLab {
     }
 
     # Download repository for migration preparation
-    $gitUrl = $p.http_url_to_repo -replace '^https://', "https://oauth2:$gitLabToken@"
+    $gitUrl = if ($p -and $p.http_url_to_repo) { $p.http_url_to_repo -replace '^https://', "https://oauth2:$gitLabToken@" } else { '' }
     
     if (Test-Path $repoDir) {
         Write-Host "[INFO] Repository directory exists, checking status..."
@@ -558,7 +558,7 @@ function Initialize-GitLab {
         ""
         "Project Details:"
         "- Project: $($p.path_with_namespace)"
-        "- GitLab URL: $($p.http_url_to_repo)"
+        "- GitLab URL: $(if ($p -and $p.http_url_to_repo) { $p.http_url_to_repo } else { 'N/A' })"
         "- Project Directory: $projectDir"
         "- Repository Size: $($report.repo_size_MB) MB"
         "- LFS Enabled: $($report.lfs_enabled)"

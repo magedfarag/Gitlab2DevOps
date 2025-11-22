@@ -159,7 +159,7 @@ function Invoke-SingleMigration {
         # Use cached data
         $gl = [pscustomobject]@{
             path                = $preflightData.project.Split('/')[-1]
-            http_url_to_repo    = $preflightData.http_url_to_repo
+            http_url_to_repo    = if ($preflightData -and ($preflightData.PSObject.Properties.Name -contains 'http_url_to_repo')) { $preflightData.http_url_to_repo } else { $null }
             path_with_namespace = $preflightData.project
         }
         
@@ -243,7 +243,7 @@ function Invoke-SingleMigration {
         "=== Azure DevOps Migration Log ==="
         "Migration started: $startTime"
         "Source GitLab: $($gl.path_with_namespace)"
-        "Source URL: $($gl.http_url_to_repo)"
+        "Source URL: $(if ($gl -and $gl.http_url_to_repo) { $gl.http_url_to_repo } else { 'N/A' })"
         "Destination ADO Project: $DestProject"
         "Destination Repository: $repoName"
         "Using local repo: $useLocalRepo"

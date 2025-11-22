@@ -544,6 +544,7 @@ function Measure-Adoiterations {
             
             Write-Verbose "[Measure-Adoiterations] Creating iteration: $sprintName ($($sprintStart.ToString('yyyy-MM-dd')) to $($sprintEnd.ToString('yyyy-MM-dd')))"
             $res = Ensure-AdoIteration -Project $Project -Name $sprintName -StartDate $sprintStart -FinishDate $sprintEnd -Team $Team
+            Write-Verbose "[Measure-Adoiterations] Ensure-AdoIteration returned object type: $($res.GetType().FullName), properties: $([string]($res | Get-Member -MemberType Properties | Select-Object -ExpandProperty Name))"
             if ($res -and $res.Node) {
                 $iterations += $res.Node
                 if ($res.Created) {
@@ -616,7 +617,7 @@ function Ensure-AdoIteration {
         if ($existing) {
             Write-Verbose "[Ensure-AdoIteration] Iteration '$Name' already exists in project '$Project'"
             try { Add-InitMetric -Category 'iterations' -Action 'skipped' } catch { }
-            return @{ Name = $Name; Created = $false; Node = $existing }
+            return New-Object PSObject -Property @{ Name = $Name; Created = $false; Node = $existing }
         }
     }
     catch {
@@ -649,7 +650,7 @@ function Ensure-AdoIteration {
         }
 
         try { Add-InitMetric -Category 'iterations' -Action 'created' } catch { }
-        return @{ Name = $Name; Created = $true; Node = $iteration }
+        return New-Object PSObject -Property @{ Name = $Name; Created = $true; Node = $iteration }
     }
     catch {
         $errMsg = $_.Exception.Message
@@ -657,19 +658,18 @@ function Ensure-AdoIteration {
             Write-Verbose "[Ensure-AdoIteration] Duplicate-name detected when creating '$Name' - fetching existing node"
             try {
                 $existing2 = Invoke-AdoRest GET "/$projEnc/_apis/wit/classificationnodes/iterations/$nameEnc"
-                if ($existing2) { try { Add-InitMetric -Category 'iterations' -Action 'skipped' } catch { }; return @{ Name = $Name; Created = $false; Node = $existing2 } }
+                if ($existing2) { try { Add-InitMetric -Category 'iterations' -Action 'skipped' } catch { }; return New-Object PSObject -Property @{ Name = $Name; Created = $false; Node = $existing2 } }
             }
             catch {
                 Write-Warning "Iteration reported duplicate but failed to fetch existing node for '$Name': $_"
                 try { Add-InitMetric -Category 'iterations' -Action 'failed' } catch { }
-                return @{ Name = $Name; Created = $false; Node = $null; Error = $_ }
+                return New-Object PSObject -Property @{ Name = $Name; Created = $false; Node = $null; Error = $_ }
             }
         }
 
-                
         Write-Warning "Failed to create iteration '$Name': $_"
         try { Add-InitMetric -Category 'iterations' -Action 'failed' } catch { }
-        return @{ Name = $Name; Created = $false; Node = $null; Error = $_ }
+        return New-Object PSObject -Property @{ Name = $Name; Created = $false; Node = $null; Error = $_ }
     }
 }
 

@@ -154,7 +154,7 @@ function Invoke-BulkPreparationWorkflow {
                 } else { 0 }
                 default_branch = $gl.default_branch
                 visibility = $gl.visibility
-                http_url_to_repo = $gl.http_url_to_repo
+                http_url_to_repo = if ($gl -and $gl.http_url_to_repo) { $gl.http_url_to_repo } else { '' }
                 preparation_status = "SUCCESS"
                 preparation_time = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
             }

@@ -336,8 +336,14 @@ if ($PSCmdlet.ParameterSetName -eq 'CLI') {
         }
         
         'BulkMigrate' {
+            if ([string]::IsNullOrWhiteSpace($Project)) {
+                Write-Host "[ERROR] -Project parameter is required for BulkMigrate mode" -ForegroundColor Red
+                Write-Host "Usage: .\Gitlab2DevOps.ps1 -Mode BulkMigrate -Project 'MyProject'" -ForegroundColor Yellow
+                exit 1
+            }
+            
             Write-Host "[INFO] Starting bulk migration workflow" -ForegroundColor Cyan
-            Invoke-BulkMigrationWorkflow
+            Invoke-BulkMigrationWorkflow -AdoProject $Project -Force
         }
         'BusinessInit' {
             if ([string]::IsNullOrWhiteSpace($Project)) {

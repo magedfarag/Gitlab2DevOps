@@ -143,7 +143,7 @@ function Set-AdoWikiPage {
     $pageExists = $false
     try {
         $existingPage = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -ReturnNullOnNotFound -MaxAttempts 1 -DelaySeconds 0
-        if ($existingPage) {
+        if ($existingPage -and $existingPage.PSObject.Properties['content'] -and $existingPage.content) {
             $pageExists = $true
             Write-Verbose "[Wikis] Page $Path already exists, will update instead of create"
         }
@@ -154,7 +154,7 @@ function Set-AdoWikiPage {
     # Azure DevOps Wiki API behavior:
     # - PUT: Create new page (fails if page exists)
     # - PATCH: Update existing page (fails if page doesn't exist with 405)
-    # Strategy: If page exists, use PATCH; otherwise try PUT first
+    # Strategy: Check if page exists by looking for content, then use appropriate method
 
     $maxWikiRetries = 5  # Increased from 3
     $wikiRetryDelay = 3  # Increased from 2
@@ -165,28 +165,14 @@ function Set-AdoWikiPage {
             if ($pageExists) {
                 # Page exists, use PATCH to update
                 Write-Verbose "[Wikis] Updating existing wiki page: $Path (attempt $wikiAttempt)"
-                
-                # Acquire existing page to retrieve ETag
-                $existing = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -ReturnNullOnNotFound -MaxAttempts 1 -DelaySeconds 0
-                $etag = $null
-                if ($existing -and $existing.PSObject.Properties['eTag'] -and $existing.eTag) { $etag = $existing.eTag }
-
-                # Create headers with If-Match for PATCH
-                $patchHeaders = @{}
-                if ($etag) { $patchHeaders['If-Match'] = $etag }
-
-                $patchBody = @{ content = $Markdown }
-                Invoke-AdoRest PATCH "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body $patchBody -Headers $patchHeaders -MaxAttempts 1 -DelaySeconds 0 | Out-Null
-
-                Write-Verbose "[Wikis] Successfully updated wiki page: $Path"
-                return
+                Invoke-AdoRest PATCH "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{ content = $Markdown } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
             } else {
-                # Try to create new page
-                Write-Verbose "[Wikis] Creating wiki page: $Path (attempt $wikiAttempt)"
+                # Page doesn't exist, use PUT to create
+                Write-Verbose "[Wikis] Creating new wiki page: $Path (attempt $wikiAttempt)"
                 Invoke-AdoRest PUT "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{ content = $Markdown } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
-                Write-Verbose "[Wikis] Successfully created wiki page: $Path"
-                return
             }
+            Write-Verbose "[Wikis] Successfully created/updated wiki page: $Path"
+            return
         }
         catch {
             $errorMsg = $_.Exception.Message
@@ -215,19 +201,16 @@ function Set-AdoWikiPage {
                 $pageExists = $true
                 continue  # Retry with PATCH
             }
-            else {
-                if ($wikiAttempt -eq $maxWikiRetries) { throw }
-                Write-Verbose "[Wikis] Unexpected error, retrying in ${wikiRetryDelay}s (attempt $wikiAttempt/$maxWikiRetries): $errorMsg"
-                Start-Sleep -Seconds $wikiRetryDelay
-                $wikiRetryDelay *= 2
-            }
+            if ($wikiAttempt -eq $maxWikiRetries) { throw }
+            Write-Verbose "[Wikis] Unexpected error, retrying in ${wikiRetryDelay}s (attempt $wikiAttempt/$maxWikiRetries): $errorMsg"
+            Start-Sleep -Seconds $wikiRetryDelay
+            $wikiRetryDelay *= 2
         }
     }
     
     # If we get here, all retries failed
     throw $lastError
 }
-
 
 function New-AdoQAGuidelinesWiki {
     [CmdletBinding()]
@@ -414,6 +397,7 @@ Use the subpages navigation to explore each topic.
 
     $pages = @(
         @{ path = '/Business/Welcome'; content = Get-WikiTemplate "Business/BusinessWelcome.md" },
+        @{ path = '/Business/Agile-Requirements'; content = Get-WikiTemplate "Business/Agile_Requirements.md" },
         @{ path = '/Business/Decision-Log'; content = Get-WikiTemplate "Business/DecisionLog.md" },
         @{ path = '/Business/Risks-Issues'; content = Get-WikiTemplate "Business/RisksIssues.md" },
         @{ path = '/Business/Risk-Appetite-and-Guardrails'; content = Get-WikiTemplate "Business/RiskAppetiteAndGuardrails.md" },
@@ -421,6 +405,7 @@ Use the subpages navigation to explore each topic.
         @{ path = '/Business/Ways-of-Working'; content = Get-WikiTemplate "Business/WaysOfWorking.md" },
         @{ path = '/Business/KPIs-and-Success'; content = Get-WikiTemplate "Business/KPIsAndSuccess.md" },
         @{ path = '/Business/Training-Quick-Start'; content = Get-WikiTemplate "Business/TrainingQuickStart.md" },
+        @{ path = '/Business/Value-Streams'; content = Get-WikiTemplate "Business/ValueStreams.md" },
         @{ path = '/Business/Communication-Templates'; content = Get-WikiTemplate "Business/CommunicationTemplates.md" }
     )
 
@@ -1117,4 +1102,6 @@ Export-ModuleMember -Function @(
     'New-AdoTagGuidelinesWikiPage',
     'New-AdoProjectSummaryWikiPage'
 )
+
+
 

@@ -442,24 +442,24 @@ function Resolve-AdoWorkItemType {
     $lower = $inputNorm.ToLower()
 
     # 1) Exact match against available types
-    if ($availableLower.ContainsKey($lower)) { return $availableLower[$lower] }
+    if ($availableLower.ContainsKey($lower)) { return $availableLower[$lower].Name }
 
     # 2) Try synonyms map
     if ($synonyms.ContainsKey($lower)) {
         $candName = $synonyms[$lower]
-        if ($availableLower.ContainsKey($candName.ToLower())) { return $availableLower[$candName.ToLower()] }
+        if ($availableLower.ContainsKey($candName.ToLower())) { return $availableLower[$candName.ToLower()].Name }
     }
 
     # 3) Fuzzy containment: find any available type that contains the input or vice-versa
     foreach ($t in $available) {
-        if ($t.Name.ToLower().Contains($lower) -or $lower.Contains($t.Name.ToLower())) { return $t }
+        if ($t.Name.ToLower().Contains($lower) -or $lower.Contains($t.Name.ToLower())) { return $t.Name }
     }
 
     # 4) Last-resort heuristics: map short forms
     foreach ($k in $synonyms.Keys) {
         if ($lower -like "*$k*") {
             $candName = $synonyms[$k]
-            if ($availableLower.ContainsKey($candName.ToLower())) { return $availableLower[$candName.ToLower()] }
+            if ($availableLower.ContainsKey($candName.ToLower())) { return $availableLower[$candName.ToLower()].Name }
         }
     }
 
@@ -2084,13 +2084,39 @@ function Import-AdoWorkItemsFromExcel {
     try {
         Write-LogLevelVerbose "Reading Excel file: $ExcelPath"
         Write-Warning "[DEBUG] Attempting to read Excel file: '$ExcelPath' with worksheet: '$WorksheetName'"
-        $rows = Invoke-ImportExcel -Path $ExcelPath -WorksheetName $WorksheetName
+        
+        # Try the specified worksheet first, then fall back to common alternatives
+        $worksheetNamesToTry = @($WorksheetName, "Sheet1", "Requirements", "Data", "WorkItems")
+        $rows = $null
+        $successfulWorksheet = $null
+        
+        foreach ($wsName in $worksheetNamesToTry) {
+            try {
+                Write-Warning "[DEBUG] Trying worksheet: '$wsName'"
+                $rows = Invoke-ImportExcel -Path $ExcelPath -WorksheetName $wsName
+                if ($rows) {
+                    $successfulWorksheet = $wsName
+                    Write-Warning "[DEBUG] Successfully read from worksheet: '$wsName'"
+                    break
+                }
+            }
+            catch {
+                Write-Warning "[DEBUG] Worksheet '$wsName' not found or failed: $($_.Exception.Message)"
+                continue
+            }
+        }
+        
+        if (-not $rows) {
+            throw "Could not read from any worksheet. Tried: $($worksheetNamesToTry -join ', ')"
+        }
+        
+        Write-Host "[INFO] Successfully read from worksheet '$successfulWorksheet'" -ForegroundColor Cyan
 
         # Normalize to array to handle single-row returns from Import-Excel
         $rows = @($rows)
 
         if (-not $rows -or (@($rows).Count -eq 0)) {
-            Write-Warning "No data found in worksheet '$WorksheetName'"
+            Write-Warning "No data found in worksheet '$successfulWorksheet'"
             return
         }
 
@@ -2226,14 +2252,7 @@ function Import-AdoWorkItemsFromExcel {
     # Sort by hierarchy to ensure parents are created before children
     # Sort by the configured hierarchy order. Unknown types go to the end.
     $orderedRows = $resolvedRows | Sort-Object {
-        $typeName = $null
-        if ($_.ResolvedWorkItemType -is [string]) {
-            $typeName = $_.ResolvedWorkItemType
-        }
-        elseif ($_.ResolvedWorkItemType -and ($_.ResolvedWorkItemType.PSObject.Properties['Name'])) {
-            $typeName = $_.ResolvedWorkItemType.Name
-        }
-
+        $typeName = $_.ResolvedWorkItemType
         if ($typeName -and $hierarchyOrder.ContainsKey($typeName)) {
             $hierarchyOrder[$typeName]
         }
@@ -2599,11 +2618,8 @@ function Import-AdoWorkItemsFromExcel {
         $processedCount++
         Write-Warning "[Import-AdoWorkItemsFromExcel] Processing row $processedCount/$($orderedRows.Count): Title='$($row.Title)', LocalId='$($row.LocalId)', WorkItemType='$($row.WorkItemType)', ResolvedWorkItemType='$($row.ResolvedWorkItemType)'"
         # Use resolved work item type (from Resolve-AdoWorkItemType)
-        $wit = $row.ResolvedWorkItemType
-        $witName = $null
-        if ($wit -is [string]) { $witName = $wit }
-        elseif ($wit -and $wit.PSObject.Properties['Name']) { $witName = $wit.Name }
-        else { $witName = [string]$wit }
+        $wit = $row.ResolvedWorkItemType  # now a string
+        $witName = $wit
 
         $incomingLayerIndex = if ($layerTransitionOrder.ContainsKey($witName)) { $layerTransitionOrder[$witName] } else { 999 }
         if ($currentLayerName -and $incomingLayerIndex -gt $currentLayerIndex) {
@@ -2666,13 +2682,9 @@ function Import-AdoWorkItemsFromExcel {
                 Write-Warning "Assigned area path '$firstAreaPath' to work item '$($row.Title)'"
             }
             
-            # Decide iteration assignment. Prefer the current team iteration if available,
-            # else fall back to a sprint iteration (sprintIterationPath), then the firstIterationPath.
-            $iterationToAssign = $null
-            if ($currentIterationPath) { $iterationToAssign = $currentIterationPath }
-            elseif ($sprintIterationPath) { $iterationToAssign = $sprintIterationPath }
-            elseif ($firstIterationPath) { $iterationToAssign = $firstIterationPath }
-            Write-Warning "Debug: Determined iteration to assign: '$iterationToAssign' (currentIterationPath='$currentIterationPath', sprintIterationPath='$sprintIterationPath', firstIterationPath='$firstIterationPath')"
+            # Decide iteration assignment. Always use "projectname\Sprint 1" for all work items
+            $iterationToAssign = "$Project\Sprint 1"
+            Write-Warning "Debug: Hardcoded iteration to assign: '$iterationToAssign'"
             if ($iterationToAssign) {
                 $operations += [pscustomobject]@{
                     op    = "add"
@@ -3042,7 +3054,7 @@ function Import-AdoWorkItemsFromExcel {
             }
             
             # Create work item via REST API
-            $witEncoded = [uri]::EscapeDataString($wit.ReferenceName)
+            $witEncoded = [uri]::EscapeDataString($wit)
             $projEnc = [uri]::EscapeDataString($Project)
             # Assign area and iteration to each imported work item
             try {
@@ -3062,16 +3074,9 @@ function Import-AdoWorkItemsFromExcel {
                     Write-Warning "[Import-AdoWorkItemsFromExcel] Added AreaPath operation: $assignArea"
                 }
 
-                # Determine iteration: prefer current sprint for the team if available, otherwise use firstIterationPath
-                $assignIteration = $null
-                if ($currentIterationPath) { 
-                    $assignIteration = $currentIterationPath 
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Using currentIterationPath: $currentIterationPath"
-                }
-                elseif ($firstIterationPath) { 
-                    $assignIteration = $firstIterationPath 
-                    Write-Warning "[Import-AdoWorkItemsFromExcel] Using firstIterationPath: $firstIterationPath"
-                }
+                # Determine iteration: always use "projectname\Sprint 1" for all work items
+                $assignIteration = "$Project\Sprint 1"
+                Write-Warning "[Import-AdoWorkItemsFromExcel] Using hardcoded iteration path: $assignIteration"
                 if ($assignIteration) {
                     $operations += [pscustomobject]@{ op = "add"; path = "/fields/System.IterationPath"; value = $assignIteration }
                     Write-Warning "[Import-AdoWorkItemsFromExcel] Added IterationPath operation: $assignIteration"
