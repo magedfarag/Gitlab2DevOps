@@ -1,0 +1,150 @@
+{
+    "ad": {
+      "domainDnsName": "yourdomain.local",
+      "rootDn": "DC=yourdomain,DC=local",
+
+      "ouDefinitions": [
+        {
+          "name": "AzureDevOps",
+          "distinguishedName": "OU=AzureDevOps,DC=yourdomain,DC=local",
+          "parentDn": "DC=yourdomain,DC=local"
+        },
+        {
+          "name": "Projects",
+          "distinguishedName": "OU=Projects,OU=AzureDevOps,DC=yourdomain,DC=local",
+          "parentDn": "OU=AzureDevOps,DC=yourdomain,DC=local"
+        },
+        {
+          "name": "Server-Global-Roles",
+          "distinguishedName": "OU=Server-Global-Roles,OU=AzureDevOps,DC=yourdomain,DC=local",
+          "parentDn": "OU=AzureDevOps,DC=yourdomain,DC=local"
+        },
+        {
+          "name": "Collection-Roles",
+          "distinguishedName": "OU=Collection-Roles,OU=AzureDevOps,DC=yourdomain,DC=local",
+          "parentDn": "OU=AzureDevOps,DC=yourdomain,DC=local"
+        }
+      ],
+
+      "projectOuTemplate": "OU=YOURDOMAIN,OU=Groups,DC=yourdomain,DC=local",
+
+      "groupNaming": {
+        "projectGroupNameFormat": "YOURDOMAIN.local\\APP_{ProjectKey}_{RoleKey}",
+        "globalGroupNameFormat": "YOURDOMAIN.local\\SG_ADO_Server_{RoleKey}",
+        "collectionGroupNameFormat": "YOURDOMAIN.local\\SG_ADO_Collection_{RoleKey}"
+      },
+
+      "globalRoleGroups": [
+        {
+          "roleKey": "Platform_Admins",
+          "groupName": "SG_ADO_Server_Platform_Admins",
+          "ouDn": "OU=Server-Global-Roles,OU=AzureDevOps,DC=yourdomain,DC=local"
+        }
+      ],
+
+      "collectionRoleGroups": [
+        {
+          "roleKey": "Collection_Admins",
+          "groupName": "SG_ADO_Collection_Admins",
+          "ouDn": "OU=Collection-Roles,OU=AzureDevOps,DC=yourdomain,DC=local"
+        },
+        {
+          "roleKey": "Collection_Build_Admins",
+          "groupName": "SG_ADO_Collection_Build_Admins",
+          "ouDn": "OU=Collection-Roles,OU=AzureDevOps,DC=yourdomain,DC=local"
+        }
+      ],
+
+      "projectRoleKeys": [
+        "ProjectAdmins",
+        "Maintainers",
+        "Developers",
+        "QA",
+        "Release",
+        "Stakeholders",
+        "Audit"
+      ]
+    },
+
+    "azureDevOps": {
+      "useIntegratedAuthentication": true,
+      "personalAccessTokenEnvVar": "ADO_PAT",
+      "collectionUrlEnvVar": "ADO_COLLECTION_URL",
+
+      "defaultAdoGroupMappings": {
+        "ProjectAdmins": [ "Project Administrators" ],
+        "Maintainers": [ "Contributors" ],
+        "Developers": [ "Contributors" ],
+        "QA": [ "Contributors" ],
+        "Release": [ "Contributors", "Build Administrators" ],
+        "Stakeholders": [ "Readers" ],
+        "Audit": [ "Readers" ]
+      }
+    },
+
+    "roleMapping": {
+      "sourceSystem": "GitLab",
+      "sourceRolesToNormalizedRoles": [
+        {
+          "sourceRoles": [ "Owner" ],
+          "normalizedRole": "ProjectAdmins"
+        },
+        {
+          "sourceRoles": [ "Maintainer" ],
+          "normalizedRole": "Maintainers"
+        },
+        {
+          "sourceRoles": [ "Developer" ],
+          "normalizedRole": "Developers"
+        },
+        {
+          "sourceRoles": [ "Reporter", "Guest" ],
+          "normalizedRole": "QA"
+        }
+      ]
+    },
+
+    "projectMapping": {
+      "adoProjectKeyField": "adoproject",
+      "gitlabProjectListField": "projects",
+
+      "explicitProjects": [
+        {
+          "adoProjectKey": "adoprojectkey",
+          "adoProjectName": "adoprojectname",
+          "projectKey": "projectkey",
+          "gitlabNamespaces": [
+            "group1/project1",
+            "group1/subgroup1/project2"
+          ],
+          "overrideAdoGroupMappings": null,
+          "overrideRoleMapping": null
+        }
+      ]
+    },
+
+    "userMapping": {
+      "userIdSource": "username",
+      "preferredIdentityOrder": [  "userPrincipalName","samAccountName", "mail" ],
+      "usernameToSamPattern": "{username}",
+
+      "manualOverrides": [
+        {
+          "gitlabUsername": "user",
+          "samAccountName": "user",
+          "userPrincipalName": "user@yourdomain.local"
+        }
+      ]
+    },
+
+    "inputFiles": {
+      "users": "users.json",
+      "gitlabProjectMemberships": "project-memberships.json",
+      "adoProjectMappings": "projects.json"
+    },
+
+    "safety": {
+      "requireDomainController": true,
+      "dryRunDefault": true
+    }
+  }

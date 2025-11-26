@@ -25,22 +25,54 @@ Get started with Gitlab2DevOps in 5 minutes.
 
 ## Step 2: Configure Credentials
 
-Create `migration.config.json` in the script directory:
+### Option A: Using .env File (Recommended)
 
-```json
-{
-  "gitlab": {
-    "base_url": "https://gitlab.example.com",
-    "token": "glpat-XXXXXXXXXXXXXXXXXXXX"
-  },
-  "ado": {
-    "organization": "https://dev.azure.com/yourorg",
-    "token": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-  }
-}
+```powershell
+# 1. Copy the environment template
+Copy-Item .env.example .env
+
+# 2. Edit .env with your credentials
+notepad .env
+# OR
+code .env
 ```
 
-> ⚠️ **Security**: Never commit this file to version control. Add to `.gitignore`.
+Your `.env` file should look like:
+```bash
+# Azure DevOps Configuration
+ADO_COLLECTION_URL=https://dev.azure.com/your-org
+ADO_PAT=your-azure-devops-pat-here
+
+# GitLab Configuration
+GITLAB_BASE_URL=https://gitlab.com
+GITLAB_PAT=your-gitlab-pat-here
+```
+
+### Option B: Using Environment Variables
+
+```powershell
+$env:ADO_COLLECTION_URL = "https://dev.azure.com/your-org"
+$env:ADO_PAT = "your-pat-here"
+$env:GITLAB_BASE_URL = "https://gitlab.com"
+$env:GITLAB_PAT = "your-gitlab-pat-here"
+```
+
+### Option C: For User Identity Migration (Optional)
+
+If you plan to use user identity migration features (Options 5-6):
+
+```powershell
+# 1. Copy the AD configuration template
+Copy-Item config-ado-ad.example.json config-ado-ad.json
+
+# 2. Edit with your Active Directory settings
+notepad config-ado-ad.json
+```
+
+**Security Notes:**
+- ✅ `.env` and `config-ado-ad.json` are gitignored (never commit secrets)
+- ✅ Use `.env.example` and `config-ado-ad.example.json` as templates
+- ✅ Share example files with team members, keep real configs private
 
 ## Step 3: Run Your First Migration
 

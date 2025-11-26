@@ -165,7 +165,7 @@ function Invoke-BulkPreparationWorkflow {
             # Generate pre-migration report so execution phase can run offline
             try {
                 $preReportPath = Join-Path $specificProjectPaths.gitlabDir "reports\pre-migration-report.json"
-                New-MigrationPreReport -GitLabPath $gitlabPath -AdoProject $DestProject -AdoRepoName $repoName -OutputPath $preReportPath | Out-Null
+                New-MigrationPreReport -GitLabPath $gitlabPath -AdoProject $DestProject -AdoRepoName $repoName -OutputPath $preReportPath -AllowSync | Out-Null
                 Write-Host "[INFO] Cached pre-migration report: $preReportPath" -ForegroundColor Gray
             }
             catch {

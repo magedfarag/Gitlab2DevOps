@@ -32,14 +32,14 @@ try {
     Import-Module -WarningAction SilentlyContinue .\modules\AzureDevOps\Dashboards.psm1 -Force -ErrorAction Stop
     Write-Host "[SUCCESS] AzureDevOps\Dashboards.psm1 loaded successfully" -ForegroundColor Green
 
-    Import-Module -WarningAction SilentlyContinue .\modules\Migration\Core\Core.psm1 -Force -ErrorAction Stop
-    Write-Host "[SUCCESS] Migration\Core\Core.psm1 loaded successfully" -ForegroundColor Green
+    # Import-Module -WarningAction SilentlyContinue .\modules\Migration\Core\Core.psm1 -Force -ErrorAction Stop
+    # Write-Host "[SUCCESS] Migration\Core\Core.psm1 loaded successfully" -ForegroundColor Green
 
     Import-Module -WarningAction SilentlyContinue .\modules\Migration\Menu\Menu.psm1 -Force -ErrorAction Stop
     Write-Host "[SUCCESS] Migration\Menu\Menu.psm1 loaded successfully" -ForegroundColor Green
 
-    Import-Module -WarningAction SilentlyContinue .\modules\Migration\Initialization\Initialization.psm1 -Force -ErrorAction Stop
-    Write-Host "[SUCCESS] Migration\Initialization\Initialization.psm1 loaded successfully" -ForegroundColor Green
+    # Import-Module -WarningAction SilentlyContinue .\modules\Migration\Initialization\Initialization.psm1 -Force -ErrorAction Stop
+    # Write-Host "[SUCCESS] Migration\Initialization\Initialization.psm1 loaded successfully" -ForegroundColor Green
 
     Import-Module -WarningAction SilentlyContinue .\modules\Migration\TeamPacks\TeamPacks.psm1 -Force -ErrorAction Stop
     Write-Host "[SUCCESS] Migration\TeamPacks\TeamPacks.psm1 loaded successfully" -ForegroundColor Green
@@ -50,14 +50,14 @@ try {
     Import-Module -WarningAction SilentlyContinue .\modules\Migration.psm1 -Force -ErrorAction Stop
     Write-Host "[SUCCESS] Migration.psm1 loaded successfully" -ForegroundColor Green
 
-    Import-Module -WarningAction SilentlyContinue .\modules\DryRunPreview.psm1 -Force -ErrorAction Stop
-    Write-Host "[SUCCESS] DryRunPreview.psm1 loaded successfully" -ForegroundColor Green
+    # Import-Module -WarningAction SilentlyContinue .\modules\DryRunPreview.psm1 -Force -ErrorAction Stop
+    # Write-Host "[SUCCESS] DryRunPreview.psm1 loaded successfully" -ForegroundColor Green
 
-    Import-Module -WarningAction SilentlyContinue .\modules\ProgressTracking.psm1 -Force -ErrorAction Stop
-    Write-Host "[SUCCESS] ProgressTracking.psm1 loaded successfully" -ForegroundColor Green
+    # Import-Module -WarningAction SilentlyContinue .\modules\ProgressTracking.psm1 -Force -ErrorAction Stop
+    # Write-Host "[SUCCESS] ProgressTracking.psm1 loaded successfully" -ForegroundColor Green
 
-    Import-Module -WarningAction SilentlyContinue .\modules\Telemetry.psm1 -Force -ErrorAction Stop
-    Write-Host "[SUCCESS] Telemetry.psm1 loaded successfully" -ForegroundColor Green
+    # Import-Module -WarningAction SilentlyContinue .\modules\Telemetry.psm1 -Force -ErrorAction Stop
+    # Write-Host "[SUCCESS] Telemetry.psm1 loaded successfully" -ForegroundColor Green
 
     Write-Host "[SUCCESS] All modules loaded!" -ForegroundColor Cyan
 }

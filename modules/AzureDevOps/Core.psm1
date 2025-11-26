@@ -163,11 +163,16 @@ function Get-AdoProjectList {
     try {
         $list = Invoke-AdoRest GET "/_apis/projects?`$top=5000"
         $projects = $list.value
+        
+        # Ensure projects is always an array
+        if (-not $projects -or $projects -isnot [array]) {
+            $projects = @()
+        }
     }
     catch {
         Write-Warning "[Get-AdoProjectList] Failed to fetch project list: $_"
         # Return cached data if available, even if stale
-        if ($cache.ContainsKey($cacheKey)) {
+        if ($cache.ContainsKey($cacheKey) -and $cache[$cacheKey] -and $cache[$cacheKey] -is [array]) {
             Write-Warning "[Get-AdoProjectList] Returning stale cached data"
             return $cache[$cacheKey]
         }

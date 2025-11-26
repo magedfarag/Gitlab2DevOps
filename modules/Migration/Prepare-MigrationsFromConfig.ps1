@@ -204,7 +204,7 @@ foreach ($entry in $config) {
                 try {
                     $pathsForReport = Get-BulkProjectPaths -AdoProject $adoProject -GitLabProject $repoName
                     $preReportPath = Join-Path $pathsForReport.gitlabDir "reports\pre-migration-report.json"
-                    New-MigrationPreReport -GitLabPath $pp -AdoProject $adoProject -AdoRepoName $repoName -OutputPath $preReportPath | Out-Null
+                    New-MigrationPreReport -GitLabPath $pp -AdoProject $adoProject -AdoRepoName $repoName -OutputPath $preReportPath -AllowSync | Out-Null
                     Write-Host "[INFO] Cached pre-migration report: $preReportPath" -ForegroundColor Gray
                 }
                 catch {
@@ -212,38 +212,7 @@ foreach ($entry in $config) {
                 }
             }
 
-            # After preparing migration folders, perform unattended project initialization
-            # to mirror the outputs of Option 3 (Create DevOps Project). This will create
-            # project-level artifacts (wiki, iterations, queries, dashboards) in bulk mode.
-            try {
-                Write-Host "[INFO] Performing unattended project initialization for '$adoProject'..." -ForegroundColor Cyan
-
-                # Import initialization modules (when running standalone this script may not have them loaded)
-                $projectInitModule = Join-Path $root 'modules\Migration\Initialization\ProjectInitialization.psm1'
-                $teamPacksModule = Join-Path $root 'modules\Migration\TeamPacks\TeamPacks.psm1'
-                if (Test-Path $projectInitModule) { Import-Module -WarningAction SilentlyContinue $projectInitModule -Force }
-                if (Test-Path $teamPacksModule) { Import-Module -WarningAction SilentlyContinue $teamPacksModule -Force }
-
-                # Initialize ADO project in bulk mode (repositories will be added during migration)
-                if (Get-Command -Name Initialize-AdoProject -ErrorAction SilentlyContinue) {
-                    Initialize-AdoProject -DestProject $adoProject -BulkInit -Force
-                }
-                else {
-                    Write-Host "[WARN] Initialize-AdoProject not available in this session - skipping project initialization" -ForegroundColor Yellow
-                }
-
-                # Apply all team packs to provision dashboards, queries, and wiki pages
-                if (Get-Command -Name Invoke-AllTeamPacks -ErrorAction SilentlyContinue) {
-                    Write-Host "[INFO] Applying Team Packs (Business, Dev, Security, Management) for '$adoProject'..." -ForegroundColor Cyan
-                    Invoke-AllTeamPacks -ProjectName $adoProject
-                }
-                else {
-                    Write-Host "[WARN] Invoke-AllTeamPacks not available - skipping team packs" -ForegroundColor Yellow
-                }
-            }
-            catch {
-                Write-Warning "[WARN] Unattended initialization for project '$adoProject' failed: $_"
-            }
+            # Migration folder preparation complete - Azure DevOps initialization will be done separately
         }
     } catch {
         # Use subexpression to avoid PowerShell confusing "$adoProject:" as a variable namespace

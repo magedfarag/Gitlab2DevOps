@@ -424,11 +424,51 @@ $env:GITLAB_PAT = "your-gitlab-pat-here"
              -SonarStatusContext "sonarqube/quality_gate"
 ```
 
+#### Option C: Using Parameters
+```powershell
+.\Gitlab2DevOps.ps1 -CollectionUrl "https://devops.example.com/DefaultCollection" `
+             -AdoPat "your-azure-devops-pat" `
+             -GitLabBaseUrl "https://gitlab.example.com" `
+             -GitLabToken "your-gitlab-pat" `
+             -AdoApiVersion "7.1" `
+             -BuildDefinitionId 42 `
+             -SonarStatusContext "sonarqube/quality_gate"
+```
+
 #### Additional Parameters:
 - `-AdoApiVersion`: API version (default: "7.1", use "6.0" for Azure DevOps Server 2020)
 - `-BuildDefinitionId`: Build definition ID for PR validation (default: 42, use 0 to skip)
 - `-SonarStatusContext`: SonarQube status check context (default: "", use "" to skip)
 - `-SkipCertificateCheck`: Skip SSL certificate validation for on-prem with private CA
+
+### 3. Active Directory Configuration (For User Identity Migration)
+
+For user identity migration features (Options 5 and 6 in interactive mode), you need to configure Active Directory integration:
+
+#### Setup AD Configuration File
+```powershell
+# 1. Copy the example configuration
+Copy-Item config-ado-ad.example.json config-ado-ad.json
+
+# 2. Edit with your AD and Azure DevOps settings
+notepad config-ado-ad.json
+# OR
+code config-ado-ad.json
+```
+
+**Important Security Notes:**
+- ✅ `config-ado-ad.json` is automatically gitignored (contains sensitive AD configuration)
+- ✅ Never commit `config-ado-ad.json` to version control
+- ✅ Share `config-ado-ad.example.json` as a template for team members
+- ✅ Customize domain names, OUs, and group names for your environment
+
+**Configuration Sections:**
+- **AD Settings**: Domain DNS name, root DN, organizational units
+- **Group Naming**: Templates for project and global group names
+- **Azure DevOps Mappings**: How AD groups map to Azure DevOps security groups
+- **User Mapping**: Identity resolution rules for GitLab to AD matching
+
+📖 **Full AD configuration guide:** [User Export/Import Documentation](docs/USER_EXPORT_IMPORT.md)
 
 ### 2. Security Configuration
 The tool automatically configures enterprise-grade security:

@@ -188,6 +188,14 @@ function Set-AdoWikiPage {
                 Write-Verbose "[Wikis] Page $Path already exists (server returned AlreadyExists). Treating as success."
                 return
             }
+            # If the server threw (even 500), check if the page now exists anyway; if yes, treat as success
+            try {
+                $exists = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -ReturnNullOnNotFound -MaxAttempts 1 -DelaySeconds 0
+                if ($exists -and $exists.PSObject.Properties['path']) {
+                    Write-Verbose "[Wikis] Page $Path exists after error (status: $status). Treating as success."
+                    return
+                }
+            } catch { }
             $isWikiNotReady = $errorMsg -match 'WikiNotFoundException|Wiki.*not found|404' -or $errorMsg -match 'Service Unavailable' -or $status -eq 404
             if ($isWikiNotReady -and $wikiAttempt -lt $maxWikiRetries) {
                 Write-Verbose "[Wikis] Wiki not ready (status: $status), retrying in ${wikiRetryDelay}s (attempt $wikiAttempt/$maxWikiRetries)"
@@ -824,69 +832,275 @@ function Initialize-AdoProjectWikisEfficient {
     return $results
 }
 
+function Invoke-AdoGitClone {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepositoryUrl,
+
+        [Parameter(Mandatory)]
+        [string]$TargetPath,
+
+        [Parameter()]
+        [pscustomobject]$Config
+    )
+
+    Write-Log "Cloning Git repo '$RepositoryUrl' into '$TargetPath'..." 'INFO'
+
+    $parent = Split-Path -Parent $TargetPath
+    if (-not $parent) { $parent = '.' }
+    if (-not (Test-Path $parent)) {
+        New-Item -Path $parent -ItemType Directory -Force | Out-Null
+    }
+
+    $patEnv = $null
+    if ($Config -and $Config.PSObject.Properties['azureDevOps'] -and $Config.azureDevOps.PSObject.Properties['personalAccessTokenEnvVar']) {
+        $patEnv = $Config.azureDevOps.personalAccessTokenEnvVar
+    }
+    elseif ($Config -and $Config.PSObject.Properties['personalAccessTokenEnvVar']) {
+        $patEnv = $Config.personalAccessTokenEnvVar
+    }
+    if (-not $patEnv) { $patEnv = 'ADO_PAT' }
+
+    $pat = if ($patEnv) { [Environment]::GetEnvironmentVariable($patEnv) } else { $null }
+
+    if (-not $pat) {
+        throw "No PAT found in environment variable '$patEnv'. Cannot authenticate git clone."
+    }
+
+    $pair     = ":$pat"
+    $bytes    = [Text.Encoding]::ASCII.GetBytes($pair)
+    $base64   = [Convert]::ToBase64String($bytes)
+    # Use canonical header casing; keep the space after the colon for curl/git compatibility
+    $authHead = "Authorization: Basic $base64"
+
+    if (Test-Path $TargetPath) {
+        $hasGit = Test-Path (Join-Path $TargetPath '.git')
+        if ($hasGit) {
+            Write-Log "Target path '$TargetPath' already exists and is a git repo; skipping git clone." 'INFO'
+            return
+        }
+        # If the path exists but is not a git repo (e.g., temp folder we just created), remove and recreate
+        Remove-Item -Path $TargetPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    $gitArgsString = ('-c "http.extraheader={0}" clone "{1}" "{2}"' -f $authHead, $RepositoryUrl, $TargetPath)
+    Write-Log ("Running: git {0}" -f $gitArgsString) 'DEBUG'
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName               = 'git'
+    $psi.Arguments              = $gitArgsString
+    $psi.EnvironmentVariables['GIT_HTTP_EXTRAHEADER'] = $authHead
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.UseShellExecute        = $false
+    $psi.CreateNoWindow         = $true
+
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $stdout = $proc.StandardOutput.ReadToEnd()
+    $stderr = $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit()
+
+    if ($stdout) { Write-Log $stdout 'DEBUG' }
+    if ($stderr) { Write-Log $stderr 'WARN' }
+
+    if ($proc.ExitCode -ne 0) {
+        throw "git clone failed for '$RepositoryUrl' (exit $($proc.ExitCode))."
+    }
+
+    Write-Log "Successfully cloned '$RepositoryUrl'." 'INFO'
+}
+
 function Copy-AdoWikiViaGit {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$SourceProject,
         [Parameter(Mandatory)][string]$TargetProject,
-        [Parameter(Mandatory)][string]$WikiId
+        [Parameter(Mandatory)][string]$WikiId,
+        [pscustomobject]$Config
     )
 
     # Get the source wiki details
+    Write-Warning "[Copy-AdoWikiViaGit] Starting wiki copy from '$SourceProject' to '$TargetProject' (WikiId: $WikiId)..."
+
     $sourceWikiUrl = "/$([uri]::EscapeDataString($SourceProject))/_apis/wiki/wikis/$WikiId"
+    Write-Warning "[Copy-AdoWikiViaGit] Fetching source wiki details from: $sourceWikiUrl"
     $sourceWiki = Invoke-AdoRest GET $sourceWikiUrl
 
-    if (-not $sourceWiki -or -not $sourceWiki.remoteUrl) {
-        throw "Could not get source wiki remote URL for project '$SourceProject'"
+    if (-not $sourceWiki) {
+        Write-Warning "[Copy-AdoWikiViaGit] Could not get source wiki details for project '$SourceProject'"
+        throw "Could not get source wiki details for project '$SourceProject'"
     }
 
-    $sourceRemoteUrl = $sourceWiki.remoteUrl
     $wikiName = $sourceWiki.name
+    Write-Warning "[Copy-AdoWikiViaGit] Source wiki name: $wikiName"
 
-    Write-Host "[INFO] Cloning wiki '$wikiName' from '$SourceProject'..." -ForegroundColor Gray
+    # Derive a usable Git remote URL for cloning.
+    # For project wikis, the returned remoteUrl is a UI URL, not a git URL.
+    $sourceRemoteUrl = $null
+    # Try backing repository first
+    if ($sourceWiki.PSObject.Properties['repository']) {
+        $repoId = $sourceWiki.repository.id
+        Write-Warning "[Copy-AdoWikiViaGit] Source wiki has backing repository (id: $repoId). Fetching repository details..."
+        $repoResp = Invoke-AdoRest GET "/_apis/git/repositories/$repoId" -ReturnNullOnNotFound
+        if ($repoResp -and $repoResp.remoteUrl) {
+            $sourceRemoteUrl = $repoResp.remoteUrl
+            Write-Warning "[Copy-AdoWikiViaGit] Found remoteUrl for backing repository: $sourceRemoteUrl"
+        } else {
+            Write-Warning "[Copy-AdoWikiViaGit] Could not find remoteUrl for backing repository."
+        }
+    }
+    # Fallback: construct git URL from wiki name and project (ensure coreRestConfig is available)
+    if (-not $sourceRemoteUrl) {
+        Write-Warning "[Copy-AdoWikiViaGit] Backing repository remoteUrl not found. Attempting to construct git URL from wiki name and project."
+        $coreRestConfig = Get-CoreRestConfig
+        if (-not $coreRestConfig -or -not $coreRestConfig.CollectionUrl) {
+            Write-Warning "[Copy-AdoWikiViaGit] Core REST config is not initialized (missing CollectionUrl); cannot construct wiki git URL."
+            throw "Core REST config is not initialized (missing CollectionUrl); cannot construct wiki git URL."
+        }
+        $collectionUrl = ($coreRestConfig.CollectionUrl).TrimEnd('/')
+        $projEnc = [uri]::EscapeDataString($SourceProject)
+        $repoName = if ($wikiName -like '*.wiki') { $wikiName } else { "$wikiName.wiki" }
+        $sourceRemoteUrl = "$collectionUrl/$projEnc/_git/$repoName"
+        Write-Warning "[Copy-AdoWikiViaGit] Constructed source remote git URL: $sourceRemoteUrl"
+    }
+
+    Write-Warning "[Copy-AdoWikiViaGit] Preparing to clone wiki '$wikiName' from '$SourceProject'..."
+
+    if (-not $Config) {
+        Write-Warning "[Copy-AdoWikiViaGit] No config provided. Using default PAT environment variable 'ADO_PAT'."
+        $Config = [pscustomobject]@{
+            azureDevOps = [pscustomobject]@{
+                personalAccessTokenEnvVar = 'ADO_PAT'
+            }
+        }
+    }
 
     # Create a temporary directory for cloning
     $tempDir = Join-Path $env:TEMP "WikiClone_$([guid]::NewGuid())"
+    Write-Warning "[Copy-AdoWikiViaGit] Creating temporary directory for git clone: $tempDir"
     if (Test-Path $tempDir) {
+        Write-Warning "[Copy-AdoWikiViaGit] Temporary directory already exists. Removing: $tempDir"
         Remove-Item $tempDir -Recurse -Force
     }
     New-Item -ItemType Directory -Path $tempDir | Out-Null
 
+    $pushed = $false
     try {
-        # Clone the source wiki repository
+        Write-Warning "[Copy-AdoWikiViaGit] Cloning source wiki repository from '$sourceRemoteUrl' into '$tempDir'..."
+        Invoke-AdoGitClone -RepositoryUrl $sourceRemoteUrl -TargetPath $tempDir -Config $Config
         Push-Location $tempDir
-        & git clone $sourceRemoteUrl . 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            throw "Failed to clone wiki repository from '$sourceRemoteUrl'"
+        $pushed = $true
+
+        # Normalize target repo name to target project wiki
+        $targetRepoName = if ($TargetProject -like '*.wiki') { $TargetProject } else { "$TargetProject.wiki" }
+
+        # Resolve target project id for repository creation (avoid project mismatch errors)
+        $projInfo = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($TargetProject))?includeCapabilities=false" -ReturnNullOnNotFound
+        $targetProjId = $null
+        if ($projInfo) {
+            if ($projInfo.PSObject.Properties['id']) { $targetProjId = $projInfo.id }
+            elseif ($projInfo.PSObject.Properties['value'] -and $projInfo.value.Count -gt 0 -and $projInfo.value[0].PSObject.Properties['id']) { $targetProjId = $projInfo.value[0].id }
         }
 
-        # Create target git repository
-        $repoBody = @{
-            name = "$wikiName.wiki"
-            project = @{
-                name = $TargetProject
+        # If a wiki repo already exists on the target, delete it (best effort) or reuse it to avoid conflicts
+        $targetRepo = $null
+        $targetRemoteUrl = $null
+        $existingRepos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($TargetProject))/_apis/git/repositories" -ReturnNullOnNotFound
+        $existingList = @()
+        if ($existingRepos) {
+            if ($existingRepos.PSObject.Properties['value']) {
+                $existingList = @($existingRepos.value)
             }
-        } | ConvertTo-Json
-
-        $createRepoUrl = "/$([uri]::EscapeDataString($TargetProject))/_apis/git/repositories"
-        $targetRepo = Invoke-AdoRest POST $createRepoUrl -Body $repoBody
-
-        if (-not $targetRepo -or -not $targetRepo.remoteUrl) {
-            throw "Failed to create target repository for project '$TargetProject'"
+            elseif ($existingRepos -is [System.Array]) {
+                $existingList = @($existingRepos)
+            }
+            elseif ($existingRepos.PSObject.Properties['name']) {
+                $existingList = @($existingRepos)
+            }
         }
 
-        $targetRemoteUrl = $targetRepo.remoteUrl
+        $existingWikiRepo = $existingList | Where-Object { $_.name -eq $targetRepoName -or $_.name -eq "$targetRepoName.wiki" } | Select-Object -First 1
+        if ($existingWikiRepo -and $existingWikiRepo.id) {
+            try {
+                Write-Warning "[Copy-AdoWikiViaGit] Deleting existing wiki repository '$($existingWikiRepo.name)' in '$TargetProject' before recreation..."
+                Invoke-AdoRest DELETE "/_apis/git/repositories/$($existingWikiRepo.id)" | Out-Null
+                Start-Sleep -Seconds 2
+                # Re-check after delete
+                $existingRepos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($TargetProject))/_apis/git/repositories" -ReturnNullOnNotFound
+                $existingList = @()
+                if ($existingRepos) {
+                    if ($existingRepos.PSObject.Properties['value']) { $existingList = @($existingRepos.value) }
+                    elseif ($existingRepos -is [System.Array]) { $existingList = @($existingRepos) }
+                    elseif ($existingRepos.PSObject.Properties['name']) { $existingList = @($existingRepos) }
+                }
+                $existingWikiRepo = $existingList | Where-Object { $_.name -eq $targetRepoName -or $_.name -eq "$targetRepoName.wiki" } | Select-Object -First 1
+            }
+            catch {
+                Write-Warning "[Copy-AdoWikiViaGit] Failed to delete existing wiki repository for '$TargetProject': $($_.Exception.Message). Will attempt to reuse the existing repo."
+            }
+        }
+
+        if ($existingWikiRepo -and $existingWikiRepo.remoteUrl) {
+            Write-Warning "[Copy-AdoWikiViaGit] Reusing existing wiki repository '$($existingWikiRepo.name)' for '$TargetProject' (will overwrite with --mirror push)..."
+            $targetRepo = $existingWikiRepo
+            $targetRemoteUrl = $existingWikiRepo.remoteUrl
+        }
+        else {
+            # Create target git repository
+            $repoBody = @{
+                name    = $targetRepoName
+                project = if ($targetProjId) { @{ id = $targetProjId } } else { @{ name = $TargetProject } }
+            } | ConvertTo-Json
+
+            $createRepoUrl = "/$([uri]::EscapeDataString($TargetProject))/_apis/git/repositories"
+            Write-Warning "[Copy-AdoWikiViaGit] Creating target git repository for project '$TargetProject' via: $createRepoUrl"
+            try {
+                $targetRepo = Invoke-AdoRest POST $createRepoUrl -Body $repoBody
+            }
+            catch {
+                Write-Warning "[Copy-AdoWikiViaGit] Repository create returned error: $($_.Exception.Message). Checking for existing repo to reuse..."
+                $existingRepos = Invoke-AdoRest GET "/$([uri]::EscapeDataString($TargetProject))/_apis/git/repositories" -ReturnNullOnNotFound
+                $existingList = @()
+                if ($existingRepos) {
+                    if ($existingRepos.PSObject.Properties['value']) { $existingList = @($existingRepos.value) }
+                    elseif ($existingRepos -is [System.Array]) { $existingList = @($existingRepos) }
+                    elseif ($existingRepos.PSObject.Properties['name']) { $existingList = @($existingRepos) }
+                }
+                $existingWikiRepo = $existingList | Where-Object { $_.name -eq $targetRepoName -or $_.name -eq "$targetRepoName.wiki" } | Select-Object -First 1
+
+                if ($existingWikiRepo -and $existingWikiRepo.remoteUrl) {
+                    Write-Warning "[Copy-AdoWikiViaGit] Repo '$($existingWikiRepo.name)' already exists; reusing it for push instead of creating a new one."
+                    $targetRepo = $existingWikiRepo
+                    $targetRemoteUrl = $existingWikiRepo.remoteUrl
+                }
+                else {
+                    throw
+                }
+            }
+
+            if (-not $targetRepo -or -not $targetRepo.remoteUrl) {
+                Write-Warning "[Copy-AdoWikiViaGit] Failed to create target repository for project '$TargetProject'"
+                throw "Failed to create target repository for project '$TargetProject'"
+            }
+
+            $targetRemoteUrl = $targetRepo.remoteUrl
+        }
+        Write-Warning "[Copy-AdoWikiViaGit] Target repository remote URL: $targetRemoteUrl"
 
         # Push to target repository
+        Write-Warning "[Copy-AdoWikiViaGit] Removing existing 'origin' remote (if any)..."
         & git remote remove origin 2>&1 | Out-Null
+        Write-Warning "[Copy-AdoWikiViaGit] Adding new 'origin' remote: $targetRemoteUrl"
         & git remote add origin $targetRemoteUrl 2>&1 | Out-Null
+        Write-Warning "[Copy-AdoWikiViaGit] Pushing all refs (--mirror) to target repository..."
         & git push --mirror origin 2>&1 | Out-Null
 
         if ($LASTEXITCODE -ne 0) {
+            Write-Warning "[Copy-AdoWikiViaGit] Failed to push wiki content to target repository '$targetRemoteUrl'"
             throw "Failed to push wiki content to target repository '$targetRemoteUrl'"
         }
 
-        Write-Host "[SUCCESS] Wiki content pushed to target repository" -ForegroundColor Gray
+        Write-Warning "[Copy-AdoWikiViaGit] Wiki content pushed to target repository successfully."
 
         # Now create the wiki from the repository (publish code as wiki)
         $wikiBody = @{
@@ -902,18 +1116,28 @@ function Copy-AdoWikiViaGit {
         } | ConvertTo-Json
 
         $createWikiUrl = "/$([uri]::EscapeDataString($TargetProject))/_apis/wiki/wikis"
+        Write-Warning "[Copy-AdoWikiViaGit] Creating wiki from repository for project '$TargetProject' via: $createWikiUrl"
         $targetWiki = Invoke-AdoRest POST $createWikiUrl -Body $wikiBody
 
         if (-not $targetWiki) {
+            Write-Warning "[Copy-AdoWikiViaGit] Failed to create wiki from repository for project '$TargetProject'"
             throw "Failed to create wiki from repository for project '$TargetProject'"
         }
 
-        Write-Host "[SUCCESS] Wiki created from repository for project '$TargetProject'" -ForegroundColor Gray
+        Write-Warning "[Copy-AdoWikiViaGit] Wiki created from repository for project '$TargetProject' successfully."
 
     }
+    catch {
+        Write-Warning "[Copy-AdoWikiViaGit] Exception occurred: $($_.Exception.Message)"
+        throw
+    }
     finally {
-        Pop-Location
+        if ($pushed) { 
+            Write-Warning "[Copy-AdoWikiViaGit] Restoring previous location after git operations."
+            Pop-Location 
+        }
         if (Test-Path $tempDir) {
+            Write-Warning "[Copy-AdoWikiViaGit] Cleaning up temporary directory: $tempDir"
             Remove-Item $tempDir -Recurse -Force
         }
     }
@@ -1261,8 +1485,9 @@ function Measure-Adorootwiki {
     
     try {
         $content = Get-WikiTemplate "overview.md"
-        Set-AdoWikiPageWithRetry $Project $WikiId "/Overview" $content | Out-Null
-        Write-Host "  ✅ Overview" -ForegroundColor Gray
+        # Prefix with 00- to keep Overview at the top of the wiki tree
+        Set-AdoWikiPageWithRetry $Project $WikiId "/00-Overview" $content | Out-Null
+        Write-Host "  ✅ Overview (00-Overview)" -ForegroundColor Gray
     }
     catch {
         Write-Warning "Failed to create Overview page: $_"
@@ -1275,6 +1500,7 @@ Export-ModuleMember -Function @(
     'Set-AdoWikiPageWithRetry',
     'Initialize-AdoProjectWikis',
     'Initialize-AdoProjectWikisEfficient',
+    'Invoke-AdoGitClone',
     'Copy-AdoWikiViaGit',
     'New-AdoQAGuidelinesWiki',
     'Measure-Adobestpracticeswiki',

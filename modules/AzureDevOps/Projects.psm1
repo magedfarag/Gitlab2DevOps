@@ -60,7 +60,7 @@ function Get-AdoProjectList {
         if (-not $result) {
             Write-Warning "[Get-AdoProjectList] Invoke-AdoRest returned null result"
             # Return cached data if available, even if stale
-            if ($script:ProjectListCache) {
+            if ($script:ProjectListCache -and $script:ProjectListCache -is [array]) {
                 Write-Warning "[Get-AdoProjectList] Returning stale cached data"
                 return $script:ProjectListCache
             }
@@ -68,6 +68,11 @@ function Get-AdoProjectList {
         }
         
         $projects = $result.value
+        
+        # Ensure projects is always an array
+        if (-not $projects -or $projects -isnot [array]) {
+            $projects = @()
+        }
         
         # Update cache
         $script:ProjectListCache = $projects
@@ -79,7 +84,7 @@ function Get-AdoProjectList {
     catch {
         Write-Warning "[Get-AdoProjectList] Failed to fetch project list: $_"
         # Return cached data if available, even if stale
-        if ($script:ProjectListCache) {
+        if ($script:ProjectListCache -and $script:ProjectListCache -is [array]) {
             Write-Warning "[Get-AdoProjectList] Returning stale cached data"
             return $script:ProjectListCache
         }
@@ -617,7 +622,7 @@ function Ensure-AdoIteration {
         if ($existing) {
             Write-Verbose "[Ensure-AdoIteration] Iteration '$Name' already exists in project '$Project'"
             try { Add-InitMetric -Category 'iterations' -Action 'skipped' } catch { }
-            return New-Object PSObject -Property @{ Name = $Name; Created = $false; Node = $existing }
+            return [pscustomobject]@{ Name = $Name; Created = $false; Node = $existing }
         }
     }
     catch {
@@ -650,7 +655,7 @@ function Ensure-AdoIteration {
         }
 
         try { Add-InitMetric -Category 'iterations' -Action 'created' } catch { }
-        return New-Object PSObject -Property @{ Name = $Name; Created = $true; Node = $iteration }
+        return [pscustomobject]@{ Name = $Name; Created = $true; Node = $iteration }
     }
     catch {
         $errMsg = $_.Exception.Message
@@ -658,7 +663,7 @@ function Ensure-AdoIteration {
             Write-Verbose "[Ensure-AdoIteration] Duplicate-name detected when creating '$Name' - fetching existing node"
             try {
                 $existing2 = Invoke-AdoRest GET "/$projEnc/_apis/wit/classificationnodes/iterations/$nameEnc"
-                if ($existing2) { try { Add-InitMetric -Category 'iterations' -Action 'skipped' } catch { }; return New-Object PSObject -Property @{ Name = $Name; Created = $false; Node = $existing2 } }
+                if ($existing2) { try { Add-InitMetric -Category 'iterations' -Action 'skipped' } catch { }; return [pscustomobject]@{ Name = $Name; Created = $false; Node = $existing2 } }
             }
             catch {
                 Write-Warning "Iteration reported duplicate but failed to fetch existing node for '$Name': $_"
@@ -669,7 +674,7 @@ function Ensure-AdoIteration {
 
         Write-Warning "Failed to create iteration '$Name': $_"
         try { Add-InitMetric -Category 'iterations' -Action 'failed' } catch { }
-        return New-Object PSObject -Property @{ Name = $Name; Created = $false; Node = $null; Error = $_ }
+        return [pscustomobject]@{ Name = $Name; Created = $false; Node = $null; Error = $_ }
     }
 }
 

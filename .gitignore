@@ -30,6 +30,7 @@ META_UPDATES_SUMMARY.md
 # User-Specific Configuration (may contain credentials)
 bulk-migration-config.json
 config.local.json
+config-ado-ad.json
 setup-env.ps1
 *.local.ps1
 *.local.json

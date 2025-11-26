@@ -198,28 +198,25 @@ function Resolve-AdoDashboardEndpoints {
     $projIdEnc = if ($ProjectId) { [uri]::EscapeDataString($ProjectId) } else { $projEnc }
     $teamNameEnc = if ($Team) { [uri]::EscapeDataString($Team) } else { $null }
 
-    # Prioritize the correct official endpoint that works on both Azure DevOps Cloud and Server
+    # Defensive: Only build endpoints if teamId is valid (not empty/malformed)
+    $isTeamIdValid = $TeamId -and -not [string]::IsNullOrWhiteSpace($TeamId) -and $TeamId -notmatch '^-version'
+
     if ($teamNameEnc) {
         $endpoints += "/$projEnc/$teamNameEnc/_apis/dashboard/dashboards"
     }
 
-    # Fallback to ID-based endpoint (may not work on some servers)
-    if ($TeamId) {
+    if ($isTeamIdValid) {
         $teamIdEnc = [uri]::EscapeDataString($TeamId)
         $endpoints += "/_apis/projects/$projIdEnc/teams/$teamIdEnc/dashboard/dashboards"
-    }
-
-    # Additional fallback endpoints for servers that don't support the preferred routes
-    if ($TeamId) {
-        $teamIdEnc = [uri]::EscapeDataString($TeamId)
         $endpoints += "/$projEnc/_apis/dashboard/dashboards?teamId=$teamIdEnc"
-
         $orgQueryParts = @("teamId=$teamIdEnc")
         if ($ProjectId) {
             $orgQueryParts += "projectId=$projIdEnc"
         }
         $orgQuery = $orgQueryParts -join '&'
         $endpoints += "/_apis/dashboard/dashboards?$orgQuery"
+    } elseif ($TeamId) {
+        Write-Warning "[Dashboards] Refusing to build REST API endpoints with empty or invalid teamId ('$TeamId'). Skipping team-specific dashboard endpoints."
     }
 
     # No team context available - do not attempt project-scoped dashboard endpoints by default.
@@ -241,7 +238,13 @@ function Get-AdoDashboardContext {
         try {
             $teamContext = Invoke-AdoRest GET "/_apis/projects/$projEnc/teams/$([uri]::EscapeDataString($Team))"
             if ($teamContext) {
-                if ($teamContext.PSObject.Properties['id']) { $teamId = $teamContext.id }
+                if ($teamContext.PSObject.Properties['id']) {
+                    if ([string]::IsNullOrWhiteSpace($teamContext.id) -or $teamContext.id -match '^-version') {
+                        Write-Warning "[Dashboards] Refusing to use empty or invalid teamId ('$($teamContext.id)') for team '$Team'. Skipping team context."
+                    } else {
+                        $teamId = $teamContext.id
+                    }
+                }
                 if ($teamContext.PSObject.Properties['projectId']) { $projectId = $teamContext.projectId }
             }
         }
@@ -326,51 +329,8 @@ function Search-Adodashboard {
 
         if ($existing) {
             Write-Host "[INFO] Dashboard '$dashboardName' already exists" -ForegroundColor Gray
-            # If an existing team-specific dashboard (e.g. Development Metrics) is present in the project,
-            # attempt to replace the default Overview dashboard widgets with that dashboard's widgets.
-            try {
-                $preferredNames = @('Development Metrics','Program Management','Security Metrics','QA Metrics')
-                $source = $entries | Where-Object { $preferredNames -contains $_.name } | Select-Object -First 1
-                if ($source) {
-                    Write-Verbose "[Search-Adodashboard] Found source dashboard to copy: $($source.name)"
-                    # Resolve IDs for overview dashboard and source dashboard
-                    $overviewId = if ($existing.id) { $existing.id } elseif ($existing.dashboardId) { $existing.dashboardId } else { $null }
-                    $sourceId = if ($source.id) { $source.id } elseif ($source.dashboardId) { $source.dashboardId } else { $null }
-                    if ($overviewId -and $sourceId) {
-                        # Get full source dashboard definition
-                        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
-                        $sourceDetails = $null
-                        foreach ($ep in $endpoints) {
-                            try {
-                                $sourceDetails = Invoke-AdoDashboardRest -Method GET -Endpoint ("$ep/" + $sourceId)
-                                break
-                            }
-                            catch {
-                                Write-LogLevelVerbose "[Search-Adodashboard] Source dashboard GET failed for endpoint $ep - trying next. Error: $_"
-                            }
-                        }
-
-                        if ($sourceDetails -and $sourceDetails.widgets) {
-                            $updateBody = @{ widgets = $sourceDetails.widgets; description = $sourceDetails.description }
-                            foreach ($ep in $endpoints) {
-                                try {
-                                    Invoke-AdoDashboardRest -Method PATCH -Endpoint ("$ep/" + $overviewId) -Body $updateBody | Out-Null
-                                    Write-Host "[SUCCESS] Replaced Overview dashboard widgets with dashboard '$($source.name)'" -ForegroundColor Green
-                                    break
-                                }
-                                catch {
-                                    # Use subexpression to avoid parsing issues when appending ':' after a variable
-                                    Write-LogLevelVerbose "[Search-Adodashboard] Failed to PATCH overview dashboard at $($ep): $_"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch {
-                Write-LogLevelVerbose "[Search-Adodashboard] Could not replace Overview dashboard: $_"
-            }
-
+            # Note: Dashboard widget updates are not supported in this Azure DevOps version
+            # The existing dashboard will be used as-is
             return $existing
         }
     }
@@ -1142,7 +1102,8 @@ Export-ModuleMember -Function @(
     'Test-Adoqadashboard',
     'New-Adodevdashboard',
     'New-AdoSecurityDashboard',
-    'Test-Adomanagementdashboard'
+    'Test-Adomanagementdashboard',
+    'Get-AdoDashboardContext'
 )
 
 Export-ModuleMember -Function 'Resolve-AdoDashboardEndpoints'

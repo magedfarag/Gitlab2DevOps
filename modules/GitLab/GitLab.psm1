@@ -425,10 +425,10 @@ function Initialize-GitLab {
                 $skipCert = $false
                 try { $skipCert = (Get-SkipCertificateCheck) } catch { $skipCert = $false }
                 if ($skipCert) {
-                    git -c http.sslVerify=false fetch --all --prune
+                    git -c http.sslVerify=false fetch origin --prune
                 }
                 else {
-                    git fetch --all --prune
+                    git fetch origin --prune
                 }
                 $fetchSuccess = $?
                 

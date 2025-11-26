@@ -1,0 +1,196 @@
+# 01. Development Environment Setup
+
+**Scope.** This setup guide describes the local development environment for this codebase. Version numbers are the minimum tested versions; using the latest stable/LTS releases for each tool is recommended.
+
+Complete guide for setting up your local development environment.
+
+## Prerequisites
+
+### Required Software
+
+- **Git**: Version 2.30+
+  - Download: https://git-scm.com/
+  - Verify: \``git --version\``
+
+- **IDE/Editor**:
+  - Visual Studio Code (recommended)
+  - Visual Studio 2022
+  - JetBrains Rider/IntelliJ
+
+- **Runtime/SDK**:
+  - .NET 8.0 SDK (for .NET projects)
+  - Node.js 18+ LTS (for Node projects)
+  - Python 3.11+ (for Python projects)
+  - Docker Desktop (for containerized development)
+
+### Optional Tools
+
+- **Postman** or **Insomnia** (API testing)
+- **Azure Data Studio** or **SQL Server Management Studio** (database)
+- **Redis Desktop Manager** (cache debugging)
+
+## Repository Setup
+
+### 1. Clone the Repository
+
+````````````bash
+# Clone with HTTPS
+git clone https://dev.azure.com/contoso/OrderProcessingService/_git/OrderProcessingService
+
+# Or with SSH
+git clone git@ssh.dev.azure.com:v3/contoso/OrderProcessingService/OrderProcessingService
+
+cd OrderProcessingService
+````````````
+
+### 2. Install Dependencies
+
+#### For .NET Projects
+````````````bash
+dotnet restore
+dotnet build
+````````````
+
+#### For Node.js Projects
+````````````bash
+npm install
+# or
+yarn install
+````````````
+
+#### For Python Projects
+````````````bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+````````````
+
+### 3. Configure Local Settings
+
+````````````bash
+# Copy configuration template
+cp appsettings.Development.json.template appsettings.Development.json
+# or
+cp .env.example .env
+
+# Edit with your local settings
+code appsettings.Development.json
+````````````
+
+### 4. Database Setup
+
+````````````bash
+# Run migrations
+dotnet ef database update
+# or
+npm run migrate
+````````````
+
+### 5. Run the Application
+
+````````````bash
+# .NET
+dotnet run --project src/MyApp.Api
+
+# Node.js
+npm run dev
+
+# Python
+python manage.py runserver
+````````````
+
+## Verification
+
+### Health Check
+
+After starting the application, verify it's running:
+
+````````````bash
+curl http://localhost:5000/health
+# Should return: {"status": "healthy"}
+````````````
+
+### Run Tests
+
+````````````bash
+# .NET
+dotnet test
+
+# Node.js
+npm test
+
+# Python
+pytest
+````````````
+
+## Common Issues
+
+### Issue: Port Already in Use
+
+**Solution**: Change port in configuration or kill existing process
+````````````bash
+# Windows
+netstat -ano | findstr :5000
+taskkill /PID 12345 /F  # replace 12345 with the actual PID
+
+# Linux/Mac
+lsof -i :5000
+kill -9 12345  # replace 12345 with the actual PID
+````````````
+
+### Issue: Database Connection Failed
+
+**Solution**: Verify connection string and ensure database server is running
+
+### Issue: SSL Certificate Errors
+
+**Solution**: Trust development certificate
+````````````bash
+dotnet dev-certs https --trust
+````````````
+
+## IDE Configuration
+
+### Visual Studio Code
+
+**Recommended Extensions**:
+- C# (for .NET)
+- ESLint (for JavaScript)
+- Python
+- Docker
+- GitLens
+- Azure Repos
+
+**Settings** (\``.vscode/settings.json\``):
+````````````json
+{
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": true
+  }
+}
+````````````
+
+### Launch Configuration (\``.vscode/launch.json\``)
+
+Configuration for debugging will be project-specific. See repository for examples.
+
+## Getting Help
+
+- **Wiki**: Check [Troubleshooting](/Development/Troubleshooting)
+- **Team**: Ask in team chat or daily standup
+- **Documentation**: See [API Documentation](/Development/API-Documentation)
+
+---
+
+**Next Steps**: After setup, review [Git Workflow](/Development/Git-Workflow) and [Code Review Checklist](/Development/Code-Review-Checklist).
+
+---
+
+## 📚 References
+
+- [Visual Studio Code Documentation](https://code.visualstudio.com/docs)
+- [Git Installation Guide](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
+- [Docker Getting Started](https://docs.docker.com/get-started/)
+- [Node.js Best Practices](https://github.com/goldbergyoni/nodebestpractices)
+- [.NET Development Environment](https://learn.microsoft.com/en-us/dotnet/core/install/)

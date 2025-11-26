@@ -41,7 +41,7 @@ This document describes the two new menu options added to the GitLab → Azure D
 
 **Requirements**:
 - Azure DevOps Server (on-premises)
-- PAT with Graph API, Projects/Teams, and Security permissions
+- PAT with Graph (manage) for Azure DevOps Services or Graph permission for Azure DevOps Server, Projects/Teams, and Security permissions
 - Exported GitLab data from Option 5
 - Users must already exist in Active Directory integrated with Azure DevOps
 

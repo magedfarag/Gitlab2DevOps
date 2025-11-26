@@ -1,3 +1,4 @@
+Import-Module "$PSScriptRoot/../modules/GitLab/GitLab.psm1" -Force -ErrorAction SilentlyContinue
 Describe "Export-GitLabIdentity safe array handling" {
     BeforeAll {
         $scriptPath = Join-Path $PSScriptRoot '../modules/Migration/Export-GitLabIdentity.ps1'
@@ -19,7 +20,7 @@ Describe "Export-GitLabIdentity safe array handling" {
             return [pscustomobject]@{ Data = @(); Headers = @{} }
         }
 
-        { & $scriptPath -OutDirectory "$PSScriptRoot\temp-exports" -Profile Complete -WhatIf } | Should -Not -Throw
+        { & $scriptPath -OutDirectory "$PSScriptRoot\temp-exports" -Profile Complete } | Should -Not -Throw
     }
 }
 

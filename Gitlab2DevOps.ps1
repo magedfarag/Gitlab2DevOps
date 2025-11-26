@@ -33,6 +33,7 @@
     - Migrate: Migrate single GitLab project to Azure DevOps
     - BulkPrepare: Download and analyze multiple GitLab projects
     - BulkMigrate: Execute bulk migration from prepared template
+    - ImportGitLabIdentity: Import GitLab identity data with granular role-based permissions
 
 .PARAMETER Source
     Source GitLab project path (e.g., "group/my-project"). Required for Preflight, Initialize, and Migrate modes.
@@ -124,11 +125,11 @@
     - CLI: Use -Mode parameter with required parameters for automation
 #>
 
-#Requires -Version 7.0
+# Script cache buster: 20251123-0931
 [CmdletBinding(DefaultParameterSetName='Interactive', SupportsShouldProcess)]
 param(
     [Parameter(ParameterSetName='CLI', Mandatory)]
-    [ValidateSet('Preflight', 'Initialize', 'Migrate', 'BulkPrepare', 'BulkMigrate', 'BusinessInit', 'DevInit', 'SecurityInit')]
+    [ValidateSet('Preflight', 'Initialize', 'Migrate', 'BulkPrepare', 'BulkMigrate', 'BusinessInit', 'DevInit', 'SecurityInit', 'ImportGitLabIdentity')]
     [string]$Mode,
     [Parameter(ParameterSetName='CLI')]
     [string]$Source,
@@ -205,6 +206,7 @@ Import-Module "$scriptRoot\modules\core\Logging.psm1" -Force -DisableNameCheckin
 Import-Module "$scriptRoot\modules\GitLab\GitLab.psm1" -Force -DisableNameChecking -WarningAction SilentlyContinue
 Import-Module "$scriptRoot\modules\AzureDevOps\AzureDevOps.psm1" -Force -DisableNameChecking -WarningAction SilentlyContinue
 Import-Module "$scriptRoot\modules\Migration.psm1" -Force -DisableNameChecking -WarningAction SilentlyContinue
+Import-Module "$scriptRoot\modules\Migration\Import-GitLabIdentityToAdo.psm1" -Force -DisableNameChecking -WarningAction SilentlyContinue
 Write-Host "[INFO] Modules loaded successfully"
 Write-Host ""
 
@@ -325,7 +327,7 @@ if ($PSCmdlet.ParameterSetName -eq 'CLI') {
             if ($Force) { $migrateParams['Force'] = $true }
             if ($Replace) { $migrateParams['Replace'] = $true }
             if ($WhatIfPreference) { $migrateParams['WhatIf'] = $true }
-            if ($ConfirmPreference -ne 'None') { $migrateParams['Confirm'] = $true }
+            # Removed unsupported -Confirm param from migration invocation
             
             Invoke-SingleMigration @migrateParams
         }
@@ -348,17 +350,22 @@ if ($PSCmdlet.ParameterSetName -eq 'CLI') {
         'BusinessInit' {
             if ([string]::IsNullOrWhiteSpace($Project)) {
                 Write-Host "[ERROR] -Project parameter is required for BusinessInit mode" -ForegroundColor Red
-                Write-Host "Usage: .\Gitlab2DevOps.ps1 -Mode BusinessInit -Project 'MyProject'" -ForegroundColor Yellow
+                Write-Host "Usage: .\Gitlab2DevOps.ps1 -Mode BusinessInit -Project 'MyProject' [-Source 'SourceProject']" -ForegroundColor Yellow
                 exit 1
             }
 
             Write-Host "[INFO] Provisioning Business Initialization Pack for project: $Project" -ForegroundColor Cyan
-            Initialize-BusinessInit -DestProject $Project
+            $initParams = @{ DestProject = $Project }
+            if (-not [string]::IsNullOrWhiteSpace($Source)) {
+                $initParams['SourceProject'] = $Source
+                Write-Host "[INFO] Using efficient wiki cloning from source project: $Source" -ForegroundColor Cyan
+            }
+            Initialize-BusinessInit @initParams
         }
         'DevInit' {
             if ([string]::IsNullOrWhiteSpace($Project)) {
                 Write-Host "[ERROR] -Project parameter is required for DevInit mode" -ForegroundColor Red
-                Write-Host "Usage: .\Gitlab2DevOps.ps1 -Mode DevInit -Project 'MyProject' [-Source 'group/project']" -ForegroundColor Yellow
+                Write-Host "Usage: .\Gitlab2DevOps.ps1 -Mode DevInit -Project 'MyProject' [-Source 'SourceProject']" -ForegroundColor Yellow
                 exit 1
             }
 
@@ -373,17 +380,38 @@ if ($PSCmdlet.ParameterSetName -eq 'CLI') {
                 Write-LogLevelVerbose "[DevInit] Source provided: $Source - using 'all' project type"
             }
             
-            Initialize-DevInit -DestProject $Project -ProjectType $projectType
+            $initParams = @{ DestProject = $Project; ProjectType = $projectType }
+            if (-not [string]::IsNullOrWhiteSpace($Source)) {
+                $initParams['SourceProject'] = $Source
+                Write-Host "[INFO] Using efficient wiki cloning from source project: $Source" -ForegroundColor Cyan
+            }
+            Initialize-DevInit @initParams
         }
         'SecurityInit' {
             if ([string]::IsNullOrWhiteSpace($Project)) {
                 Write-Host "[ERROR] -Project parameter is required for SecurityInit mode" -ForegroundColor Red
-                Write-Host "Usage: .\Gitlab2DevOps.ps1 -Mode SecurityInit -Project 'MyProject'" -ForegroundColor Yellow
+                Write-Host "Usage: .\Gitlab2DevOps.ps1 -Mode SecurityInit -Project 'MyProject' [-Source 'SourceProject']" -ForegroundColor Yellow
                 exit 1
             }
 
             Write-Host "[INFO] Provisioning Security Initialization Pack for project: $Project" -ForegroundColor Cyan
-            Initialize-SecurityInit -DestProject $Project
+            $initParams = @{ DestProject = $Project }
+            if (-not [string]::IsNullOrWhiteSpace($Source)) {
+                $initParams['SourceProject'] = $Source
+                Write-Host "[INFO] Using efficient wiki cloning from source project: $Source" -ForegroundColor Cyan
+            }
+            Initialize-SecurityInit @initParams
+        }
+        'ImportGitLabIdentity' {
+            Write-Host "[INFO] Starting GitLab identity import workflow" -ForegroundColor Cyan
+            $defaultConfig = Join-Path $scriptRoot "config-ado-ad.json"
+            $configPath = if (-not [string]::IsNullOrWhiteSpace($Source)) { $Source } else { $defaultConfig }
+            if (-not (Test-Path $configPath)) {
+                throw "Config file not found: $configPath"
+            }
+            $invokeParams = @{ ConfigPath = $configPath }
+            if ($WhatIfPreference) { $invokeParams['DryRun'] = $true }
+            Invoke-GitLabIdentityToAdoImport @invokeParams
         }
         }
     }

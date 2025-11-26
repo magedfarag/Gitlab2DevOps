@@ -1526,16 +1526,15 @@ function Measure-Adobusinessqueries {
 
     $created = 0; $skipped = 0
     foreach ($q in $queries) {
-        if ($existing.ContainsKey($q.name)) {
-            Write-Host "[INFO] Query '$($q.name)' already exists" -ForegroundColor Gray
-            $skipped++
-            continue
-        }
         try {
-            $body = @{ name = $q.name; wiql = $q.wiql }
-            Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries" -Body $body | Out-Null
-            Write-Host "[SUCCESS] Created query: $($q.name)" -ForegroundColor Green
-            $created++
+            $result = Upsert-AdoQuery -Project $Project -Path "Shared Queries/$($q.name)" -Wiql $q.wiql
+            if ($result) {
+                Write-Host "[SUCCESS] Created query: $($q.name)" -ForegroundColor Green
+                $created++
+            } else {
+                Write-Host "[INFO] Query '$($q.name)' already exists" -ForegroundColor Gray
+                $skipped++
+            }
         }
         catch {
             Write-Warning "Failed to create query '$($q.name)': $_"
@@ -1635,48 +1634,11 @@ ORDER BY [System.ChangedDate] DESC
     try {
         foreach ($q in $queries) {
             try {
-                $queryPayload = @{
-                    name  = $q.name
-                    wiql  = $q.wiql
-                }
-                $encodedPath = [uri]::EscapeDataString("Shared Queries/Development/$($q.name)")
-                try {
-                    # Try to get existing query
-                    $existing = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$encodedPath" -ReturnNullOnNotFound
+                $result = Upsert-AdoQuery -Project $Project -Path "Shared Queries/Development/$($q.name)" -Wiql $q.wiql
+                if ($result) {
+                    Write-Host "  ✅ Created query: $($q.name)" -ForegroundColor Gray
+                } else {
                     Write-Host "  ✓ Query exists: $($q.name)" -ForegroundColor Gray
-                }
-                catch {
-                    # Create new query
-                    $encodedFolder = [uri]::EscapeDataString("Shared Queries/Development")
-                    try {
-                        Invoke-AdoRest POST "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/$encodedFolder" -Body $queryPayload | Out-Null
-                        Write-Host "  ✅ Created query: $($q.name)" -ForegroundColor Gray
-                    }
-                    catch {
-                        Write-Warning "Failed to create query '$($q.name)' (POST): $_"
-                        # Temporary debug capture: write exception + context to logs/debug-failing-post-<guid>.json
-                        # try {
-                        #     $logsDir = Join-Path (Get-Location) 'logs'
-                        #     if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
-
-                        #     $payload = [ordered]@{
-                        #         timestamp = (Get-Date).ToString('o')
-                        #         project   = $Project
-                        #         queryName = $q.name
-                        #         endpoint  = "/$([uri]::EscapeDataString($Project))/_apis/wit/queries/Shared%20Queries"
-                        #         exception = ($_ | Out-String).Trim()
-                        #     }
-
-                        #     $fname = Join-Path $logsDir ("debug-failing-post-" + [guid]::NewGuid().ToString() + ".json")
-                        #     $payload | ConvertTo-Json -Depth 10 | Out-File -FilePath $fname -Encoding UTF8 -Force
-                        #     Write-LogLevelVerbose "[Search-Adodevqueries] Wrote debug failure details to: $fname"
-                        # }
-                        # catch {
-                        #     Write-LogLevelVerbose "[Search-Adodevqueries] Failed to write debug file: $_"
-                        # }
-
-                        continue
-                    }
                 }
             }
             catch {

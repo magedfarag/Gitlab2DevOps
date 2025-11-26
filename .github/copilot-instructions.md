@@ -139,18 +139,34 @@ Notes: Use `Mock` to replace `Invoke-RestMethod` and `Write-RestCallLog`. Run wi
 
 ## Public functions you will most often interact with
 
-- Core:
   - `Invoke-AdoRest` (modules/core/Core.Rest.psm1) — perform ADO REST calls
   - `Invoke-GitLabRest` (modules/GitLab/GitLab.psm1) — perform GitLab REST calls
   - `Import-DotEnvFile` (modules/core/EnvLoader.psm1) — load `.env`
-- Migration orchestration:
   - `Invoke-SingleMigration` (modules/Migration/Workflows/SingleMigration.psm1)
   - `Invoke-BulkMigrationWorkflow` (modules/Migration/Workflows/BulkMigration.psm1)
   - `Initialize-AdoProject` (modules/Migration/Initialization/ProjectInitialization.psm1)
-- Azure DevOps adapters:
   - `New-AdoRepository`, `Remove-AdoDefaultRepository` (modules/AzureDevOps/Repositories.psm1)
   - `Initialize-AdoProjectWikis`, `Set-AdoWikiPage` (modules/AzureDevOps/Wikis.psm1)
   - `Import-AdoWorkItemsFromExcel` (modules/AzureDevOps/WorkItems.psm1)
+
+## Troubleshooting: Malformed Team Descriptor REST API URLs
+
+**Never generate REST API calls to endpoints like:**
+```
+/E-Services/_apis/teams/-version=7.1?api-version=7.1
+```
+This is a sign of a missing, empty, or incorrectly substituted team ID/descriptor variable in PowerShell migration logic.
+
+**How to prevent:**
+- Always validate team ID/descriptor variables before building REST URLs.
+- If the team ID is missing, empty, or invalid, log a clear error and skip the REST call.
+- Use defensive coding: do not concatenate or interpolate variables into REST URLs unless they are verified non-empty and valid.
+- The correct endpoint for team membership is:
+  - `/organization/_apis/teams/{teamId}?api-version=7.1` (for a specific team)
+  - `/organization/{project}/_apis/projects/{projectId}/teams?api-version=7.1` (for all teams in a project)
+- Add unit tests or Pester tests to assert that no REST calls are made with empty or malformed team IDs.
+
+**If you see a URL with `-version=7.1` or similar, fix the variable substitution and add a test to prevent regression.**
 
 ## Quick safety rules for AI edits
 

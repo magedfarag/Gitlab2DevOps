@@ -113,27 +113,34 @@ function Show-MigrationMenu {
     Write-Host "│ Export GitLab users/groups to JSON" -ForegroundColor Gray
     Write-Host "  6) Import User Information  " -ForegroundColor White -NoNewline
     Write-Host "│ Import JSON data to Azure DevOps" -ForegroundColor Gray
+    Write-Host "  7) Import User Info (ADO-only)" -ForegroundColor White -NoNewline
+    Write-Host "- Map AD groups into Azure DevOps (skip AD changes)" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  7) Add Team Packs           " -ForegroundColor White -NoNewline
-    Write-Host "│ Enhance existing project with team resources" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  8) Import Requirements       " -ForegroundColor White -NoNewline
+    Write-Host "  8) Add Team Packs           " -ForegroundColor White -NoNewline
+    Write-Host "│ Enhance all existing projects with team resources" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  9) Import Requirements       " -ForegroundColor White -NoNewline
     Write-Host "│ Import work items from requirements.xlsx" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  9) Unattended: Prepare from projects.json" -ForegroundColor White -NoNewline
-    Write-Host "│ Prepare all migrations" -ForegroundColor Gray
-    Write-Host "  10) Unattended: Import from projects.json " -ForegroundColor White -NoNewline
+    Write-Host "  10) Unattended: Prepare from projects.json" -ForegroundColor White -NoNewline
+    Write-Host "│ Prepare migration folders only (no Azure DevOps changes)" -ForegroundColor Gray
+    Write-Host "  11) Unattended: Import from projects.json " -ForegroundColor White -NoNewline
     Write-Host "│ end-to-end prepare/initialize/migrate"
     Write-Host ""
-    Write-Host "  11) Exit" -ForegroundColor Yellow
+    Write-Host "  12) Sync Repos from projects.json Map     " -ForegroundColor White -NoNewline
+    Write-Host "│ Sync GitLab repos to Azure DevOps projects"
+    Write-Host ""
+    Write-Host "  13) Exit" -ForegroundColor Yellow
     Write-Host ""
     Write-Host ""
     
-    $choice = Read-Host "Select option (1-11)"
-    if ($choice -eq '9') {
+    $choice = Read-Host "Select option (1-13)"
+    if ($choice -eq '10') {
         Write-Host ""
         Write-Host "=== BULK PREPARATION FROM CONFIG FILE ===" -ForegroundColor Cyan
-        Write-Host "This will read projects.json and prepare all migrations in bulk."
+        Write-Host "This will read projects.json and prepare migration folders only (no Azure DevOps changes)." -ForegroundColor Gray
+        Write-Host "Use Option 3 to create Azure DevOps projects after preparation." -ForegroundColor Gray
         Write-Host ""
         # From modules/Migration/Menu/ go up 3 levels to get to project root
         $projectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
@@ -249,7 +256,7 @@ function Show-MigrationMenu {
             Write-Progress -Activity "Single Project Preparation" -Status "Caching pre-migration report..." -PercentComplete 95 -Id 1
             try {
                 $preReportPath = Join-Path $paths.gitlabDir "reports\pre-migration-report.json"
-                New-MigrationPreReport -GitLabPath $SourceProjectPath -AdoProject $DestProjectName -AdoRepoName $gitlabProjectName -OutputPath $preReportPath | Out-Null
+                New-MigrationPreReport -GitLabPath $SourceProjectPath -AdoProject $DestProjectName -AdoRepoName $gitlabProjectName -OutputPath $preReportPath -AllowSync | Out-Null
                 Write-Host "[INFO] Pre-migration report cached: $preReportPath" -ForegroundColor Gray
             }
             catch {
@@ -731,76 +738,39 @@ function Show-MigrationMenu {
             # Import User Information
             Write-Host ""
             Write-Host "=== IMPORT USER INFORMATION ===" -ForegroundColor Cyan
-            Write-Host "Import previously exported GitLab identity data into Azure DevOps for all projects."
+            Write-Host "Import previously exported GitLab identity data into Azure DevOps using config-ado-ad.json mappings."
             Write-Host ""
-            
-            $importDir = Read-Host "Enter directory containing exported JSON files (press Enter for 'exports')"
-            if ([string]::IsNullOrWhiteSpace($importDir)) {
-                $importDir = "exports"
-            }
-            
-            # Verify the directory exists and has required files
-            if (-not (Test-Path $importDir)) {
-                Write-Host "[ERROR] Import directory not found: $importDir" -ForegroundColor Red
-                Write-Host "[INFO] Use Option 5 to export GitLab data first" -ForegroundColor Yellow
+
+            $projectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
+            $defaultConfig = Join-Path $projectRoot "config-ado-ad.json"
+            $configInput = Read-Host "Enter path to config-ado-ad.json (press Enter for default: $defaultConfig)"
+            $configPath = if ([string]::IsNullOrWhiteSpace($configInput)) { $defaultConfig } else { $configInput }
+
+            if (-not (Test-Path $configPath)) {
+                Write-Host "[ERROR] Config file not found: $configPath" -ForegroundColor Red
                 return
             }
-            
-            $usersFile = Join-Path $importDir "users.json"
-            $groupsFile = Join-Path $importDir "groups.json"
-            $membershipsFile = Join-Path $importDir "project-memberships.json"
-            
-            if (-not (Test-Path $usersFile) -or -not (Test-Path $groupsFile) -or -not (Test-Path $membershipsFile)) {
-                Write-Host "[ERROR] Required files not found in $importDir" -ForegroundColor Red
-                Write-Host "Expected files: users.json, groups.json, project-memberships.json" -ForegroundColor Yellow
-                return
-            }
-            
-            Write-Host "[INFO] Found export files in: $importDir" -ForegroundColor Green
-            Write-Host ""
-            
+
             Write-Host "Import Options:" -ForegroundColor Cyan
             Write-Host "  1) Dry Run    - Preview what would be imported (recommended first)" -ForegroundColor Yellow
             Write-Host "  2) Execute    - Perform actual import to Azure DevOps for all projects" -ForegroundColor White
             Write-Host ""
-            
+
             $importChoice = Read-Host "Select import mode (1-2)"
             $dryRun = ($importChoice -eq '1')
-            
-            Write-Host "[INFO] Starting import in $(if ($dryRun) { 'DRY RUN' } else { 'EXECUTE' }) mode for all projects..." -ForegroundColor Green
-            
+
+            Write-Host "[INFO] Starting import in $(if ($dryRun) { 'DRY RUN' } else { 'EXECUTE' }) mode using $configPath ..." -ForegroundColor Green
+
             try {
-                # Call the import script - navigate from module location to project root
-                # From modules/Migration/Menu/ go up 3 levels to get to project root
-                $projectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
-                $importScript = Join-Path $projectRoot "modules\Migration\Import-GitLabIdentityToAdo.ps1"
-                
-                if (-not (Test-Path $importScript)) {
-                    throw "Import script not found at: $importScript"
-                }
-                
-                # Import required modules for the import script
-                $gitLabModule = Join-Path $projectRoot "modules\GitLab\GitLab.psm1"
-                $adoModule = Join-Path $projectRoot "modules\AzureDevOps\AzureDevOps.psm1"
-                if (Test-Path $gitLabModule) {
-                    Import-Module $gitLabModule -Force -WarningAction SilentlyContinue
-                }
-                if (Test-Path $adoModule) {
-                    Import-Module $adoModule -Force -WarningAction SilentlyContinue
-                }
-                
-                # Show progress bar for import
                 Write-Progress -Activity "Import User Information" -Status "Starting GitLab identity import..." -PercentComplete 0 -Id 4
-                
-                if ($dryRun) {
-                    & $importScript -ExportFolder $importDir -WhatIf
-                }
-                else {
-                    & $importScript -ExportFolder $importDir
-                }
-                
+
+                $invokeParams = @{ ConfigPath = $configPath }
+                if ($dryRun) { $invokeParams['DryRun'] = $true }
+
+                Invoke-GitLabIdentityToAdoImport @invokeParams
+
                 Write-Progress -Activity "Import User Information" -Status "Import completed successfully!" -PercentComplete 100 -Id 4 -Completed
-                
+
                 Write-Host ""
                 Write-Host "[SUCCESS] Import completed!" -ForegroundColor Green
                 if ($dryRun) {
@@ -813,86 +783,204 @@ function Show-MigrationMenu {
             }
         }
         '7' {
-            # Add Team Packs to Existing Project
+            # Import User Info (ADO-only)
             Write-Host ""
-            Write-Host "=== ADD TEAM PACKS TO EXISTING PROJECT ===" -ForegroundColor Cyan
-            Write-Host "Select an existing Azure DevOps project to enhance with team resources."
+            Write-Host "=== IMPORT USER INFORMATION (ADO-ONLY) ===" -ForegroundColor Cyan
+            Write-Host "Map existing AD groups into Azure DevOps (skips AD OU/group/user changes)." -ForegroundColor Gray
             Write-Host ""
-            
+
+            $projectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
+            $defaultConfig = Join-Path $projectRoot "config-ado-ad.json"
+            $configInput = Read-Host "Enter path to config-ado-ad.json (press Enter for default: $defaultConfig)"
+            $configPath = if ([string]::IsNullOrWhiteSpace($configInput)) { $defaultConfig } else { $configInput }
+
+            if (-not (Test-Path $configPath)) {
+                Write-Host "[ERROR] Config file not found: $configPath" -ForegroundColor Red
+                return
+            }
+
+            Write-Host "Import Options:" -ForegroundColor Cyan
+            Write-Host "  1) Dry Run    - Preview mappings only (recommended first)" -ForegroundColor Yellow
+            Write-Host "  2) Execute    - Map AD groups into Azure DevOps" -ForegroundColor White
+            Write-Host ""
+
+            $importChoice = Read-Host "Select import mode (1-2)"
+            $dryRun = ($importChoice -eq '1')
+
+            Write-Host "[INFO] Starting ADO-only import in $(if ($dryRun) { 'DRY RUN' } else { 'EXECUTE' }) mode using $configPath ..." -ForegroundColor Green
+
             try {
-                # Get all Azure DevOps projects
-                Write-Host "[INFO] Fetching Azure DevOps projects..." -ForegroundColor Cyan
-                $allProjects = Get-AdoProjectList -RefreshCache
-                
-                if ($allProjects.Count -eq 0) {
-                    Write-Host "[ERROR] No Azure DevOps projects found." -ForegroundColor Red
-                    Write-Host "[TIP] Create a project first using Option 3." -ForegroundColor Yellow
-                    return
-                }
-                
-                Write-Host "[INFO] Found $($allProjects.Count) project(s)" -ForegroundColor Green
+                Write-Progress -Activity "Import User Information (ADO-only)" -Status "Starting ADO mapping..." -PercentComplete 0 -Id 6
+
+                $invokeParams = @{ ConfigPath = $configPath; SkipAdOperations = $true }
+                if ($dryRun) { $invokeParams['DryRun'] = $true }
+
+                Invoke-GitLabIdentityToAdoImport @invokeParams
+
+                Write-Progress -Activity "Import User Information (ADO-only)" -Status "Import completed successfully!" -PercentComplete 100 -Id 6 -Completed
+
                 Write-Host ""
-                
-                # Display projects
-                for ($i = 0; $i -lt [Math]::Min($allProjects.Count, 20); $i++) {
-                    $proj = $allProjects[$i]
-                    Write-Host "  $($i + 1)) $($proj.name)" -ForegroundColor White
-                    
-                    # Safely access description property
-                    $desc = $null
-                    if ($proj.PSObject.Properties['description']) {
-                        $desc = $proj.description
-                    }
-                    
-                    if ($desc -and -not [string]::IsNullOrWhiteSpace($desc)) {
-                        Write-Host "      $desc" -ForegroundColor Gray
-                    }
+                Write-Host "[SUCCESS] ADO-only import completed!" -ForegroundColor Green
+                if ($dryRun) {
+                    Write-Host "[INFO] This was a dry run. Use Execute mode to perform actual mapping." -ForegroundColor Cyan
                 }
-                
-                if ($allProjects.Count -gt 20) {
-                    Write-Host ""
-                    Write-Host "[INFO] Showing first 20 projects. Enter project name directly if not listed." -ForegroundColor Yellow
-                }
-                
-                Write-Host ""
-                $projectSelection = Read-Host "Select project number or enter project name"
-                
-                $selectedProjectName = $null
-                
-                # Check if it's a number (project selection)
-                $selectionNum = 0
-                if ([int]::TryParse($projectSelection, [ref]$selectionNum) -and $selectionNum -ge 1 -and $selectionNum -le [Math]::Min($allProjects.Count, 20)) {
-                    $selectedProjectName = $allProjects[$selectionNum - 1].name
-                }
-                elseif (-not [string]::IsNullOrWhiteSpace($projectSelection)) {
-                    # User entered a project name directly
-                    $selectedProjectName = $projectSelection
-                }
-                else {
-                    Write-Host "[ERROR] Invalid selection." -ForegroundColor Red
-                    return
-                }
-                
-                # Verify project exists
-                Write-Host ""
-                Write-Host "[INFO] Verifying project '$selectedProjectName'..." -ForegroundColor Cyan
-                if (-not (Test-AdoProjectExists -ProjectName $selectedProjectName)) {
-                    Write-Host "[ERROR] Project '$selectedProjectName' not found." -ForegroundColor Red
-                    return
-                }
-                
-                Write-Host "[SUCCESS] Project found: $selectedProjectName" -ForegroundColor Green
-                
-                # Show team pack menu
-                Invoke-TeamPackMenu -ProjectName $selectedProjectName
             }
             catch {
-                Write-Host "[ERROR] Failed to load projects: $_" -ForegroundColor Red
-                Write-Host ""
-                Write-Host "[TIP] Verify your Azure DevOps connection and try again." -ForegroundColor Yellow
+                Write-Progress -Activity "Import User Information (ADO-only)" -Status "Import failed!" -Id 6 -Completed
+                Write-Host "[ERROR] Import failed: $($_.Exception.Message)" -ForegroundColor Red
             }
         }
         '8' {
+            # Add Team Packs to All Existing Projects
+            Write-Host ""
+            Write-Host "=== ADD TEAM PACKS TO ALL EXISTING PROJECTS ===" -ForegroundColor Cyan
+            Write-Host "This will enhance all Azure DevOps projects with team resources (Business, Development, Security, Management packs)."
+            Write-Host ""
+            $sourceProjectForClone = Read-Host "Optional: enter a source project to clone wiki content from (press Enter to skip)"
+            if (-not [string]::IsNullOrWhiteSpace($sourceProjectForClone)) {
+            Write-Host "[INFO] Will attempt efficient wiki cloning from '$sourceProjectForClone' into each target project (when different)." -ForegroundColor Cyan
+        }
+        Write-Host ""
+        
+        $prevProgressPreference = $ProgressPreference
+        $ProgressPreference = 'SilentlyContinue'
+        try {
+            # Get all Azure DevOps projects
+            Write-Host "[INFO] Fetching Azure DevOps projects..." -ForegroundColor Cyan
+            $allProjects = Get-AdoProjectList -RefreshCache
+                
+                if ($allProjects.Count -eq 0) {
+                    Write-Host "[ERROR] No Azure DevOps projects found." -ForegroundColor Red
+                    Write-Host "[TIP] Create projects first using Option 3." -ForegroundColor Yellow
+                    return
+                }
+                
+                Write-Host "[INFO] Found $($allProjects.Count) project(s). Applying team packs to all..." -ForegroundColor Green
+                Write-Host ""
+                
+                $successCount = 0
+                $errorCount = 0
+                
+                # Resolve source wiki once; do not attempt to create/ensure it here
+                $sourceWikiId = $null
+                if ($sourceProjectForClone) {
+                    try {
+                        $encSource = [uri]::EscapeDataString($sourceProjectForClone)
+                        $sourceWikis = Invoke-AdoRest GET "/$encSource/_apis/wiki/wikis" -ReturnNullOnNotFound
+                        if ($sourceWikis -and $sourceWikis.PSObject.Properties['value']) {
+                            $sourceWikiId = ($sourceWikis.value | Where-Object { $_.PSObject.Properties['id'] } | Select-Object -First 1).id
+                        }
+                        elseif ($sourceWikis -is [System.Array]) {
+                            $sourceWikiId = ($sourceWikis | Where-Object { $_.PSObject.Properties['id'] } | Select-Object -First 1).id
+                        }
+                        elseif ($sourceWikis -and $sourceWikis.PSObject.Properties['id']) {
+                            $sourceWikiId = $sourceWikis.id
+                        }
+
+                        if (-not $sourceWikiId) {
+                            throw "No wiki found for source project '$sourceProjectForClone'"
+                        }
+                    }
+                    catch {
+                        throw "Source wiki could not be resolved for '$sourceProjectForClone': $($_.Exception.Message)"
+                    }
+                }
+                
+        foreach ($project in $allProjects) {
+            $projectName = $project.name
+            Write-Host ""
+            Write-Host "╔══════════════════════════════════════════════════════════╗" -ForegroundColor Magenta
+            Write-Host "║ 🚀 STARTING TEAM PACKS FOR PROJECT: $projectName" -ForegroundColor Magenta -NoNewline
+            $padding = 55 - $projectName.Length
+            if ($padding -gt 0) { Write-Host (" " * $padding) -NoNewline }
+            Write-Host "║" -ForegroundColor Magenta
+            Write-Host "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Magenta
+            Write-Host ""
+            
+            try {
+                $packParams = @{ DestProject = $projectName }
+
+                if ($sourceProjectForClone -and ($sourceProjectForClone -eq $projectName)) {
+                    Write-Host "  [INFO] Skipping '$projectName' because it is the source wiki project." -ForegroundColor Yellow
+                    continue
+                }
+
+                $preCloned = $false
+                if ($sourceWikiId -and $sourceProjectForClone -and ($sourceProjectForClone -ne $projectName)) {
+                    $targetRepoName = if ($projectName -like '*.wiki') { $projectName } else { "$projectName.wiki" }
+                    $encTarget = [uri]::EscapeDataString($projectName)
+                    $existingRepos = Invoke-AdoRest GET "/$encTarget/_apis/git/repositories" -ReturnNullOnNotFound
+                    if ($existingRepos -and $existingRepos.PSObject.Properties['value']) {
+                        $repoToDelete = @($existingRepos.value) | Where-Object { $_.name -eq $targetRepoName -or $_.name -eq "$targetRepoName.wiki" } | Select-Object -First 1
+                        if ($repoToDelete -and $repoToDelete.id) {
+                            Write-Host "  [INFO] Deleting existing wiki repository '$($repoToDelete.name)' in '$projectName' before clone..." -ForegroundColor Yellow
+                            Invoke-AdoRest DELETE "/_apis/git/repositories/$($repoToDelete.id)" | Out-Null
+                        }
+                    }
+
+                    Write-Host "  [INFO] Cloning wiki from '$sourceProjectForClone' into '$projectName' (overwriting existing content)..." -ForegroundColor Gray
+                    Copy-AdoWikiViaGit -SourceProject $sourceProjectForClone -TargetProject $projectName -WikiId $sourceWikiId
+                    $preCloned = $true
+                }
+                elseif ($sourceProjectForClone -and -not $sourceWikiId) {
+                    throw "Source wiki could not be resolved for '$sourceProjectForClone' (clone required)."
+                }
+
+                if ($preCloned) {
+                    $packParams['SkipWikiClone'] = $true
+                }
+
+                Write-Host "  [INFO] Provisioning Business Team Pack..." -ForegroundColor Gray
+                Initialize-BusinessInit @packParams
+                
+                Write-Host "  [INFO] Provisioning Development Team Pack..." -ForegroundColor Gray
+                Initialize-DevInit @packParams -ProjectType 'all'
+                
+                Write-Host "  [INFO] Provisioning Security Team Pack..." -ForegroundColor Gray
+                Initialize-SecurityInit @packParams
+                
+                Write-Host "  [INFO] Provisioning Management Team Pack..." -ForegroundColor Gray
+                Initialize-ManagementInit @packParams
+                
+                Write-Host "  [SUCCESS] All team packs applied to $projectName" -ForegroundColor Green
+                $successCount++
+            }
+            catch {
+                Write-Host "  [ERROR] Failed to apply team packs to $projectName`: $($_.Exception.Message)" -ForegroundColor Red
+                $errorCount++
+            }
+            
+            Write-Host ""
+            Write-Host "╔══════════════════════════════════════════════════════════╗" -ForegroundColor Magenta
+            Write-Host "║ ✅ COMPLETED TEAM PACKS FOR PROJECT: $projectName" -ForegroundColor Magenta -NoNewline
+            $padding = 55 - $projectName.Length
+            if ($padding -gt 0) { Write-Host (" " * $padding) -NoNewline }
+            Write-Host "║" -ForegroundColor Magenta
+            Write-Host "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Magenta
+            
+            # Wait 2 seconds between projects to avoid overwhelming the API
+            if ($project -ne $allProjects[-1]) {
+                Write-Host ""
+                Write-Host "[INFO] Waiting 2 seconds before processing next project..." -ForegroundColor Yellow
+                Start-Sleep -Seconds 2
+            }
+        }                
+                Write-Host "=== SUMMARY ===" -ForegroundColor Cyan
+                Write-Host "Projects processed: $($allProjects.Count)" -ForegroundColor White
+                Write-Host "Successful: $successCount" -ForegroundColor Green
+                Write-Host "Failed: $errorCount" -ForegroundColor Red
+                
+            }
+            catch {
+                Write-Host "[ERROR] Failed to process projects: $_" -ForegroundColor Red
+                Write-Host ""
+                Write-Host "[TIP] Verify your Azure DevOps connection and try again." -ForegroundColor Yellow
+            }
+            finally {
+                $ProgressPreference = $prevProgressPreference
+            }
+        }
+        '9' {
             # Import Requirements from Excel
             Write-Host ""
             Write-Host "=== IMPORT REQUIREMENTS FROM EXCEL ===" -ForegroundColor Cyan
@@ -1108,9 +1196,114 @@ function Show-MigrationMenu {
             Write-Host ""
             return
         }
+        '12' {
+            Write-Host ""
+            Write-Host "=== SYNC REPOS FROM PROJECTS.JSON MAP ===" -ForegroundColor Cyan
+            Write-Host "This will sync GitLab repositories to Azure DevOps projects according to the projects.json mapping."
+            Write-Host "Only repositories that exist in both GitLab and Azure DevOps will be synced."
+            Write-Host ""
+
+            # Get the projects.json file path
+            $projectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
+            $projectsJsonPath = Join-Path $projectRoot 'projects.json'
+
+            if (-not (Test-Path $projectsJsonPath)) {
+                Write-Host "[ERROR] projects.json not found at: $projectsJsonPath" -ForegroundColor Red
+                return
+            }
+
+            try {
+                $projectsConfig = Get-Content $projectsJsonPath -Raw | ConvertFrom-Json
+                Write-Host "[INFO] Loaded $($projectsConfig.Count) project mappings from projects.json" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "[ERROR] Failed to parse projects.json: $($_.Exception.Message)" -ForegroundColor Red
+                return
+            }
+
+            $totalMappings = 0
+            $validMappings = 0
+            $syncSuccess = 0
+            $syncFailed = 0
+
+            Write-Host ""
+            Write-Host "[INFO] Validating project mappings..." -ForegroundColor Cyan
+
+            foreach ($mapping in $projectsConfig) {
+                $adoProject = $mapping.adoproject
+                $gitlabProjects = $mapping.projects
+
+                foreach ($gitlabProject in $gitlabProjects) {
+                    $totalMappings++
+
+                    Write-Host "  Checking: $gitlabProject → $adoProject" -ForegroundColor Gray
+
+                    # Check if Azure DevOps project exists
+                    $adoProjectExists = $false
+                    try {
+                        $adoProjectExists = Test-AdoProjectExists -ProjectName $adoProject
+                    }
+                    catch {
+                        Write-Host "    [WARN] Could not verify Azure DevOps project '$adoProject': $($_.Exception.Message)" -ForegroundColor Yellow
+                    }
+
+                    if (-not $adoProjectExists) {
+                        Write-Host "    [SKIP] Azure DevOps project '$adoProject' does not exist" -ForegroundColor Yellow
+                        continue
+                    }
+
+                    # Check if GitLab project exists (by checking if it was prepared)
+                    $repoName = ($gitlabProject -split '/')[-1]
+                    $migrationsDir = Get-MigrationsDirectory
+                    $configFile = Join-Path $migrationsDir "$adoProject\migration-config.json"
+
+                    if (-not (Test-Path $configFile)) {
+                        Write-Host "    [SKIP] Project not prepared. Expected config file: $configFile" -ForegroundColor Yellow
+                        Write-Host "           Run Option 1 (Prepare Single) or Option 10 (Prepare from projects.json) first." -ForegroundColor Gray
+                        continue
+                    }
+
+                    $validMappings++
+                    Write-Host "    [VALID] Both GitLab project and Azure DevOps project exist" -ForegroundColor Green
+
+                    # Attempt to sync
+                    try {
+                        Write-Host "    [SYNC] Starting sync: $gitlabProject → $adoProject" -ForegroundColor Cyan
+                        Invoke-SingleMigration -SrcPath $gitlabProject -DestProject $adoProject -AllowSync
+                        Write-Host "    [SUCCESS] Synced: $gitlabProject" -ForegroundColor Green
+                        $syncSuccess++
+                    }
+                    catch {
+                        Write-Host "    [ERROR] Failed to sync $gitlabProject → $adoProject`: $($_.Exception.Message)" -ForegroundColor Red
+                        $syncFailed++
+                    }
+                }
+            }
+
+            Write-Host ""
+            Write-Host "=== SYNC SUMMARY ===" -ForegroundColor Cyan
+            Write-Host "Total mappings in projects.json: $totalMappings" -ForegroundColor White
+            Write-Host "Valid mappings (both projects exist): $validMappings" -ForegroundColor Green
+            Write-Host "Successful syncs: $syncSuccess" -ForegroundColor Green
+            Write-Host "Failed syncs: $syncFailed" -ForegroundColor Red
+
+            if ($validMappings -eq 0) {
+                Write-Host ""
+                Write-Host "[INFO] No valid mappings found. Make sure to:" -ForegroundColor Yellow
+                Write-Host "  1. Prepare projects using Option 1 or Option 10" -ForegroundColor Gray
+                Write-Host "  2. Create Azure DevOps projects using Option 3" -ForegroundColor Gray
+            }
+        }
+        '13' {
+            Write-Host ""
+            Write-Host "Thank you for using GitLab → Azure DevOps Migration Tool" -ForegroundColor Cyan
+            Write-Host "Goodbye! 👋" -ForegroundColor Green
+            Write-Host ""
+            return
+        }
         default {
             Write-Host ""
-            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 11." -ForegroundColor Red
+            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 13." -ForegroundColor Red
             Write-Host ""
         }
     }
@@ -1416,7 +1609,7 @@ function Invoke-Option9PreparationRefresh {
                 New-MigrationPreReport -GitLabPath $gitLabPath `
                                        -AdoProject $PreparedItem.ProjectName `
                                        -AdoRepoName $repoName `
-                                       -OutputPath $preReportPath | Out-Null
+                                       -OutputPath $preReportPath -AllowSync | Out-Null
                 Write-Verbose "[Option9Prep] Pre-migration report refreshed at $preReportPath"
             }
             catch {

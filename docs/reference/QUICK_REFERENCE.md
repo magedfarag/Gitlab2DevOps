@@ -165,7 +165,7 @@ migrations/
 - ✅ Project and team: Read, write, & manage
 - ✅ Code: Full
 - ✅ Work items: Read, write, & manage
-- ✅ Graph: Read
+- ✅ Graph: Read & manage (Services) or Graph permission (Server)
 - ✅ Security: Manage
 
 ### GitLab PAT

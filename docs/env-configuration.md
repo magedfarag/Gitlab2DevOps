@@ -173,7 +173,7 @@ LOG_DIR=./logs
 - ✅ Set restrictive file permissions:
   ```powershell
   # Windows: Remove inheritance and grant only your user
-  icacls .env /inheritance:r /grant:r "$env:USERNAME:F"
+  icacls .env /inheritance:r /grant:r "$($env):USERNAME:F"
   ```
 - ✅ Rotate tokens regularly
 - ✅ Use tokens with **minimum required permissions**
