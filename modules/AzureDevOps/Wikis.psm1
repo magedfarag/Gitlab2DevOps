@@ -28,7 +28,7 @@ if (-not (Get-Module -Name 'Templates') -and (Test-Path $templatesPath)) {
 function Measure-Adoprojectwiki {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)]
+        [Parameter()]
         [string]$ProjId,
         
         [Parameter(Mandatory)]
@@ -36,6 +36,18 @@ function Measure-Adoprojectwiki {
         # Removed unused parameters: CollectionUrl, AdoPat, AdoApiVersion
     )
     
+    if (-not $ProjId) {
+        try {
+            $projInfo = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($Project))?includeCapabilities=false" -MaxAttempts 1 -DelaySeconds 0
+            if ($projInfo -and $projInfo.PSObject.Properties['id']) {
+                $ProjId = $projInfo.id
+            }
+        }
+        catch {
+            Write-Verbose "[AzureDevOps] Failed to resolve project id for $($Project): $_"
+        }
+    }
+
     try {
         # Do a fast, non-retried check for existing project wikis to avoid noisy retries
         $w = Invoke-AdoRest GET "/$([uri]::EscapeDataString($Project))/_apis/wiki/wikis" -MaxAttempts 1 -DelaySeconds 0
@@ -71,6 +83,10 @@ function Measure-Adoprojectwiki {
             projectId = $ProjId
         } -MaxAttempts 1 -DelaySeconds 0
         Write-Host "[SUCCESS] Project wiki created successfully" -ForegroundColor Green
+        
+        # Give the wiki time to initialize before proceeding
+        Start-Sleep -Seconds 5
+        
         return $newWiki
     }
     catch {
@@ -139,22 +155,10 @@ function Set-AdoWikiPage {
         Write-Verbose "[Wikis] Wiki backend not ready after $wikiReadyTimeout seconds, proceeding with page creation attempts."
     }
 
-    # Check if page already exists before attempting creation
-    $pageExists = $false
-    try {
-        $existingPage = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -ReturnNullOnNotFound -MaxAttempts 1 -DelaySeconds 0
-        if ($existingPage -and $existingPage.PSObject.Properties['content'] -and $existingPage.content) {
-            $pageExists = $true
-            Write-Verbose "[Wikis] Page $Path already exists, will update instead of create"
-        }
-    } catch {
-        Write-Verbose "[Wikis] Could not check if page exists: $_"
-    }
-
     # Azure DevOps Wiki API behavior:
-    # - PUT: Create new page (fails if page exists)
-    # - PATCH: Update existing page (fails if page doesn't exist with 405)
-    # Strategy: Check if page exists by looking for content, then use appropriate method
+    # - PUT: Create new page OR update existing page (works for both cases)
+    # - PATCH: Not supported for wiki pages (returns 405 Method Not Allowed)
+    # Strategy: Always use PUT since it handles both create and update operations
 
     $maxWikiRetries = 5  # Increased from 3
     $wikiRetryDelay = 3  # Increased from 2
@@ -162,15 +166,9 @@ function Set-AdoWikiPage {
 
     for ($wikiAttempt = 1; $wikiAttempt -le $maxWikiRetries; $wikiAttempt++) {
         try {
-            if ($pageExists) {
-                # Page exists, use PATCH to update
-                Write-Verbose "[Wikis] Updating existing wiki page: $Path (attempt $wikiAttempt)"
-                Invoke-AdoRest PATCH "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{ content = $Markdown } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
-            } else {
-                # Page doesn't exist, use PUT to create
-                Write-Verbose "[Wikis] Creating new wiki page: $Path (attempt $wikiAttempt)"
-                Invoke-AdoRest PUT "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{ content = $Markdown } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
-            }
+            # Always use PUT - it works for both creating new pages and updating existing ones
+            Write-Verbose "[Wikis] Creating/updating wiki page: $Path (attempt $wikiAttempt)"
+            Invoke-AdoRest PUT "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{ content = $Markdown } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
             Write-Verbose "[Wikis] Successfully created/updated wiki page: $Path"
             return
         }
@@ -185,6 +183,11 @@ function Set-AdoWikiPage {
                 $normalizedError = [pscustomobject]@{ status = $null; message = $errorMsg }
             }
             $status = $normalizedError.status
+            $isAlreadyExists = $errorMsg -match 'WikiPageAlreadyExistsException|already exists'
+            if ($isAlreadyExists) {
+                Write-Verbose "[Wikis] Page $Path already exists (server returned AlreadyExists). Treating as success."
+                return
+            }
             $isWikiNotReady = $errorMsg -match 'WikiNotFoundException|Wiki.*not found|404' -or $errorMsg -match 'Service Unavailable' -or $status -eq 404
             if ($isWikiNotReady -and $wikiAttempt -lt $maxWikiRetries) {
                 Write-Verbose "[Wikis] Wiki not ready (status: $status), retrying in ${wikiRetryDelay}s (attempt $wikiAttempt/$maxWikiRetries)"
@@ -192,14 +195,22 @@ function Set-AdoWikiPage {
                 $wikiRetryDelay *= 1.5
                 continue
             }
-            if ($status -eq 500 -or $errorMsg -match '500|Internal Server Error') {
-                Write-Host "[Wikis] Server returned 500 for $Path — skipping page creation (info)" -ForegroundColor Cyan
-                return
-            }
             if ($errorMsg -match 'WikiPageAlreadyExistsException|already exists|409') {
-                Write-Verbose "[Wikis] Page $Path already exists, switching to PATCH mode"
-                $pageExists = $true
-                continue  # Retry with PATCH
+                Write-Verbose "[Wikis] Page $Path already exists, but PUT should handle updates - continuing with retry"
+                # PUT should handle existing pages, but if we get this error, continue retrying
+                continue
+            }
+            if ($status -eq 500 -or $errorMsg -match '500|Internal Server Error') {
+                # 500 errors are typically not transient, so limit retries
+                $maxRetriesFor500 = 2
+                if ($wikiAttempt -lt $maxRetriesFor500) {
+                    Write-Host "[Wikis] Server returned 500 for $Path — retrying in ${wikiRetryDelay}s (attempt $wikiAttempt/$maxRetriesFor500)" -ForegroundColor Yellow
+                    Start-Sleep -Seconds $wikiRetryDelay
+                    $wikiRetryDelay *= 1.5
+                    continue
+                } else {
+                    throw "Azure DevOps API returned 500 Internal Server Error for $Path after $maxRetriesFor500 attempts"
+                }
             }
             if ($wikiAttempt -eq $maxWikiRetries) { throw }
             Write-Verbose "[Wikis] Unexpected error, retrying in ${wikiRetryDelay}s (attempt $wikiAttempt/$maxWikiRetries): $errorMsg"
@@ -210,6 +221,53 @@ function Set-AdoWikiPage {
     
     # If we get here, all retries failed
     throw $lastError
+}
+
+function Set-AdoWikiPageWithRetry {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$WikiId,
+        
+        [Parameter(Mandatory)]
+        [string]$Path,
+        
+        [Parameter(Mandatory)]
+        [string]$Markdown
+    )
+    
+    $maxRetries = 3
+    $retryDelay = 2
+    
+    for ($retryAttempt = 1; $retryAttempt -le $maxRetries; $retryAttempt++) {
+        try {
+            Set-AdoWikiPage -Project $Project -WikiId $WikiId -Path $Path -Markdown $Markdown
+            return  # Success, exit the function
+        }
+        catch {
+            $errorMsg = $_.Exception.Message
+            # Check if this is a retryable error
+            $isRetryable = $errorMsg -match '404|WikiNotFoundException|Wiki.*not found' -or
+                          $errorMsg -match 'Service Unavailable'
+            # Note: 500 errors are NOT retried here since Set-AdoWikiPage already handles them with its own retry logic
+            if ($isRetryable -and $retryAttempt -lt $maxRetries) {
+                Write-Host "[Wikis] Page creation failed for $Path (attempt $retryAttempt/$maxRetries), retrying in ${retryDelay}s..." -ForegroundColor Yellow
+                Start-Sleep -Seconds $retryDelay
+                $retryDelay *= 2  # Exponential backoff
+            }
+            elseif ($retryAttempt -eq $maxRetries) {
+                Write-Host "[Wikis] All retry attempts failed for $Path — skipping page creation" -ForegroundColor Red
+                throw $_
+            }
+            else {
+                # For non-retryable errors, don't retry
+                throw $_
+            }
+        }
+    }
 }
 
 function New-AdoQAGuidelinesWiki {
@@ -225,7 +283,7 @@ function New-AdoQAGuidelinesWiki {
     Write-Host "[INFO] Creating QA wiki pages..." -ForegroundColor Cyan
     
     # Create parent QA folder
-    $qaParentContent = @"
+    $qaParentContent = @'
 # Quality Assurance
 
 This section contains QA guidelines, testing strategies, and quality management practices.
@@ -239,45 +297,43 @@ This section contains QA guidelines, testing strategies, and quality management 
 - Non-Functional Testing
 
 Use the subpages navigation to explore each topic.
-"@
+'@
     
     try {
-        Set-AdoWikiPage $Project $WikiId "/QA" $qaParentContent
+        Set-AdoWikiPageWithRetry $Project $WikiId "/QA" $qaParentContent
         Write-Host "  ✅ QA (parent page)" -ForegroundColor Gray
     }
     catch {
         Write-Warning "Failed to create QA parent page: $_"
     }
     
-    # Define all QA wiki pages
-    $pages = @(
-        @{ path = '/QA/Guidelines'; template = 'QA/QAGuidelines.md'; title = 'QA Guidelines' },
-        @{ path = '/QA/Test-Strategy'; template = 'QA/TestStrategy.md'; title = 'Test Strategy' },
-        @{ path = '/QA/Test-Data-Management'; template = 'QA/TestDataManagement.md'; title = 'Test Data Management' },
-        @{ path = '/QA/Automation-Framework'; template = 'QA/AutomationFramework.md'; title = 'Automation Framework' },
-        @{ path = '/QA/Bug-Lifecycle'; template = 'QA/BugLifecycle.md'; title = 'Bug Lifecycle' },
-        @{ path = '/QA/Non-Functional-Testing'; template = 'QA/NonFunctionalTesting.md'; title = 'Non-Functional Testing' }
-    )
+    # Add delay after parent page creation
+    Start-Sleep -Milliseconds 3000
     
-    foreach ($page in $pages) {
+    # Define QA wiki pages in reverse order (highest number first) for correct Azure DevOps display
+    $qaFiles = @(
+        "08-BugLifecycle.md",
+        "07-NonFunctionalTesting.md",
+        "06-TestDataManagement.md",
+        "05-AutomationFramework.md",
+        "04-QAGuidelines.md",
+        "03-TestStrategy.md",
+        "02-playbook.md",
+        "01-guide.md"
+    )
+    foreach ($fileName in $qaFiles) {
+        $path = "/QA/$($fileName -replace '\.md$', '')"
+        $content = Get-WikiTemplate "QA/$fileName"
         try {
-            $content = Get-WikiTemplate $page.template
-            Set-AdoWikiPage $Project $WikiId $page.path $content | Out-Null
-            Write-Host "  ✅ $($page.title)" -ForegroundColor Gray
+            Set-AdoWikiPageWithRetry $Project $WikiId $path $content | Out-Null
+            Write-Host "  ✅ $($fileName -replace '\.md$', '')" -ForegroundColor Gray
         }
         catch {
-            Write-Warning "Failed to create page $($page.path): $_"
+            Write-Warning "Failed to create page $($path): $_"
         }
+        # Add small delay between page creations to avoid rate limiting
+        Start-Sleep -Milliseconds 2000
     }
-    
-    Write-Host ""
-    Write-Host "[INFO] QA wiki structure created with 6 comprehensive guides:" -ForegroundColor Cyan
-    Write-Host "  📋 QA Guidelines: Testing standards and practices" -ForegroundColor Gray
-    Write-Host "  🎯 Test Strategy: Planning and execution frameworks" -ForegroundColor Gray
-    Write-Host "  � Test Data: Data management and generation strategies" -ForegroundColor Gray
-    Write-Host "  🤖 Automation: Framework architecture and best practices" -ForegroundColor Gray
-    Write-Host "  🐛 Bug Lifecycle: Defect management and quality metrics" -ForegroundColor Gray
-    Write-Host "  ⚡ Non-Functional Testing: Performance, security, and scalability testing" -ForegroundColor Gray
 }
 
 
@@ -295,7 +351,7 @@ function Measure-Adobestpracticeswiki {
     Write-Host "[INFO] Creating Best Practices wiki pages..." -ForegroundColor Cyan
     
     # Create parent Best Practices folder
-    $bestPracticesParentContent = @"
+    $bestPracticesParentContent = @'
 # Best Practices
 
 This section contains Azure DevOps best practices, coding standards, and development guidelines.
@@ -311,49 +367,43 @@ This section contains Azure DevOps best practices, coding standards, and develop
 - Documentation Guidelines
 
 Use the subpages navigation to explore each topic.
-"@
+'@
     
     try {
-        Set-AdoWikiPage $Project $WikiId "/Best-Practices" $bestPracticesParentContent | Out-Null
+        Set-AdoWikiPageWithRetry $Project $WikiId "/Best-Practices" $bestPracticesParentContent | Out-Null
         Write-Host "  ✅ Best Practices (parent page)" -ForegroundColor Gray
     }
     catch {
         Write-Warning "Failed to create Best Practices parent page: $_"
     }
     
-    # Define all Best Practices wiki pages
-    $pages = @(
-        @{ path = '/Best-Practices/Architecture-and-Design-Guidelines'; template = 'BestPractices/ArchitectureAndDesignGuidelines.md'; title = 'Architecture and Design Guidelines' },
-        @{ path = '/Best-Practices/Overview'; template = 'BestPractices/BestPractices.md'; title = 'Best Practices Overview' },
-        @{ path = '/Best-Practices/Performance-Optimization'; template = 'BestPractices/PerformanceOptimization.md'; title = 'Performance Optimization' },
-        @{ path = '/Best-Practices/Error-Handling'; template = 'BestPractices/ErrorHandling.md'; title = 'Error Handling' },
-        @{ path = '/Best-Practices/Logging-Standards'; template = 'BestPractices/LoggingStandards.md'; title = 'Logging Standards' },
-        @{ path = '/Best-Practices/Monitoring-and-Alerting-Standards'; template = 'BestPractices/MonitoringAndAlertingStandards.md'; title = 'Monitoring and Alerting Standards' },
-        @{ path = '/Best-Practices/Testing-Strategies'; template = 'BestPractices/TestingStrategies.md'; title = 'Testing Strategies' },
-        @{ path = '/Best-Practices/Documentation-Guidelines'; template = 'BestPractices/DocumentationGuidelines.md'; title = 'Documentation Guidelines' }
-    )
+    # Add delay after parent page creation
+    Start-Sleep -Milliseconds 3000
     
-    foreach ($page in $pages) {
+    # Define Best Practices wiki pages in reverse order (highest number first) for correct Azure DevOps display
+    $bestPracticesFiles = @(
+        "08-DocumentationGuidelines.md",
+        "07-PerformanceOptimization.md",
+        "06-MonitoringAndAlertingStandards.md",
+        "05-LoggingStandards.md",
+        "04-ErrorHandling.md",
+        "03-TestingStrategies.md",
+        "02-ArchitectureAndDesignGuidelines.md",
+        "01-BestPractices.md"
+    )
+    foreach ($fileName in $bestPracticesFiles) {
+        $path = "/Best-Practices/$($fileName -replace '\.md$', '')"
+        $content = Get-WikiTemplate "BestPractices/$fileName"
         try {
-            $content = Get-WikiTemplate $page.template
-            Set-AdoWikiPage $Project $WikiId $page.path $content | Out-Null
-            Write-Host "  ✅ $($page.title)" -ForegroundColor Gray
+            Set-AdoWikiPageWithRetry $Project $WikiId $path $content | Out-Null
+            Write-Host "  ✅ $($fileName -replace '\.md$', '')" -ForegroundColor Gray
         }
         catch {
-            Write-Warning "Failed to create page $($page.path): $_"
+            Write-Warning "Failed to create page $($path): $_"
         }
+        # Add small delay between page creations to avoid rate limiting
+        Start-Sleep -Milliseconds 2000
     }
-    
-    Write-Host ""
-    Write-Host "[INFO] Best Practices wiki structure created with 8 comprehensive guides:" -ForegroundColor Cyan
-    Write-Host "  🏗️ Architecture and Design: System design principles and patterns" -ForegroundColor Gray
-    Write-Host "  💎 Best Practices: Work items, boards, and team productivity" -ForegroundColor Gray
-    Write-Host "  🚀 Performance: Optimization strategies for frontend and backend" -ForegroundColor Gray
-    Write-Host "  🛡️ Error Handling: Resilience patterns and error management" -ForegroundColor Gray
-    Write-Host "  📝 Logging: Structured logging and monitoring best practices" -ForegroundColor Gray
-    Write-Host "  📊 Monitoring and Alerting: Observability and alerting standards" -ForegroundColor Gray
-    Write-Host "  🧪 Testing: Comprehensive testing strategies and patterns" -ForegroundColor Gray
-    Write-Host "  📚 Documentation: Guidelines for effective technical documentation" -ForegroundColor Gray
 }
 
 
@@ -366,7 +416,7 @@ function Measure-Adobusinesswiki {
     Write-Host "[INFO] Creating business wiki pages..." -ForegroundColor Cyan
 
     # Create parent Business folder
-    $businessParentContent = @"
+    $businessParentContent = @'
 # Business & Migration
 
 This section contains business-focused documentation, decision logs, and migration artifacts.
@@ -381,43 +431,39 @@ This section contains business-focused documentation, decision logs, and migrati
 - KPIs and Success Metrics
 - Training & Quick Start
 - Communication Templates
-- Cutover Timeline
-- Post-Cutover Summary
 
 Use the subpages navigation to explore each topic.
-"@
+
+> Related: See the [Security](../Security) section for policies, threat modeling, testing, and incident response guidance that pairs with business governance.
+'@
     
     try {
-        Set-AdoWikiPage $Project $WikiId "/Business" $businessParentContent
+        Set-AdoWikiPageWithRetry $Project $WikiId "/Business" $businessParentContent
         Write-Host "  ✅ Business (parent page)" -ForegroundColor Gray
     }
     catch {
         Write-Warning "Failed to create Business parent page: $_"
     }
+    
+    # Add delay after parent page creation
+    Start-Sleep -Milliseconds 3000
 
-    $pages = @(
-        @{ path = '/Business/Welcome'; content = Get-WikiTemplate "Business/BusinessWelcome.md" },
-        @{ path = '/Business/Agile-Requirements'; content = Get-WikiTemplate "Business/Agile_Requirements.md" },
-        @{ path = '/Business/Decision-Log'; content = Get-WikiTemplate "Business/DecisionLog.md" },
-        @{ path = '/Business/Risks-Issues'; content = Get-WikiTemplate "Business/RisksIssues.md" },
-        @{ path = '/Business/Risk-Appetite-and-Guardrails'; content = Get-WikiTemplate "Business/RiskAppetiteAndGuardrails.md" },
-        @{ path = '/Business/Glossary'; content = Get-WikiTemplate "Business/Glossary.md" },
-        @{ path = '/Business/Ways-of-Working'; content = Get-WikiTemplate "Business/WaysOfWorking.md" },
-        @{ path = '/Business/KPIs-and-Success'; content = Get-WikiTemplate "Business/KPIsAndSuccess.md" },
-        @{ path = '/Business/Training-Quick-Start'; content = Get-WikiTemplate "Business/TrainingQuickStart.md" },
-        @{ path = '/Business/Value-Streams'; content = Get-WikiTemplate "Business/ValueStreams.md" },
-        @{ path = '/Business/Communication-Templates'; content = Get-WikiTemplate "Business/CommunicationTemplates.md" }
-    )
-
-    foreach ($p in $pages) {
+    # Dynamically read all .md files from Business folder
+    $businessDir = Join-Path $PSScriptRoot "WikiTemplates\Business"
+    $mdFiles = Get-ChildItem -Path $businessDir -Filter "*.md" | Sort-Object Name -Descending
+    foreach ($file in $mdFiles) {
+        $fileName = $file.BaseName
+        $path = "/Business/$fileName"
+        $content = Get-WikiTemplate "Business/$($file.Name)"
         try {
-            Set-AdoWikiPage -Project $Project -WikiId $WikiId -Path $p.path -Markdown $p.content | Out-Null
-            $pageName = ($p.path -split '/')[-1]
-            Write-Host "  ✅ $pageName" -ForegroundColor Gray
+            Set-AdoWikiPageWithRetry -Project $Project -WikiId $WikiId -Path $path -Markdown $content | Out-Null
+            Write-Host "  ✅ $fileName" -ForegroundColor Gray
         }
         catch {
-            Write-Warning "Failed to upsert page $($p.path): $_"
+            Write-Warning "Failed to upsert page $($path): $_"
         }
+        # Add small delay between page creations to avoid rate limiting
+        Start-Sleep -Milliseconds 2000
     }
 }
 
@@ -435,7 +481,7 @@ function Measure-Adodevwiki {
     Write-Host "[INFO] Creating development wiki pages..." -ForegroundColor Cyan
     
     # First, create the parent Development page (required for subpages)
-    $developmentParentContent = @"
+    $developmentParentContent = @'
 # Development
 This section contains development-focused documentation and guidelines.
 
@@ -451,76 +497,34 @@ This section contains development-focused documentation and guidelines.
 - Dependencies
 
 Use the subpages navigation to explore each topic.
-"@
+'@
     
     try {
-        Set-AdoWikiPage $Project $WikiId "/Development" $developmentParentContent
+        Set-AdoWikiPageWithRetry $Project $WikiId "/Development" $developmentParentContent
         Write-Host "  ✅ Development (parent page)" -ForegroundColor Gray
     }
     catch {
         Write-Warning "Failed to create Development parent page: $_"
     }
     
-    # Architecture Decision Records
-    $adrContent = Get-WikiTemplate "Dev/ADR.md"
-
-    # Development Setup
-    $devSetupContent = Get-WikiTemplate "Dev/DevSetup.md"
-
-    # API Documentation
-    $apiDocsContent = Get-WikiTemplate "Dev/APIDocs.md"
-
-    # Git Workflow
-    $gitWorkflowContent = Get-WikiTemplate "Dev/GitWorkflow.md"
-
-    # CI/CD Pipelines
-    $cicdContent = Get-WikiTemplate "Dev/CICDPipelines.md"
-
-    # Code Review Checklist
-    $codeReviewContent = Get-WikiTemplate "Dev/CodeReview.md"
-
-    # Observability for Developers
-    $observabilityContent = Get-WikiTemplate "Dev/ObservabilityForDevelopers.md"
-
-    # Troubleshooting Guide
-    $troubleshootingContent = Get-WikiTemplate "Dev/Troubleshooting.md"
-
-    # Dependencies
-    $dependenciesContent = Get-WikiTemplate "Dev/Dependencies.md"
-
-    # Create all wiki subpages
-    try {
-        Set-AdoWikiPage $Project $WikiId "/Development/Architecture-Decision-Records" $adrContent
-        Write-Host "  ✅ Architecture Decision Records" -ForegroundColor Gray
-        
-        Set-AdoWikiPage $Project $WikiId "/Development/Development-Setup" $devSetupContent
-        Write-Host "  ✅ Development Setup" -ForegroundColor Gray
-        
-        Set-AdoWikiPage $Project $WikiId "/Development/API-Documentation" $apiDocsContent
-        Write-Host "  ✅ API Documentation" -ForegroundColor Gray
-        
-        Set-AdoWikiPage $Project $WikiId "/Development/Git-Workflow" $gitWorkflowContent
-        Write-Host "  ✅ Git Workflow" -ForegroundColor Gray
-        
-        Set-AdoWikiPage $Project $WikiId "/Development/CI-CD-Pipelines" $cicdContent
-        Write-Host "  ✅ CI/CD Pipelines" -ForegroundColor Gray
-        
-        Set-AdoWikiPage $Project $WikiId "/Development/Code-Review-Checklist" $codeReviewContent
-        Write-Host "  ✅ Code Review Checklist" -ForegroundColor Gray
-        
-        Set-AdoWikiPage $Project $WikiId "/Development/Observability-for-Developers" $observabilityContent
-        Write-Host "  ✅ Observability for Developers" -ForegroundColor Gray
-        
-        Set-AdoWikiPage $Project $WikiId "/Development/Troubleshooting" $troubleshootingContent
-        Write-Host "  ✅ Troubleshooting" -ForegroundColor Gray
-        
-        Set-AdoWikiPage $Project $WikiId "/Development/Dependencies" $dependenciesContent
-        Write-Host "  ✅ Dependencies" -ForegroundColor Gray
-        
-        Write-Host "[SUCCESS] Development wiki pages created" -ForegroundColor Green
-    }
-    catch {
-        Write-Warning "Failed to create some development wiki pages: $_"
+    # Add delay after parent page creation
+    Start-Sleep -Milliseconds 3000
+    
+    $devDir = Join-Path $PSScriptRoot "WikiTemplates\Dev"
+    $mdFiles = Get-ChildItem -Path $devDir -Filter "*.md" | Sort-Object Name -Descending
+    foreach ($file in $mdFiles) {
+        $fileName = $file.BaseName
+        $path = "/Development/$fileName"
+        $content = Get-WikiTemplate "Dev/$($file.Name)"
+        try {
+            Set-AdoWikiPageWithRetry $Project $WikiId $path $content | Out-Null
+            Write-Host "  ✅ $fileName" -ForegroundColor Gray
+        }
+        catch {
+            Write-Warning "Failed to create page $($path): $_"
+        }
+        # Add small delay between page creations to avoid rate limiting
+        Start-Sleep -Milliseconds 2000
     }
 }
 
@@ -538,7 +542,7 @@ function New-AdoSecurityWiki {
     Write-Host "[INFO] Creating security wiki pages..." -ForegroundColor Cyan
     
     # First, create the parent Security page (required for subpages)
-    $securityParentContent = @"
+    $securityParentContent = @'
 # Security
 This section contains security policies, guidelines, and procedures.
 
@@ -554,75 +558,35 @@ This section contains security policies, guidelines, and procedures.
 - Vulnerability Management
 
 Use the subpages navigation to explore each topic.
-"@
+'@
     
     try {
-        Set-AdoWikiPage $Project $WikiId "/Security" $securityParentContent
+        Set-AdoWikiPageWithRetry $Project $WikiId "/Security" $securityParentContent
         Write-Host "  ✅ Security (parent page)" -ForegroundColor Gray
     }
     catch {
         Write-Warning "Failed to create Security parent page: $_"
     }
     
-    # Security Policies
-    $securityPoliciesContent = Get-WikiTemplate "Security/SecurityPolicies.md"
-
-    # Threat Modeling Guide
-    $threatModelingContent = Get-WikiTemplate "Security/ThreatModeling.md"
-
-    # Security Testing Checklist
-    $securityTestingContent = Get-WikiTemplate "Security/SecurityTesting.md"
-
-    # Incident Response Plan
-    $incidentResponseContent = Get-WikiTemplate "Security/IncidentResponse.md"
-
-    try {
-        Set-AdoWikiPage $Project $WikiId "/Security/Security-Policies" $securityPoliciesContent
-        Write-Host "  ✅ Security Policies" -ForegroundColor Gray
-        
-        Set-AdoWikiPage $Project $WikiId "/Security/Threat-Modeling-Guide" $threatModelingContent
-        Write-Host "  ✅ Threat Modeling Guide" -ForegroundColor Gray
-        
-        Set-AdoWikiPage $Project $WikiId "/Security/Security-Testing-Checklist" $securityTestingContent
-        Write-Host "  ✅ Security Testing Checklist" -ForegroundColor Gray
-        
-        Set-AdoWikiPage $Project $WikiId "/Security/Incident-Response-Plan" $incidentResponseContent
-        Write-Host "  ✅ Incident Response Plan" -ForegroundColor Gray
-        
-        # Compliance Requirements
-        $complianceContent = Get-WikiTemplate "Security/Compliance.md"
-
-        Set-AdoWikiPage $Project $WikiId "/Security/Compliance-Requirements" $complianceContent
-        Write-Host "  ✅ Compliance Requirements" -ForegroundColor Gray
-        
-        # Secret Management
-        $secretManagementContent = Get-WikiTemplate "Security/SecretManagement.md"
-
-        Set-AdoWikiPage $Project $WikiId "/Security/Secret-Management" $secretManagementContent
-        Write-Host "  ✅ Secret Management" -ForegroundColor Gray
-        
-        # Security Champions Program
-        $securityChampionsContent = Get-WikiTemplate "Security/SecurityChampions.md"
-
-        Set-AdoWikiPage $Project $WikiId "/Security/Security-Champions-Program" $securityChampionsContent
-        Write-Host "  ✅ Security Champions Program" -ForegroundColor Gray
-        
-        # Security Requirements
-        $securityRequirementsContent = Get-WikiTemplate "Security/SecurityRequirements.md"
-
-        Set-AdoWikiPage $Project $WikiId "/Security/Security-Requirements" $securityRequirementsContent
-        Write-Host "  ✅ Security Requirements" -ForegroundColor Gray
-        
-        # Vulnerability Management
-        $vulnerabilityManagementContent = Get-WikiTemplate "Security/VulnerabilityManagement.md"
-
-        Set-AdoWikiPage $Project $WikiId "/Security/Vulnerability-Management" $vulnerabilityManagementContent
-        Write-Host "  ✅ Vulnerability Management" -ForegroundColor Gray
-        
-        Write-Host "[SUCCESS] All 9 security wiki pages created" -ForegroundColor Green
-    }
-    catch {
-        Write-Warning "Failed to create some security wiki pages: $_"
+    # Add delay after parent page creation
+    Start-Sleep -Milliseconds 3000
+    
+    # Dynamically read all .md files from Security folder
+    $securityDir = Join-Path $PSScriptRoot "WikiTemplates\Security"
+    $mdFiles = Get-ChildItem -Path $securityDir -Filter "*.md" | Sort-Object Name -Descending
+    foreach ($file in $mdFiles) {
+        $fileName = $file.BaseName
+        $path = "/Security/$fileName"
+        $content = Get-WikiTemplate "Security/$($file.Name)"
+        try {
+            Set-AdoWikiPageWithRetry $Project $WikiId $path $content | Out-Null
+            Write-Host "  ✅ $fileName" -ForegroundColor Gray
+        }
+        catch {
+            Write-Warning "Failed to create page $($path): $_"
+        }
+        # Add small delay between page creations to avoid rate limiting
+        Start-Sleep -Milliseconds 2000
     }
 }
 
@@ -640,7 +604,7 @@ function Measure-Adomanagementwiki {
     Write-Host "[INFO] Creating Management wiki pages..." -ForegroundColor Cyan
     
     # First, create the parent Management page (required for subpages)
-    $managementParentContent = @"
+    $managementParentContent = @'
 # Management
 This section contains program management and PMO documentation.
 
@@ -656,65 +620,124 @@ This section contains program management and PMO documentation.
 - Metrics Dashboard
 
 Use the subpages navigation to explore each topic.
-"@
+'@
     
     try {
-        Set-AdoWikiPage $Project $WikiId "/Management" $managementParentContent
+        Set-AdoWikiPageWithRetry $Project $WikiId "/Management" $managementParentContent
         Write-Host "  ✅ Management (parent page)" -ForegroundColor Gray
     }
     catch {
         Write-Warning "Failed to create Management parent page: $_"
     }
     
-    # Define all Management wiki pages
-    $pages = @(
-        @{ path = '/Management/Program-Overview'; template = 'Management/ProgramOverview.md'; title = 'Program Overview' },
-        @{ path = '/Management/Sprint-Planning'; template = 'Management/SprintPlanning.md'; title = 'Sprint Planning' },
-        @{ path = '/Management/Capacity-Planning'; template = 'Management/CapacityPlanning.md'; title = 'Capacity Planning' },
-        @{ path = '/Management/Roadmap'; template = 'Management/Roadmap.md'; title = 'Product Roadmap' },
-        @{ path = '/Management/RAID-Log'; template = 'Management/RAID.md'; title = 'RAID Log (Risks, Assumptions, Issues, Dependencies)' },
-        @{ path = '/Management/Stakeholder-Communications'; template = 'Management/StakeholderComms.md'; title = 'Stakeholder Communications' },
-        @{ path = '/Management/Retrospectives'; template = 'Management/Retrospectives.md'; title = 'Retrospective Insights' },
-        @{ path = '/Management/Change-Management-and-Release-Governance'; template = 'Management/ChangeManagementAndReleaseGovernance.md'; title = 'Change Management and Release Governance' },
-        @{ path = '/Management/Metrics-Dashboard'; template = 'Management/MetricsDashboard.md'; title = 'Metrics Dashboard' }
-    )
+    # Add delay after parent page creation
+    Start-Sleep -Milliseconds 3000
     
-    foreach ($page in $pages) {
+    # Define Management wiki pages in reverse order (highest number first) for correct Azure DevOps display
+    $managementFiles = @(
+        "11-RAID.md",
+        "10-StakeholderComms.md",
+        "09-ChangeManagementAndReleaseGovernance.md",
+        "08-Retrospectives.md",
+        "07-MetricsDashboard.md",
+        "06-SprintPlanning.md",
+        "05-CapacityPlanning.md",
+        "04-Roadmap.md",
+        "03-ProgramOverview.md",
+        "02-playbook.md",
+        "01-guide.md"
+    )
+    foreach ($fileName in $managementFiles) {
+        $path = "/Management/$($fileName -replace '\.md$', '')"
+        $content = Get-WikiTemplate "Management/$fileName"
         try {
-            $content = Get-WikiTemplate $page.template
-            Set-AdoWikiPage $Project $WikiId $page.path $content | Out-Null
-            Write-Host "[SUCCESS] Created/updated wiki page: $($page.title)" -ForegroundColor Green
+            Set-AdoWikiPageWithRetry $Project $WikiId $path $content | Out-Null
+            Write-Host "  ✅ $($fileName -replace '\.md$', '')" -ForegroundColor Gray
         }
         catch {
-            Write-Warning "Failed to create page $($page.path): $_"
+            Write-Warning "Failed to create page $($path): $_"
         }
+        # Add small delay between page creations to avoid rate limiting
+        Start-Sleep -Milliseconds 2000
     }
-    
-    Write-Host ""
-    Write-Host "[INFO] Management wiki structure created with 9 comprehensive guides:" -ForegroundColor Cyan
-    Write-Host "  📊 Program Overview: Mission, structure, and governance" -ForegroundColor Gray
-    Write-Host "  📅 Sprint Planning: Sprint goals, backlog, and ceremonies" -ForegroundColor Gray
-    Write-Host "  👥 Capacity Planning: Team capacity and resource allocation" -ForegroundColor Gray
-    Write-Host "  🗺️ Product Roadmap: Vision, strategy, and feature timeline" -ForegroundColor Gray
-    Write-Host "  🎯 RAID Log: Risks, assumptions, issues, dependencies tracking" -ForegroundColor Gray
-    Write-Host "  📢 Stakeholder Communications: Communication plan and templates" -ForegroundColor Gray
-    Write-Host "  🔄 Retrospectives: Sprint insights and continuous improvement" -ForegroundColor Gray
-    Write-Host "  🔄 Change Management: Release governance and deployment processes" -ForegroundColor Gray
-    Write-Host "  📈 Metrics Dashboard: KPIs, health metrics, and performance indicators" -ForegroundColor Gray
 }
 
-# Export functions
-Export-ModuleMember -Function @(
-    'Measure-Adoprojectwiki',
-    'Set-AdoWikiPage',
-    'Initialize-AdoProjectWikis',
-    'New-AdoQAGuidelinesWiki',
-    'Measure-Adobestpracticeswiki',
-    'Measure-Adobusinesswiki',
-    'Measure-Adodevwiki',
-    'New-AdoSecurityWiki',
-    'Measure-Adomanagementwiki'
-)
+function Measure-Adootherroleswiki {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$WikiId
+    )
+    
+    Write-Host "[INFO] Creating Other Roles wiki pages..." -ForegroundColor Cyan
+    
+    # Create parent Other Roles folder
+    $otherRolesParentContent = @'
+# Other Roles
+
+This section contains guides and playbooks for various roles involved in the project.
+
+## Contents
+- Enterprise Architect Guide & Playbook
+- Infrastructure Guide & Playbook
+- Operations Guide & Playbook
+- Platform Guide & Playbook
+- Project Manager Guide & Playbook
+- SOC Guide & Playbook
+- Support Guide & Playbook
+- Vendors Guide & Playbook
+
+Use the subpages navigation to explore each role's guide and playbook.
+'@
+    
+    try {
+        Set-AdoWikiPageWithRetry $Project $WikiId "/Other-Roles" $otherRolesParentContent
+        Write-Host "  ✅ Other Roles (parent page)" -ForegroundColor Gray
+    }
+    catch {
+        Write-Warning "Failed to create Other Roles parent page: $_"
+    }
+    
+    # Add delay after parent page creation
+    Start-Sleep -Milliseconds 3000
+    
+    # Define Other Roles wiki pages in reverse paired order (highest number first) for correct Azure DevOps display
+    # Each role has guide-playbook pair, ordered by highest number first
+    $otherRolesFiles = @(
+        "16-vendors-playbook.md",
+        "15-vendors-guide.md",
+        "14-project-manager-playbook.md",
+        "13-project-manager-guide.md",
+        "12-support-playbook.md",
+        "11-support-guide.md",
+        "10-soc-playbook.md",
+        "09-soc-guide.md",
+        "08-operations-playbook.md",
+        "07-operations-guide.md",
+        "06-platform-playbook.md",
+        "05-platform-guide.md",
+        "04-infrastructure-playbook.md",
+        "03-infrastructure-guide.md",
+        "02-enterprise-architect-playbook.md",
+        "01-enterprise-architect-guide.md"
+    )
+    foreach ($fileName in $otherRolesFiles) {
+        $path = "/Other-Roles/$($fileName -replace '\.md$', '')"
+        $content = Get-WikiTemplate "OtherRoles/$fileName"
+        try {
+            Set-AdoWikiPageWithRetry $Project $WikiId $path $content | Out-Null
+            Write-Host "  ✅ $($fileName -replace '\.md$', '')" -ForegroundColor Gray
+        }
+        catch {
+            Write-Warning "Failed to create page $($path): $_"
+        }
+        # Add small delay between page creations to avoid rate limiting
+        Start-Sleep -Milliseconds 2000
+    }
+}
 
 function Initialize-AdoProjectWikis {
     [CmdletBinding()]
@@ -728,7 +751,7 @@ function Initialize-AdoProjectWikis {
     $results = @()
 
     $handlers = @(
-        @{ Name = 'Project'; Func = { Measure-Adoprojectwiki -Project $Project -WikiId $WikiId } },
+        @{ Name = 'Root'; Func = { Measure-Adorootwiki -Project $Project -WikiId $WikiId } },
         @{ Name = 'Home'; Func = { New-AdoProjectHomeWikiPage -Project $Project -WikiId $WikiId } },
         @{ Name = 'TagGuidelines'; Func = { New-AdoTagGuidelinesWikiPage -Project $Project -WikiId $WikiId } },
         @{ Name = 'QA'; Func = { New-AdoQAGuidelinesWiki -Project $Project -WikiId $WikiId } },
@@ -736,7 +759,8 @@ function Initialize-AdoProjectWikis {
         @{ Name = 'Business'; Func = { Measure-Adobusinesswiki -Project $Project -WikiId $WikiId } },
         @{ Name = 'Dev'; Func = { Measure-Adodevwiki -Project $Project -WikiId $WikiId } },
         @{ Name = 'Security'; Func = { New-AdoSecurityWiki -Project $Project -WikiId $WikiId } },
-        @{ Name = 'Management'; Func = { Measure-Adomanagementwiki -Project $Project -WikiId $WikiId } }
+        @{ Name = 'Management'; Func = { Measure-Adomanagementwiki -Project $Project -WikiId $WikiId } },
+        @{ Name = 'OtherRoles'; Func = { Measure-Adootherroleswiki -Project $Project -WikiId $WikiId } }
     )
 
     foreach ($h in $handlers) {
@@ -758,6 +782,141 @@ function Initialize-AdoProjectWikis {
     }
 
     return $results
+}
+
+function Initialize-AdoProjectWikisEfficient {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$SourceProject,
+        [Parameter(Mandatory)][string[]]$TargetProjects
+    )
+
+    Write-Host "[INFO] Creating complete wiki structure for source project '$SourceProject'..." -ForegroundColor Cyan
+
+    # Create the complete wiki structure for the source project
+    # Resolve source project id once
+    $projInfo = Invoke-AdoRest GET "/_apis/projects/$([uri]::EscapeDataString($SourceProject))?includeCapabilities=false" -MaxAttempts 1 -DelaySeconds 0
+    $sourceProjId = $null
+    if ($projInfo -and $projInfo.PSObject.Properties['id']) { $sourceProjId = $projInfo.id }
+
+    $sourceWiki = Measure-Adoprojectwiki -Project $SourceProject -ProjId $sourceProjId
+    if (-not $sourceWiki) {
+        throw "Failed to create wiki for source project '$SourceProject'"
+    }
+
+    $sourceWikiId = $sourceWiki.id
+    $results = Initialize-AdoProjectWikis -Project $SourceProject -WikiId $sourceWikiId
+
+    Write-Host "[SUCCESS] Complete wiki structure created for source project '$SourceProject'" -ForegroundColor Green
+
+    # Now clone the wiki to all target projects
+    foreach ($targetProject in $TargetProjects) {
+        try {
+            Write-Host "[INFO] Cloning wiki from '$SourceProject' to '$targetProject'..." -ForegroundColor Cyan
+            Copy-AdoWikiViaGit -SourceProject $SourceProject -TargetProject $targetProject -WikiId $sourceWikiId
+            Write-Host "[SUCCESS] Wiki cloned to '$targetProject'" -ForegroundColor Green
+        }
+        catch {
+            Write-Warning "Failed to clone wiki to '$targetProject': $_"
+        }
+    }
+
+    return $results
+}
+
+function Copy-AdoWikiViaGit {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$SourceProject,
+        [Parameter(Mandatory)][string]$TargetProject,
+        [Parameter(Mandatory)][string]$WikiId
+    )
+
+    # Get the source wiki details
+    $sourceWikiUrl = "/$([uri]::EscapeDataString($SourceProject))/_apis/wiki/wikis/$WikiId"
+    $sourceWiki = Invoke-AdoRest GET $sourceWikiUrl
+
+    if (-not $sourceWiki -or -not $sourceWiki.remoteUrl) {
+        throw "Could not get source wiki remote URL for project '$SourceProject'"
+    }
+
+    $sourceRemoteUrl = $sourceWiki.remoteUrl
+    $wikiName = $sourceWiki.name
+
+    Write-Host "[INFO] Cloning wiki '$wikiName' from '$SourceProject'..." -ForegroundColor Gray
+
+    # Create a temporary directory for cloning
+    $tempDir = Join-Path $env:TEMP "WikiClone_$([guid]::NewGuid())"
+    if (Test-Path $tempDir) {
+        Remove-Item $tempDir -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $tempDir | Out-Null
+
+    try {
+        # Clone the source wiki repository
+        Push-Location $tempDir
+        & git clone $sourceRemoteUrl . 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to clone wiki repository from '$sourceRemoteUrl'"
+        }
+
+        # Create target git repository
+        $repoBody = @{
+            name = "$wikiName.wiki"
+            project = @{
+                name = $TargetProject
+            }
+        } | ConvertTo-Json
+
+        $createRepoUrl = "/$([uri]::EscapeDataString($TargetProject))/_apis/git/repositories"
+        $targetRepo = Invoke-AdoRest POST $createRepoUrl -Body $repoBody
+
+        if (-not $targetRepo -or -not $targetRepo.remoteUrl) {
+            throw "Failed to create target repository for project '$TargetProject'"
+        }
+
+        $targetRemoteUrl = $targetRepo.remoteUrl
+
+        # Push to target repository
+        & git remote remove origin 2>&1 | Out-Null
+        & git remote add origin $targetRemoteUrl 2>&1 | Out-Null
+        & git push --mirror origin 2>&1 | Out-Null
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to push wiki content to target repository '$targetRemoteUrl'"
+        }
+
+        Write-Host "[SUCCESS] Wiki content pushed to target repository" -ForegroundColor Gray
+
+        # Now create the wiki from the repository (publish code as wiki)
+        $wikiBody = @{
+            name = "$TargetProject.wiki"
+            type = "codeWiki"
+            projectId = $targetRepo.project.id
+            repositoryId = $targetRepo.id
+            mappedPath = "/"
+            version = @{
+                versionType = "branch"
+                version = "main"
+            }
+        } | ConvertTo-Json
+
+        $createWikiUrl = "/$([uri]::EscapeDataString($TargetProject))/_apis/wiki/wikis"
+        $targetWiki = Invoke-AdoRest POST $createWikiUrl -Body $wikiBody
+
+        if (-not $targetWiki) {
+            throw "Failed to create wiki from repository for project '$TargetProject'"
+        }
+
+        Write-Host "[SUCCESS] Wiki created from repository for project '$TargetProject'" -ForegroundColor Gray
+
+    }
+    finally {
+        Pop-Location
+        if (Test-Path $tempDir) {
+            Remove-Item $tempDir -Recurse -Force
+        }
+    }
 }
 
 
@@ -1014,11 +1173,11 @@ function New-AdoProjectSummaryWikiPage {
         }
         $pipelineSection = if ($pipelineLines.Count -gt 0) { $pipelineLines -join "`n" } else { 'No pipeline definitions found.' }
 
-            $summary = @"
+        $summary = @"
 # $Project - Project Summary
 
-> **Last Updated**: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  
-> **Project ID**: ``$projId``  
+> **Last Updated**: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+> **Project ID**: ``$projId``
 > **Process Template**: $processTemplateName
 
 ---
@@ -1042,7 +1201,6 @@ function New-AdoProjectSummaryWikiPage {
 ## Repositories
 
 $repoSection
-
 "@
 
     $summary += "`n---`n## Pipelines`n`n" + $pipelineSection + "`n"
@@ -1089,19 +1247,50 @@ function New-AdoTagGuidelinesWikiPage {
     }
 }
 
+function Measure-Adorootwiki {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Project,
+        
+        [Parameter(Mandatory)]
+        [string]$WikiId
+    )
+    
+    Write-Host "[INFO] Creating root overview wiki page..." -ForegroundColor Cyan
+    
+    try {
+        $content = Get-WikiTemplate "overview.md"
+        Set-AdoWikiPageWithRetry $Project $WikiId "/Overview" $content | Out-Null
+        Write-Host "  ✅ Overview" -ForegroundColor Gray
+    }
+    catch {
+        Write-Warning "Failed to create Overview page: $_"
+    }
+}
+
 Export-ModuleMember -Function @(
     'Measure-Adoprojectwiki',
     'Set-AdoWikiPage',
+    'Set-AdoWikiPageWithRetry',
+    'Initialize-AdoProjectWikis',
+    'Initialize-AdoProjectWikisEfficient',
+    'Copy-AdoWikiViaGit',
     'New-AdoQAGuidelinesWiki',
     'Measure-Adobestpracticeswiki',
     'Measure-Adobusinesswiki',
     'Measure-Adodevwiki',
     'New-AdoSecurityWiki',
     'Measure-Adomanagementwiki',
+    'Measure-Adootherroleswiki',
+    'Measure-Adorootwiki',
     'New-AdoProjectHomeWikiPage',
     'New-AdoTagGuidelinesWikiPage',
     'New-AdoProjectSummaryWikiPage'
 )
+
+
+
 
 
 
