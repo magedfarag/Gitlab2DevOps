@@ -1,10 +1,8 @@
 param(
     # Example: https://ado-server/DefaultCollection
-    [Parameter(Mandatory = $true)]
     [string]$CollectionUrl,
 
     # Personal Access Token with at least Dashboards manage / Project read scope
-    [Parameter(Mandatory = $true)]
     [string]$Pat,
 
     # Dashboard names you want to KEEP
@@ -13,6 +11,18 @@ param(
     # Dry run: only log what would be deleted
     [switch]$WhatIf
 )
+#if parameters are missing, read it from .env file
+Import-Module -Name "$($PSScriptRoot)\..\modules\core\EnvLoader.psm1"
+Import-DotEnvFile -Path "$($PSScriptRoot)\..\.env"
+
+if (-not $Pat) {
+    $Pat = $env:ADO_PAT
+}
+
+if (-not $CollectionUrl) {
+    $CollectionUrl = $env:ADO_COLLECTION_URL
+}
+
 
 # ===== Auth header =====
 $base64Pat = [Convert]::ToBase64String(
@@ -26,11 +36,12 @@ $Headers = @{
 # Adjust if you are on a different Server version:
 #  - Server 2020  -> 6.0
 #  - Server 2022  -> 7.0
-$projectApiVersion   = "6.0"
-$dashboardApiVersion = "6.0-preview.3"
+#  - SaaS / latest -> 7.1-preview.3
+$projectApiVersion   = "7.1"
+$dashboardApiVersion = "7.1-preview.3"
 
 Write-Host "Collection: $CollectionUrl"
-Write-Host "Keeping dashboards named: $($DashboardNamesToKeep -join ', ')"
+#Write-Host "Keeping dashboards named: $($DashboardNamesToKeep -join ', ')"
 if ($WhatIf) { Write-Host "Running in WHATIF mode. No deletions will be sent." }
 
 # ===== Helper: GET with basic error handling =====
@@ -55,10 +66,12 @@ function Invoke-DevOpsDelete {
     )
     try {
         Invoke-RestMethod -Uri $Url -Headers $Headers -Method Delete -ErrorAction Stop
+        return $true
     }
     catch {
         Write-Warning "DELETE failed: $Url"
         Write-Warning $_.Exception.Message
+        return $false
     }
 }
 
@@ -77,32 +90,48 @@ foreach ($project in $projects) {
 
     $projectId   = $project.id
     $projectName = $project.name
+    $projNameEnc = [uri]::EscapeDataString($projectName)
+    $projIdEnc   = [uri]::EscapeDataString($projectId)
 
     Write-Host ""
     Write-Host "=== Project: $projectName ($projectId) ==="
 
-    # ----- 2a. Project-scoped dashboards -----
-    $projDashUrl = "$CollectionUrl/$projectId/_apis/dashboard/dashboards?api-version=$dashboardApiVersion"
+    # ----- 2a. Project-scoped dashboards (prefer project name endpoint) -----
+    $projDashUrl = "$CollectionUrl/$projNameEnc/_apis/dashboard/dashboards?api-version=$dashboardApiVersion"
     $projDashResponse = Invoke-DevOpsGet -Url $projDashUrl
 
     if ($projDashResponse -and $projDashResponse.value) {
         foreach ($dash in $projDashResponse.value) {
             $dashName = $dash.name
             $dashId   = $dash.id
+            $dashIdEnc = [uri]::EscapeDataString($dashId)
 
-            if ($DashboardNamesToKeep -contains $dashName) {
-                Write-Host "  [KEEP] Project dashboard '$dashName' ($dashId)"
-                continue
+            # Prefer self URL from API response if available
+            $selfUrl = $null
+            if ($dash.PSObject.Properties['url'] -and $dash.url) {
+                $selfUrl = $dash.url
+                if ($selfUrl -notmatch 'api-version=') {
+                    $selfUrl = "$selfUrl`?api-version=$dashboardApiVersion"
+                }
             }
-
-            $deleteUrl = "$CollectionUrl/$projectId/_apis/dashboard/dashboards/$($dashId)?api-version=$dashboardApiVersion"
 
             if ($WhatIf) {
                 Write-Host "  [WHATIF] Would DELETE project dashboard '$dashName' ($dashId)"
             }
             else {
                 Write-Host "  [DELETE] Project dashboard '$dashName' ($dashId)"
-                Invoke-DevOpsDelete -Url $deleteUrl
+                $projectDeleteUrls = @(
+                    $selfUrl,
+                    "$CollectionUrl/$projNameEnc/_apis/dashboard/dashboards/$dashIdEnc?api-version=$dashboardApiVersion",
+                    "$CollectionUrl/$projIdEnc/_apis/dashboard/dashboards/$dashIdEnc?api-version=$dashboardApiVersion"
+                ) | Where-Object { $_ }
+                $deleted = $false
+                foreach ($u in $projectDeleteUrls) {
+                    if (Invoke-DevOpsDelete -Url $u) { $deleted = $true; break }
+                }
+                if (-not $deleted) {
+                    Write-Warning "  [WARN] Unable to delete project dashboard '$dashName' ($dashId) with available endpoints."
+                }
             }
         }
     }
@@ -123,10 +152,13 @@ foreach ($project in $projects) {
 
         $teamId   = $team.id
         $teamName = $team.name
+        $teamNameEnc = [uri]::EscapeDataString($teamName)
+        $teamIdEnc   = [uri]::EscapeDataString($teamId)
 
         Write-Host "  -- Team: $teamName ($teamId) --"
 
-        $teamDashUrl = "$CollectionUrl/$projectId/$teamId/_apis/dashboard/dashboards?api-version=$dashboardApiVersion"
+        # Prefer team endpoints using names, then ids
+        $teamDashUrl = "$CollectionUrl/$projNameEnc/$teamNameEnc/_apis/dashboard/dashboards?api-version=$dashboardApiVersion"
         $teamDashResponse = Invoke-DevOpsGet -Url $teamDashUrl
 
         if (-not ($teamDashResponse -and $teamDashResponse.value)) {
@@ -138,20 +170,35 @@ foreach ($project in $projects) {
 
             $dashName = $dash.name
             $dashId   = $dash.id
+            $dashIdEnc = [uri]::EscapeDataString($dashId)
 
-            if ($DashboardNamesToKeep -contains $dashName) {
-                Write-Host "     [KEEP] Team dashboard '$dashName' ($dashId)"
-                continue
+            $selfUrl = $null
+            if ($dash.PSObject.Properties['url'] -and $dash.url) {
+                $selfUrl = $dash.url
+                if ($selfUrl -notmatch 'api-version=') {
+                    $selfUrl = "$selfUrl`?api-version=$dashboardApiVersion"
+                }
             }
-
-            $deleteUrl = "$CollectionUrl/$projectId/$teamId/_apis/dashboard/dashboards/$($dashId)?api-version=$dashboardApiVersion"
 
             if ($WhatIf) {
                 Write-Host "     [WHATIF] Would DELETE team dashboard '$dashName' ($dashId)"
             }
             else {
                 Write-Host "     [DELETE] Team dashboard '$dashName' ($dashId)"
-                Invoke-DevOpsDelete -Url $deleteUrl
+                $teamDeleteUrls = @(
+                    $selfUrl,
+                    "$CollectionUrl/$projNameEnc/$teamNameEnc/_apis/dashboard/dashboards/$dashIdEnc?api-version=$dashboardApiVersion",
+                    "$CollectionUrl/_apis/projects/$projIdEnc/teams/$teamIdEnc/dashboard/dashboards/$dashIdEnc?api-version=$dashboardApiVersion",
+                    "$CollectionUrl/$projNameEnc/_apis/dashboard/dashboards/$dashIdEnc?teamId=$teamIdEnc&api-version=$dashboardApiVersion",
+                    "$CollectionUrl/_apis/dashboard/dashboards/$dashIdEnc?teamId=$teamIdEnc&projectId=$projIdEnc&api-version=$dashboardApiVersion"
+                ) | Where-Object { $_ }
+                $deleted = $false
+                foreach ($u in $teamDeleteUrls) {
+                    if (Invoke-DevOpsDelete -Url $u) { $deleted = $true; break }
+                }
+                if (-not $deleted) {
+                    Write-Warning "     [WARN] Unable to delete team dashboard '$dashName' ($dashId) with available endpoints."
+                }
             }
         }
     }

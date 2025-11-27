@@ -186,40 +186,28 @@ function Truncate-DashboardName {
 
 # Helper: Resolve dashboard endpoints for project/team - returns ordered endpoints to try
 function Resolve-AdoDashboardEndpoints {
+    [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)][string]$Project,
-        [Parameter(Mandatory=$false)][string]$Team,
-        [Parameter(Mandatory=$false)][string]$TeamId,
-        [Parameter(Mandatory=$false)][string]$ProjectId
+        [Parameter(Mandatory = $true)][string]$Project,
+        [Parameter()][string]$Team,
+        [Parameter()][string]$TeamId,     # kept for signature compatibility, not used for route
+        [Parameter()][string]$ProjectId   # kept for signature compatibility, not used for route
     )
 
     $endpoints = @()
     $projEnc = [uri]::EscapeDataString($Project)
-    $projIdEnc = if ($ProjectId) { [uri]::EscapeDataString($ProjectId) } else { $projEnc }
     $teamNameEnc = if ($Team) { [uri]::EscapeDataString($Team) } else { $null }
 
-    # Defensive: Only build endpoints if teamId is valid (not empty/malformed)
-    $isTeamIdValid = $TeamId -and -not [string]::IsNullOrWhiteSpace($TeamId) -and $TeamId -notmatch '^-version'
+    # 1) Always try project-scoped dashboards first
+    #    GET https://{org}/{project}/_apis/dashboard/dashboards
+    $endpoints += "/$projEnc/_apis/dashboard/dashboards"
 
+    # 2) If we have a team name, also try the standard team-scoped pattern
+    #    GET https://{org}/{project}/{team}/_apis/dashboard/dashboards
     if ($teamNameEnc) {
         $endpoints += "/$projEnc/$teamNameEnc/_apis/dashboard/dashboards"
     }
 
-    if ($isTeamIdValid) {
-        $teamIdEnc = [uri]::EscapeDataString($TeamId)
-        $endpoints += "/_apis/projects/$projIdEnc/teams/$teamIdEnc/dashboard/dashboards"
-        $endpoints += "/$projEnc/_apis/dashboard/dashboards?teamId=$teamIdEnc"
-        $orgQueryParts = @("teamId=$teamIdEnc")
-        if ($ProjectId) {
-            $orgQueryParts += "projectId=$projIdEnc"
-        }
-        $orgQuery = $orgQueryParts -join '&'
-        $endpoints += "/_apis/dashboard/dashboards?$orgQuery"
-    } elseif ($TeamId) {
-        Write-Warning "[Dashboards] Refusing to build REST API endpoints with empty or invalid teamId ('$TeamId'). Skipping team-specific dashboard endpoints."
-    }
-
-    # No team context available - do not attempt project-scoped dashboard endpoints by default.
     return $endpoints | Select-Object -Unique
 }
 
@@ -230,36 +218,45 @@ function Get-AdoDashboardContext {
         [string]$Team
     )
 
-    $projEnc = [uri]::EscapeDataString($Project)
-    $teamId = $null
+    $projEnc   = [uri]::EscapeDataString($Project)
+    $teamId    = $null
     $projectId = $null
 
-    if ($Team) {
+    # 1) Resolve project once, reliably
+    try {
+        $projInfo = Invoke-AdoRest GET "/_apis/projects/$projEnc"
+        if ($projInfo -and $projInfo.PSObject.Properties['id']) {
+            $projectId = $projInfo.id
+        }
+    }
+    catch {
+        Write-LogLevelVerbose "[Dashboards] Project context lookup failed for $($Project): $_"
+    }
+
+    # 2) Resolve team by listing teams, not by hitting /teams/{TeamName}
+    if ($projectId -and $Team) {
         try {
-            $teamContext = Invoke-AdoRest GET "/_apis/projects/$projEnc/teams/$([uri]::EscapeDataString($Team))"
-            if ($teamContext) {
-                if ($teamContext.PSObject.Properties['id']) {
-                    if ([string]::IsNullOrWhiteSpace($teamContext.id) -or $teamContext.id -match '^-version') {
-                        Write-Warning "[Dashboards] Refusing to use empty or invalid teamId ('$($teamContext.id)') for team '$Team'. Skipping team context."
-                    } else {
-                        $teamId = $teamContext.id
-                    }
+            # List all teams for this project (no 404, just empty list if none)
+            $teams = Invoke-AdoRest GET "/_apis/projects/$projEnc/teams"
+
+            if ($teams -and $teams.value) {
+                # Accept either the explicit name or the conventional '<Project> Team'
+                $candidateNames = @($Team, "$Project Team")
+
+                $match = $teams.value |
+                    Where-Object { $candidateNames -contains $_.name } |
+                    Select-Object -First 1
+
+                if ($match) {
+                    $teamId = $match.id
                 }
-                if ($teamContext.PSObject.Properties['projectId']) { $projectId = $teamContext.projectId }
+                else {
+                    Write-LogLevelVerbose "[Dashboards] No team matching '$Team' or '$Project Team' in project '$Project'"
+                }
             }
         }
         catch {
-            Write-LogLevelVerbose "[Dashboards] Team context lookup failed for $($Project)/$($Team): $_"
-        }
-    }
-
-    if (-not $projectId) {
-        try {
-            $projInfo = Invoke-AdoRest GET "/_apis/projects/$projEnc"
-            if ($projInfo -and $projInfo.PSObject.Properties['id']) { $projectId = $projInfo.id }
-        }
-        catch {
-            Write-LogLevelVerbose "[Dashboards] Project context lookup failed for $($Project): $_"
+            Write-LogLevelVerbose "[Dashboards] Team list lookup failed for $($Project)/$($Team): $_"
         }
     }
 
@@ -267,6 +264,54 @@ function Get-AdoDashboardContext {
         TeamId    = $teamId
         ProjectId = $projectId
     }
+}
+
+# Helper: Delete a dashboard by id using multiple endpoint patterns
+function Remove-AdoDashboard {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Project,
+        [Parameter()][string]$Team,
+        [Parameter()][string]$ProjectId,
+        [Parameter()][string]$TeamId,
+        [Parameter(Mandatory)][string]$DashboardId,
+        [string]$DashboardUrl
+    )
+
+    $projEnc   = [uri]::EscapeDataString($Project)
+    $projIdEnc = if ($ProjectId) { [uri]::EscapeDataString($ProjectId) } else { $projEnc }
+    $teamNameEnc = if ($Team) { [uri]::EscapeDataString($Team) } else { $null }
+    $teamIdEnc = if ($TeamId) { [uri]::EscapeDataString($TeamId) } else { $null }
+    $dashIdEnc = [uri]::EscapeDataString($DashboardId)
+
+    $candidateEndpoints = @()
+
+    if ($DashboardUrl) {
+        $candidateEndpoints += ($DashboardUrl -match 'api-version=') ? $DashboardUrl : "$DashboardUrl`?api-version=$($script:dashboardApiVersions[0])"
+    }
+
+    if ($teamNameEnc) { $candidateEndpoints += "/$projEnc/$teamNameEnc/_apis/dashboard/dashboards/$dashIdEnc" }
+    if ($teamIdEnc) {
+        $candidateEndpoints += "/_apis/projects/$projIdEnc/teams/$teamIdEnc/dashboard/dashboards/$dashIdEnc"
+        $candidateEndpoints += "/$projEnc/_apis/dashboard/dashboards/$($dashIdEnc)?teamId=$teamIdEnc"
+        $candidateEndpoints += "/_apis/dashboard/dashboards/$($dashIdEnc)?teamId=$teamIdEnc&projectId=$projIdEnc"
+    }
+
+    # Project-scoped fallbacks
+    $candidateEndpoints += "/$projEnc/_apis/dashboard/dashboards/$dashIdEnc"
+    $candidateEndpoints += "/_apis/dashboard/dashboards/$($dashIdEnc)?projectId=$projIdEnc"
+
+    foreach ($ep in $candidateEndpoints | Where-Object { $_ } | Select-Object -Unique) {
+        try {
+            Invoke-AdoDashboardRest -Method DELETE -Endpoint $ep | Out-Null
+            return $true
+        }
+        catch {
+            Write-LogLevelVerbose "[Dashboards] DELETE failed for $($ep): $($_.Exception.Message)"
+        }
+    }
+
+    return $false
 }
 
 
@@ -509,7 +554,9 @@ function Test-Adoqadashboard {
         [Parameter(Mandatory)]
         [string]$Project,
         
-        [string]$Team = "$Project Team"
+        [string]$Team = "$Project Team",
+
+        [switch]$Replace
     )
     
     Write-Host "[INFO] Creating QA dashboard..." -ForegroundColor Cyan
@@ -548,8 +595,17 @@ function Test-Adoqadashboard {
         $existing = $entries | Where-Object { $_.name -eq $dashboardName }
 
         if ($existing) {
-            Write-Host "[INFO] QA dashboard '$dashboardName' already exists" -ForegroundColor Gray
-            return $existing
+            if ($Replace) {
+                Write-Host "[INFO] Replacing existing QA dashboard '$dashboardName'" -ForegroundColor Yellow
+                $removed = Remove-AdoDashboard -Project $Project -Team $Team -ProjectId $projectId -TeamId $teamId -DashboardId $existing.id -DashboardUrl $existing.url
+                if (-not $removed) {
+                    Write-Warning "[QADashboard] Failed to remove existing dashboard; attempting to recreate anyway."
+                }
+            }
+            else {
+                Write-Host "[INFO] QA dashboard '$dashboardName' already exists" -ForegroundColor Gray
+                return $existing
+            }
         }
     }
     catch {
@@ -706,10 +762,11 @@ function New-Adodevdashboard {
         [Parameter(Mandatory)]
         [string]$Project,
         
-        [Parameter(Mandatory)]
         [string]$WikiId,
 
-        [string]$Team
+        [string]$Team,
+
+        [switch]$Replace
     )
     
     Write-Host "[INFO] Attempting to create development dashboard for '$Project' (Team: $Team)..." -ForegroundColor Cyan
@@ -744,10 +801,19 @@ function New-Adodevdashboard {
         $devDashboard = $entries | Where-Object { $_.name -eq "Development Metrics" }
 
         if ($devDashboard) {
-            Write-Host "  ℹ️ Development dashboard already exists for '$Project' (Team: $Team)" -ForegroundColor DarkYellow
-            $result.status = "skipped"
-            $result.message = "Dashboard already exists."
-            return $result
+            if ($Replace) {
+                Write-Host "  [INFO] Replacing existing Development dashboard for '$Project' (Team: $Team)" -ForegroundColor Yellow
+                $removed = Remove-AdoDashboard -Project $Project -Team $Team -ProjectId $projectId -TeamId $teamId -DashboardId $devDashboard.id -DashboardUrl $devDashboard.url
+                if (-not $removed) {
+                    Write-Warning "[DevDashboard] Failed to remove existing dashboard; attempting to recreate anyway."
+                }
+            }
+            else {
+                Write-Host "  ℹ️ Development dashboard already exists for '$Project' (Team: $Team)" -ForegroundColor DarkYellow
+                $result.status = "skipped"
+                $result.message = "Dashboard already exists."
+                return $result
+            }
         }
 
         Write-Host "[INFO] Creating development dashboard for '$Project' (Team: $Team)..." -ForegroundColor Cyan
@@ -817,20 +883,83 @@ function New-Adodevdashboard {
         }
         Write-Host "  ✅ Development Metrics dashboard created" -ForegroundColor Gray
         
-        # Create component tags wiki page - load from template
+        # Create component tags wiki page - load from template (best effort)
         $templatePath = Join-Path $PSScriptRoot "..\templates\ComponentTags.md"
         if (-not (Test-Path $templatePath)) {
-            Write-Error "[Search-Adodashboard] Template file not found: $templatePath"
-            return $null
+            Write-Error "[New-Adodevdashboard] Template file not found: $templatePath"
+            return $result
         }
         $componentTagsContent = Get-Content -Path $templatePath -Raw -Encoding UTF8
-        
-        Set-AdoWikiPage $Project $WikiId "/Development/Component-Tags" $componentTagsContent
-        Write-Host "  ✅ Component Tags wiki page created" -ForegroundColor Gray
+
+        $resolvedWikiId = $null
+
+        try {
+            $projEnc = [uri]::EscapeDataString($Project)
+
+            # 1) If caller passed -WikiId, validate it against Wiki GET API.
+            if ($WikiId) {
+                Write-LogLevelVerbose "[Dashboards] Validating explicit WikiId '$WikiId' for project '$Project'"
+                $candidate = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$([uri]::EscapeDataString($WikiId))" -ReturnNullOnNotFound
+                if ($candidate) {
+                    # Use the canonical id from the service (works for id or name). 
+                    if ($candidate.PSObject.Properties['id']) {
+                        $resolvedWikiId = $candidate.id
+                    }
+                    else {
+                        $resolvedWikiId = $WikiId
+                    }
+                }
+                else {
+                    Write-LogLevelVerbose "[Dashboards] Wiki '$WikiId' not found in project '$Project'; falling back to auto-discovery."
+                }
+            }
+
+            # 2) If no valid wiki yet, auto-discover from the project’s wikis list.
+            if (-not $resolvedWikiId) {
+                Write-LogLevelVerbose "[Dashboards] Discovering wiki for project '$Project'"
+                $wikiList = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis" -ReturnNullOnNotFound
+                if ($wikiList) {
+                    $wikis = @()
+                    if ($wikiList.PSObject.Properties['value'] -and $wikiList.value) {
+                        $wikis = $wikiList.value
+                    }
+                    elseif ($wikiList.PSObject.Properties['id']) {
+                        $wikis = @($wikiList)
+                    }
+
+                    if ($wikis.Count -gt 0) {
+                        # Prefer project wiki if available, else first wiki. 
+                        $projectWiki = $wikis | Where-Object { $_.type -eq "projectWiki" } | Select-Object -First 1
+                        $selected = if ($projectWiki) { $projectWiki } else { $wikis[0] }
+
+                        $resolvedWikiId = $selected.id
+                        Write-LogLevelVerbose "[Dashboards] Using wiki '$($selected.name)' (id=$resolvedWikiId, type=$($selected.type)) for project '$Project'"
+                    }
+                }
+            }
+        }
+        catch {
+            Write-LogLevelVerbose "[Dashboards] Failed to resolve wiki id for $($Project): $_"
+        }
+
+        if ($resolvedWikiId) {
+            try {
+                Set-AdoWikiPage $Project $resolvedWikiId "/Development/Component-Tags" $componentTagsContent
+                Write-Host "  ✅ Component Tags wiki page created" -ForegroundColor Gray
+            }
+            catch {
+                Write-LogLevelVerbose "[Dashboards] Failed to create Component Tags page for $($Project): $($_.Exception.Message)"
+            }
+        }
+        else {
+            Write-LogLevelVerbose "[Dashboards] Skipping Component Tags page; no wiki found for $Project."
+        }
+
         Write-Host "[SUCCESS] Development dashboard created for '$Project' (Team: $Team)" -ForegroundColor Green
-        $result.status = "created"
-        $result.message = "Dashboard created successfully."
+        $result.status  = "created"
+        $result.message = "Development dashboard and Component Tags page created."
         return $result
+
     }
     catch {
         # Dashboard API is often not available on on-premise Azure DevOps Server
@@ -855,7 +984,9 @@ function New-AdoSecurityDashboard {
         [Parameter(Mandatory=$true)]
         [string]$Project,
 
-        [string]$Team
+        [string]$Team,
+
+        [switch]$Replace
     )
     
     Write-Host "[INFO] Attempting to create Security Metrics dashboard for '$Project' (Team: $Team)..." -ForegroundColor Cyan
@@ -869,6 +1000,42 @@ function New-AdoSecurityDashboard {
     $result = [pscustomobject]@{ status = "unknown"; message = $null }
 
     try {
+        # Discover existing dashboards first
+        $existing = $null
+        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
+        foreach ($ep in $endpoints) {
+            try {
+                $existingDashboards = Invoke-AdoDashboardRest -Method GET -Endpoint $ep
+                $entries = @()
+                if ($existingDashboards -eq $null) { $entries = @() }
+                elseif ($existingDashboards.PSObject.Properties['dashboardEntries']) { $entries = $existingDashboards.dashboardEntries }
+                elseif ($existingDashboards.PSObject.Properties['value']) { $entries = $existingDashboards.value }
+                elseif ($existingDashboards -is [array]) { $entries = $existingDashboards }
+                else { $entries = @($existingDashboards) }
+                $existing = $entries | Where-Object { $_.name -eq "Security Metrics" } | Select-Object -First 1
+                if ($existing) { break }
+            }
+            catch {
+                Write-LogLevelVerbose "[New-AdoSecurityDashboard] Dashboard GET failed for endpoint $ep - trying next. Error: $_"
+            }
+        }
+
+        if ($existing) {
+            if ($Replace) {
+                Write-Host "[INFO] Replacing existing Security dashboard for '$Project' (Team: $Team)" -ForegroundColor Yellow
+                $removed = Remove-AdoDashboard -Project $Project -Team $Team -ProjectId $projectId -TeamId $teamId -DashboardId $existing.id -DashboardUrl $existing.url
+                if (-not $removed) {
+                    Write-Warning "[SecurityDashboard] Failed to remove existing dashboard; attempting to recreate anyway."
+                }
+            }
+            else {
+                Write-Host "[INFO] Security Metrics dashboard already exists for '$Project' (Team: $Team)" -ForegroundColor DarkYellow
+                $result.status = "skipped"
+                $result.message = "Dashboard already exists."
+                return $existing
+            }
+        }
+
         $dashboardConfig = @{
             name = Truncate-DashboardName "Security Metrics"
             description = "Security vulnerability tracking, compliance status, and threat intelligence"
@@ -897,7 +1064,6 @@ function New-AdoSecurityDashboard {
         }
 
         $dashboard = $null
-        $endpoints = Resolve-AdoDashboardEndpoints -Project $Project -Team $Team -TeamId $teamId -ProjectId $projectId
         foreach ($ep in $endpoints) {
             try {
                 $dashboard = Invoke-AdoDashboardRest -Method POST -Endpoint $ep -Body $dashboardConfig
@@ -969,7 +1135,9 @@ function Test-Adomanagementdashboard {
         [Parameter(Mandatory=$true)]
         [string]$Project,
 
-        [string]$Team
+        [string]$Team,
+
+        [switch]$Replace
     )
     
     Write-Host "[INFO] Attempting to create Program Management dashboard for '$Project' (Team: $Team)..." -ForegroundColor Cyan
@@ -1050,11 +1218,20 @@ function Test-Adomanagementdashboard {
 
                         $found = $entries | Where-Object { $_.name -eq $dashboardConfig.name } | Select-Object -First 1
                         if ($found) {
-                            Write-Host "[INFO] Program Management dashboard already exists for '$Project' (Team: $Team)" -ForegroundColor DarkYellow
-                            $dashboard = $found
-                            $result.status = "skipped"
-                            $result.message = "Dashboard already exists."
-                            return $result
+                            if ($Replace) {
+                                Write-Host "[INFO] Replacing existing Program Management dashboard for '$Project' (Team: $Team)" -ForegroundColor Yellow
+                                $removed = Remove-AdoDashboard -Project $Project -Team $Team -ProjectId $projectId -TeamId $teamId -DashboardId $found.id -DashboardUrl $found.url
+                                if (-not $removed) {
+                                    Write-Warning "[ManagementDashboard] Failed to remove existing dashboard; attempting to recreate anyway."
+                                }
+                            }
+                            else {
+                                Write-Host "[INFO] Program Management dashboard already exists for '$Project' (Team: $Team)" -ForegroundColor DarkYellow
+                                $dashboard = $found
+                                $result.status = "skipped"
+                                $result.message = "Dashboard already exists."
+                                return $result
+                            }
                         }
                     }
                     catch {

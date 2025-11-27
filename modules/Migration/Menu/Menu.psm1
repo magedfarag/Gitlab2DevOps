@@ -131,11 +131,14 @@ function Show-MigrationMenu {
     Write-Host "  12) Sync Repos from projects.json Map     " -ForegroundColor White -NoNewline
     Write-Host "│ Sync GitLab repos to Azure DevOps projects"
     Write-Host ""
-    Write-Host "  13) Exit" -ForegroundColor Yellow
+    Write-Host "  13) Create Dashboards for All Projects    " -ForegroundColor White -NoNewline
+    Write-Host "│ Ensure Dev/Security/Management/QA dashboards exist" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  14) Exit" -ForegroundColor Yellow
     Write-Host ""
     Write-Host ""
     
-    $choice = Read-Host "Select option (1-13)"
+    $choice = Read-Host "Select option (1-14)"
     if ($choice -eq '10') {
         Write-Host ""
         Write-Host "=== BULK PREPARATION FROM CONFIG FILE ===" -ForegroundColor Cyan
@@ -1225,6 +1228,12 @@ function Show-MigrationMenu {
             $validMappings = 0
             $syncSuccess = 0
             $syncFailed = 0
+            $processedMappings = 0
+
+            # Pre-calc total mappings for progress tracking
+            foreach ($mapping in $projectsConfig) {
+                if ($mapping.projects) { $totalMappings += $mapping.projects.Count }
+            }
 
             Write-Host ""
             Write-Host "[INFO] Validating project mappings..." -ForegroundColor Cyan
@@ -1234,7 +1243,9 @@ function Show-MigrationMenu {
                 $gitlabProjects = $mapping.projects
 
                 foreach ($gitlabProject in $gitlabProjects) {
-                    $totalMappings++
+                    $processedMappings++
+                    $progressPct = if ($totalMappings -gt 0) { [int](($processedMappings / $totalMappings) * 100) } else { 0 }
+                    Write-Progress -Activity "Sync Repos from projects.json" -Status "Processing $gitlabProject -> $adoProject ($processedMappings of $totalMappings)" -PercentComplete $progressPct -Id 12
 
                     Write-Host "  Checking: $gitlabProject → $adoProject" -ForegroundColor Gray
 
@@ -1280,6 +1291,8 @@ function Show-MigrationMenu {
                 }
             }
 
+            Write-Progress -Activity "Sync Repos from projects.json" -Status "Completed" -PercentComplete 100 -Id 12 -Completed
+
             Write-Host ""
             Write-Host "=== SYNC SUMMARY ===" -ForegroundColor Cyan
             Write-Host "Total mappings in projects.json: $totalMappings" -ForegroundColor White
@@ -1296,6 +1309,74 @@ function Show-MigrationMenu {
         }
         '13' {
             Write-Host ""
+            Write-Host "=== CREATE DASHBOARDS FOR ALL AZURE DEVOPS PROJECTS ===" -ForegroundColor Cyan
+            Write-Host "This will ensure standard dashboards exist across all projects (Dev, Security, Management, QA/Overview)." -ForegroundColor Gray
+            Write-Host ""
+
+            try {
+                Write-Host "[INFO] Fetching Azure DevOps projects..." -ForegroundColor Cyan
+                $allProjects = Get-AdoProjectList -RefreshCache
+                if (-not $allProjects -or $allProjects.Count -eq 0) {
+                    Write-Host "[ERROR] No Azure DevOps projects found." -ForegroundColor Red
+                    return
+                }
+
+                $total = $allProjects.Count
+                $i = 0
+                $success = 0
+                $failed = 0
+
+                foreach ($proj in $allProjects) {
+                    $i++
+                    $projName = $proj.name
+                    $pct = [int](($i / $total) * 100)
+                    Write-Progress -Activity "Creating dashboards" -Status "Processing $projName ($i of $total)" -PercentComplete $pct -Id 14
+
+                    Write-Host ""
+                    Write-Host "  [INFO] Ensuring dashboards for project '$projName'..." -ForegroundColor Cyan
+                    try {
+                        # Resolve wiki id (required for Dev dashboard wiki page)
+                        $wikiId = $null
+                        try {
+                            $wiki = Ensure-ProjectWiki -ProjectName $projName
+                            if ($wiki -is [System.Collections.IDictionary]) { try { $wiki = [PSCustomObject]$wiki } catch { } }
+                            if ($wiki -and $wiki.PSObject.Properties['id']) { $wikiId = $wiki.id }
+                        }
+                        catch {
+                            Write-Verbose "[Dashboards] Ensure-ProjectWiki failed for '$projName': $_"
+                        }
+                        if (-not $wikiId) {
+                            try { $wikiId = Get-ProjectWikiId -ProjectName $projName } catch { }
+                        }
+                        if (-not $wikiId) { $wikiId = $projName }  # fallback to project name for API that accepts projectId/name
+
+                        New-Adodevdashboard -Project $projName -Team $projName -WikiId $wikiId -Replace | Out-Null
+                        New-AdoSecurityDashboard -Project $projName -Team $projName -Replace | Out-Null
+                        Test-Adomanagementdashboard -Project $projName -Team $projName -Replace | Out-Null
+                        Test-Adoqadashboard -Project $projName -Team $projName -Replace | Out-Null
+
+                        Write-Host "  [SUCCESS] Dashboards ensured for '$projName'" -ForegroundColor Green
+                        $success++
+                    }
+                    catch {
+                        Write-Host "  [ERROR] Failed to ensure dashboards for '$projName': $($_.Exception.Message)" -ForegroundColor Red
+                        $failed++
+                    }
+                }
+
+                Write-Progress -Activity "Creating dashboards" -Status "Completed" -PercentComplete 100 -Id 14 -Completed
+                Write-Host ""
+                Write-Host "=== DASHBOARD SUMMARY ===" -ForegroundColor Cyan
+                Write-Host "Projects processed: $total" -ForegroundColor White
+                Write-Host "Successful: $success" -ForegroundColor Green
+                Write-Host "Failed: $failed" -ForegroundColor Red
+            }
+            catch {
+                Write-Host "[ERROR] Dashboard creation failed: $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        '14' {
+            Write-Host ""
             Write-Host "Thank you for using GitLab → Azure DevOps Migration Tool" -ForegroundColor Cyan
             Write-Host "Goodbye! 👋" -ForegroundColor Green
             Write-Host ""
@@ -1303,7 +1384,7 @@ function Show-MigrationMenu {
         }
         default {
             Write-Host ""
-            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 13." -ForegroundColor Red
+            Write-Host "[ERROR] Invalid choice. Please select a number between 1 and 14." -ForegroundColor Red
             Write-Host ""
         }
     }

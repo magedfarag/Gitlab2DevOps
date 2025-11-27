@@ -129,106 +129,66 @@ function Set-AdoWikiPage {
         
         [Parameter(Mandatory)]
         [string]$Markdown
-        # Removed unused parameters: CollectionUrl, AdoPat, AdoApiVersion
     )
-    
 
-    $enc = [uri]::EscapeDataString($Path)
     $projEnc = [uri]::EscapeDataString($Project)
+    $pathEnc = [uri]::EscapeDataString($Path)
+    $relative = "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$pathEnc"
 
-    # Pre-PUT wiki readiness check: poll wiki metadata endpoint for up to 10 seconds
-    $wikiReady = $false
-    $wikiReadyTimeout = 10
-    $wikiReadyStart = Get-Date
-    while ((Get-Date) - $wikiReadyStart -lt (New-TimeSpan -Seconds $wikiReadyTimeout)) {
-        try {
-            $wikiMeta = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId" -MaxAttempts 1 -DelaySeconds 0
-            if ($wikiMeta -and $wikiMeta.PSObject.Properties['id'] -and $wikiMeta.id) {
-                $wikiReady = $true
-                break
-            }
-        } catch {
-            Start-Sleep -Seconds 2
-        }
-    }
-    if (-not $wikiReady) {
-        Write-Verbose "[Wikis] Wiki backend not ready after $wikiReadyTimeout seconds, proceeding with page creation attempts."
-    }
+    $pageExists = $false
+    $etag = $null
 
-    # Azure DevOps Wiki API behavior:
-    # - PUT: Create new page OR update existing page (works for both cases)
-    # - PATCH: Not supported for wiki pages (returns 405 Method Not Allowed)
-    # Strategy: Always use PUT since it handles both create and update operations
-
-    $maxWikiRetries = 5  # Increased from 3
-    $wikiRetryDelay = 3  # Increased from 2
-    $lastError = $null
-
-    for ($wikiAttempt = 1; $wikiAttempt -le $maxWikiRetries; $wikiAttempt++) {
-        try {
-            # Always use PUT - it works for both creating new pages and updating existing ones
-            Write-Verbose "[Wikis] Creating/updating wiki page: $Path (attempt $wikiAttempt)"
-            Invoke-AdoRest PUT "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -Body @{ content = $Markdown } -MaxAttempts 1 -DelaySeconds 0 | Out-Null
-            Write-Verbose "[Wikis] Successfully created/updated wiki page: $Path"
-            return
-        }
-        catch {
-            $errorMsg = $_.Exception.Message
-            $lastError = $_
-            $normalizedError = $null
-            if (Get-Command -Name New-NormalizedError -ErrorAction SilentlyContinue) {
-                try { $normalizedError = New-NormalizedError -Exception $_ -Side 'ado' -Endpoint $Path } catch { }
-            }
-            if (-not $normalizedError) {
-                $normalizedError = [pscustomobject]@{ status = $null; message = $errorMsg }
-            }
-            $status = $normalizedError.status
-            $isAlreadyExists = $errorMsg -match 'WikiPageAlreadyExistsException|already exists'
-            if ($isAlreadyExists) {
-                Write-Verbose "[Wikis] Page $Path already exists (server returned AlreadyExists). Treating as success."
-                return
-            }
-            # If the server threw (even 500), check if the page now exists anyway; if yes, treat as success
+    # 1) Check if page exists and capture ETag for updates
+    try {
+        $resp = Invoke-AdoRest GET $relative -ApiVersion '7.1' -ReturnNullOnNotFound
+        if ($resp -and $resp.PSObject.Properties['path']) {
+            $pageExists = $true
+            # ETag can come from headers; Invoke-AdoRest returns parsed body, so re-fetch raw headers
             try {
-                $exists = Invoke-AdoRest GET "/$projEnc/_apis/wiki/wikis/$WikiId/pages?path=$enc" -ReturnNullOnNotFound -MaxAttempts 1 -DelaySeconds 0
-                if ($exists -and $exists.PSObject.Properties['path']) {
-                    Write-Verbose "[Wikis] Page $Path exists after error (status: $status). Treating as success."
+                $raw = Invoke-WebRequest -Uri ($script:CollectionUrl.TrimEnd('/') + $relative + "&api-version=7.1") -Headers @{ Authorization = "Basic $([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$($script:AdoPat)")))" } -Method GET -UseBasicParsing
+                if ($raw -and $raw.Headers['ETag']) { $etag = $raw.Headers['ETag'] }
+            } catch { }
+        }
+    }
+    catch {
+        $status = $null
+        try { $status = [int]$_.Exception.Response.StatusCode } catch { $status = $null }
+        if ($status -eq 404) {
+            $pageExists = $false
+        }
+        else {
+            throw
+        }
+    }
+
+    # 2) Build headers for PUT (include If-Match on update)
+    $headers = @{ 'Content-Type' = 'application/json' }
+    if ($pageExists -and $etag) {
+        $headers['If-Match'] = $etag
+    }
+
+    $body = @{ content = $Markdown } | ConvertTo-Json -Depth 5
+
+    # 3) Create or update
+    try {
+        Invoke-AdoRest PUT $relative -ApiVersion '7.1' -Body $body -CustomHeaders $headers | Out-Null
+        return
+    }
+    catch {
+        $status = $null
+        try { $status = [int]$_.Exception.Response.StatusCode } catch { $status = $null }
+        if ($status -eq 500) {
+            # Some on-premises instances return 500 after creating; verify existence and treat as success if present
+            try {
+                $verify = Invoke-AdoRest GET $relative -ApiVersion '7.1' -ReturnNullOnNotFound
+                if ($verify -and $verify.PSObject.Properties['path']) {
+                    Write-LogLevelVerbose "[Wikis] PUT returned 500 but page exists; treating as success."
                     return
                 }
             } catch { }
-            $isWikiNotReady = $errorMsg -match 'WikiNotFoundException|Wiki.*not found|404' -or $errorMsg -match 'Service Unavailable' -or $status -eq 404
-            if ($isWikiNotReady -and $wikiAttempt -lt $maxWikiRetries) {
-                Write-Verbose "[Wikis] Wiki not ready (status: $status), retrying in ${wikiRetryDelay}s (attempt $wikiAttempt/$maxWikiRetries)"
-                Start-Sleep -Seconds $wikiRetryDelay
-                $wikiRetryDelay *= 1.5
-                continue
-            }
-            if ($errorMsg -match 'WikiPageAlreadyExistsException|already exists|409') {
-                Write-Verbose "[Wikis] Page $Path already exists, but PUT should handle updates - continuing with retry"
-                # PUT should handle existing pages, but if we get this error, continue retrying
-                continue
-            }
-            if ($status -eq 500 -or $errorMsg -match '500|Internal Server Error') {
-                # 500 errors are typically not transient, so limit retries
-                $maxRetriesFor500 = 2
-                if ($wikiAttempt -lt $maxRetriesFor500) {
-                    Write-Host "[Wikis] Server returned 500 for $Path — retrying in ${wikiRetryDelay}s (attempt $wikiAttempt/$maxRetriesFor500)" -ForegroundColor Yellow
-                    Start-Sleep -Seconds $wikiRetryDelay
-                    $wikiRetryDelay *= 1.5
-                    continue
-                } else {
-                    throw "Azure DevOps API returned 500 Internal Server Error for $Path after $maxRetriesFor500 attempts"
-                }
-            }
-            if ($wikiAttempt -eq $maxWikiRetries) { throw }
-            Write-Verbose "[Wikis] Unexpected error, retrying in ${wikiRetryDelay}s (attempt $wikiAttempt/$maxWikiRetries): $errorMsg"
-            Start-Sleep -Seconds $wikiRetryDelay
-            $wikiRetryDelay *= 2
         }
+        throw
     }
-    
-    # If we get here, all retries failed
-    throw $lastError
 }
 
 function Set-AdoWikiPageWithRetry {

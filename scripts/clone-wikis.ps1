@@ -17,10 +17,9 @@ Then run with -DryRun $false to apply.
 [CmdletBinding()]
 param(
     # Collection URL (Azure DevOps Server collection)
-    [string]$CollectionUrl      = "https://devops.mod.gov.sa/E-Services",
+    [string]$CollectionUrl,
 
     # PAT with Code + Wiki permissions
-    [Parameter(Mandatory = $true)]
     [string]$Pat,
 
     # Project that contains the template wikis
@@ -39,6 +38,19 @@ param(
 # For Azure DevOps Server 2022+, 7.1 works. 
 # ================================================================
 $ApiVersion = "7.1"
+
+#if parameters are missing, read it from .env file
+Import-Module -Name "$($PSScriptRoot)\..\modules\core\EnvLoader.psm1"
+Import-DotEnvFile -Path "$($PSScriptRoot)\..\.env"
+
+if (-not $Pat) {
+    $Pat = $env:ADO_PAT
+}
+
+if (-not $CollectionUrl) {
+    $CollectionUrl = $env:ADO_COLLECTION_URL
+}
+
 
 # ================================================================
 # Helper: make a safe short name (for Git repo or wiki)
