@@ -1,141 +1,216 @@
+<#
+.SYNOPSIS
+    Delete ALL wikis and their backing Git repos for a list of projects.
+
+.DESCRIPTION
+    - Reads ADO_COLLECTION_URL and ADO_PAT from a .env file.
+    - Accepts a comma-separated list of project names.
+    - For each project:
+        * Calls /_apis/wiki/wikis to list all wikis.
+        * Deletes each wiki (projectWiki and codeWiki).
+        * Deletes the backing Git repository if repositoryId is present.
+
+    WARNING: Destructive. No undo.
+
+USAGE EXAMPLES
+    .\delete-project-wikis.ps1 -ProjectsCsv "projA,projB,shaheed-system"
+    .\delete-project-wikis.ps1 -ProjectsCsv "projA,projB" -EnvPath "C:\Secure\.env" -Force
+
+#>
+
 param(
-    [Parameter(Mandatory)]
-    [string]$BaseUrl,
+    [Parameter(Mandatory = $true)]
+    [string]$ProjectsCsv,           # e.g. "projA,projB,shaheed-system"
 
-    [Parameter(Mandatory)]
-    [string]$Pat,
+    [string]$EnvPath = ".\.env",
 
-    [Parameter()]
-    [string]$ApiVersion = "7.1",
-
-    [Parameter()]
-    [bool]$DryRun,
-
-    [Parameter()]
-    [string[]]$KeepWikisinProjects = @(),
-
-    [Parameter()]
-    [string[]]$KeepWikiIds = @(),
-
-    [Parameter()]
-    [object[]]$KeepProjectAndWikiNames = @()
+    [switch]$DryRun,                # Log only, no DELETE
+    [switch]$Force                  # Skip confirmation
 )
 
-
-# ========================= AUTH HEADERS ==========================
-
-$pair = ":" + $Pat
-$encodedPat = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair))
-$Headers = @{
-    Authorization = "Basic $encodedPat"
+# ---------- Basic validation ----------
+if (-not (Test-Path $EnvPath)) {
+    throw "Env file not found at '$EnvPath'. Expected ADO_COLLECTION_URL and ADO_PAT."
 }
 
-# ========================= HELPER FUNCTION =======================
+# ---------- Load .env ----------
+Write-Host "[INFO] Loading environment from '$EnvPath'..." -ForegroundColor Cyan
 
-function Test-IsKeptWiki {
+$envVars = @{}
+Get-Content $EnvPath |
+    Where-Object { $_ -and -not $_.TrimStart().StartsWith('#') } |
+    ForEach-Object {
+        $parts = $_ -split '=', 2
+        if ($parts.Length -eq 2) {
+            $key   = $parts[0].Trim()
+            $value = $parts[1].Trim()
+            if ($key) { $envVars[$key] = $value }
+        }
+    }
+
+if (-not $envVars.ADO_COLLECTION_URL) {
+    throw "ADO_COLLECTION_URL missing in .env."
+}
+if (-not $envVars.ADO_PAT) {
+    throw "ADO_PAT missing in .env."
+}
+
+$CollectionUrl = $envVars.ADO_COLLECTION_URL.TrimEnd('/')
+$Pat           = $envVars.ADO_PAT
+
+Write-Host "[INFO] ADO_COLLECTION_URL = $CollectionUrl" -ForegroundColor Green
+
+# ---------- REST auth + helpers ----------
+
+$ApiVersion = "7.1"
+$Headers = @{
+    Authorization = "Basic " + [System.Convert]::ToBase64String(
+        [System.Text.Encoding]::ASCII.GetBytes(":$Pat")
+    )
+}
+
+function Invoke-AdoRestSafe {
     param(
-        [string]$ProjectName,
-        [object]$Wiki
+        [Parameter(Mandatory=$true)][ValidateSet('GET','POST','DELETE','PATCH','PUT')]
+        [string]$Method,
+        [Parameter(Mandatory=$true)]
+        [string]$Uri,
+        [object]$Body
     )
 
-    # 1) Check by ID
-    if ($KeepWikiIds -contains $Wiki.id) {
-        return $true
+    Write-Host "[REST] $Method $Uri" -ForegroundColor DarkCyan
+
+    $result = [pscustomobject]@{
+        Success          = $false
+        StatusCode       = $null
+        StatusDescription= $null
+        Data             = $null
+        ErrorMessage     = $null
     }
 
-    # 2) Check by (Project, WikiName)
-    foreach ($rule in $KeepProjectAndWikiNames) {
-        if ($rule.Project -eq $ProjectName -and $rule.WikiName -eq $Wiki.name) {
-            return $true
-        }
-    }
-
-    return $false
-}
-
-# ========================= GET ALL PROJECTS ======================
-
-Write-Host "Listing projects from $BaseUrl ..." -ForegroundColor Cyan
-
-$projectsUrl = "$BaseUrl/_apis/projects?stateFilter=All&`$top=20000&api-version=$ApiVersion"
-try {
-    $projectsResponse = Invoke-RestMethod -Uri $projectsUrl -Headers $Headers -Method Get
-} catch {
-    Write-Error "Failed to list projects. $_"
-    break
-}
-
-$projects = $projectsResponse.value
-Write-Host "Found $($projects.Count) projects." -ForegroundColor Cyan
-
-#remove projects that are required to keep
-$projects = $projects | Where-Object { $KeepWikisinProjects -notcontains $_.name }
-
-# ========================= PROCESS EACH PROJECT ==================
-
-foreach ($project in $projects) {
-
-    $projectName = $project.name
-    Write-Host "=== Project: $projectName ===" -ForegroundColor Magenta
-
-    # List wikis in this project
-    $wikisUrl = "$BaseUrl/$projectName/_apis/wiki/wikis?api-version=$ApiVersion"
     try {
-        $wikisResponse = Invoke-RestMethod -Uri $wikisUrl -Headers $Headers -Method Get
-    } catch {
-        Write-Warning "  Failed to list wikis for project '$projectName'. $_"
-        continue
-    }
-
-    if (-not $wikisResponse.value -or $wikisResponse.value.Count -eq 0) {
-        Write-Host "  (No wikis)" -ForegroundColor DarkGray
-        continue
-    }
-
-    foreach ($wiki in $wikisResponse.value) {
-
-        $wikiName = $wiki.name
-        $wikiId   = $wiki.id
-        $wikiType = $wiki.type
-        $repoId   = $wiki.repositoryId
-
-        if (Test-IsKeptWiki -ProjectName $projectName -Wiki $wiki) {
-            Write-Host "  [KEEP]   $wikiName  ($wikiId)  type=$wikiType" -ForegroundColor Green
-            continue
-        }
-
-        Write-Host "  [DELETE] $wikiName  ($wikiId)  type=$wikiType" -ForegroundColor Yellow
-
-        if ($DryRun) {
-            # Only log in DryRun mode
-            continue
-        }
-
-        # Decide deletion URL based on wiki type
-        $deleteUrl = $null
-
-        if ($wikiType -eq "codeWiki") {
-            # code wiki -> use Wiki Delete API
-            $deleteUrl = "$($BaseUrl)/$($projectName)/_apis/wiki/wikis/$($wikiId)?api-version=$ApiVersion"
-        }
-        elseif ($wikiType -eq "projectWiki") {
-            # project wiki -> delete backing Git repository
-            if (-not $repoId) {
-                Write-Warning "    projectWiki has no repositoryId, skipping."
-                continue
-            }
-            $deleteUrl = "$($BaseUrl)/$($projectName)/_apis/git/repositories/$($repoId)?api-version=$ApiVersion"
+        if ($PSBoundParameters.ContainsKey('Body') -and $null -ne $Body) {
+            $json = $Body | ConvertTo-Json -Depth 10
+            $resp = Invoke-RestMethod -Method $Method -Uri $Uri -Headers $Headers -ContentType "application/json" -Body $json -ErrorAction Stop
         }
         else {
-            Write-Warning "    Unknown wiki type '$wikiType', skipping."
-            continue
+            $resp = Invoke-RestMethod -Method $Method -Uri $Uri -Headers $Headers -ErrorAction Stop
         }
 
-        try {
-            Invoke-RestMethod -Uri $deleteUrl -Headers $Headers -Method Delete
-            Write-Host "    --> Deleted." -ForegroundColor Red
-        } catch {
-            Write-Warning "    Delete failed: $_"
+        $result.Success = $true
+        $result.Data    = $resp
+        return $result
+    }
+    catch {
+        $result.Success = $false
+        $result.ErrorMessage = $_.Exception.Message
+
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+            $statusDesc = $_.Exception.Response.StatusDescription
+            $result.StatusCode        = $statusCode
+            $result.StatusDescription = $statusDesc
+        }
+
+        Write-Host "[ERROR] REST failed: $($result.StatusCode) $($result.StatusDescription) - $($result.ErrorMessage)" -ForegroundColor Red
+        return $result
+    }
+}
+
+# ---------- Parse projects ----------
+$Projects = $ProjectsCsv.Split(',') |
+    ForEach-Object { $_.Trim() } |
+    Where-Object { $_ -ne "" }
+
+if ($Projects.Count -eq 0) {
+    throw "No valid project names parsed from ProjectsCsv."
+}
+
+Write-Host ""
+Write-Host "This script will:" -ForegroundColor Cyan
+Write-Host " - DELETE ALL wikis (projectWiki + codeWiki) for these projects:" -ForegroundColor Cyan
+$Projects | ForEach-Object { Write-Host "   - $_" -ForegroundColor Cyan }
+Write-Host " - DELETE ALL backing Git repos for those wikis (where repositoryId exists)." -ForegroundColor Cyan
+
+if ($DryRun) {
+    Write-Host "[INFO] DRY RUN MODE: No actual DELETE calls will be made." -ForegroundColor Yellow
+}
+
+if (-not $DryRun -and -not $Force) {
+    $answer = Read-Host "Type YES to proceed with DELETES, anything else to abort"
+    if ($answer -ne "YES") {
+        Write-Host "Aborted by user." -ForegroundColor Yellow
+        exit 1
+    }
+}
+
+# ---------- Main loop per project ----------
+foreach ($projectName in $Projects) {
+
+    Write-Host ""
+    Write-Host "=============================================================" -ForegroundColor Magenta
+    Write-Host "Project: $projectName" -ForegroundColor Magenta
+
+    # 1) List wikis for this project
+    $wikisUri = "$CollectionUrl/$projectName/_apis/wiki/wikis?api-version=$ApiVersion"
+    $wikiRes  = Invoke-AdoRestSafe -Method GET -Uri $wikisUri -Body $null
+
+    if (-not $wikiRes.Success) {
+        Write-Host "[WARN] Skipping project '$projectName' due to wiki API failure." -ForegroundColor Yellow
+        continue
+    }
+
+    if (-not $wikiRes.Data.value -or $wikiRes.Data.value.Count -eq 0) {
+        Write-Host "[INFO] Project '$projectName' has no wikis." -ForegroundColor DarkGray
+        continue
+    }
+
+    $wikis = $wikiRes.Data.value
+    foreach ($wiki in $wikis) {
+
+        Write-Host ""
+        Write-Host "[INFO] Found wiki '$($wiki.name)' (id=$($wiki.id), type=$($wiki.type)) in '$projectName'." -ForegroundColor Green
+
+        # 2) Delete the wiki itself
+        if ($DryRun) {
+            Write-Host "   [DRYRUN] Would DELETE wiki id=$($wiki.id)." -ForegroundColor Yellow
+        }
+        else {
+            $delWikiUri = "$CollectionUrl/$projectName/_apis/wiki/wikis/$($wiki.id)?api-version=$ApiVersion"
+            $delWikiRes = Invoke-AdoRestSafe -Method DELETE -Uri $delWikiUri -Body $null
+
+            if ($delWikiRes.Success -or $delWikiRes.StatusCode -eq 404) {
+                Write-Host "   [OK] Wiki deleted (or already gone)." -ForegroundColor DarkGreen
+            }
+            else {
+                Write-Host "   [WARN] Wiki delete failed: $($delWikiRes.StatusCode) $($delWikiRes.ErrorMessage)" -ForegroundColor Red
+            }
+        }
+
+        # 3) Delete backing Git repo if repositoryId present
+        if ($wiki.repositoryId) {
+            if ($DryRun) {
+                Write-Host "   [DRYRUN] Would DELETE Git repo id=$($wiki.repositoryId)." -ForegroundColor Yellow
+            }
+            else {
+                $delRepoUri = "$CollectionUrl/$projectName/_apis/git/repositories/$($wiki.repositoryId)?api-version=$ApiVersion"
+                $delRepoRes = Invoke-AdoRestSafe -Method DELETE -Uri $delRepoUri -Body $null
+
+                if ($delRepoRes.Success -or $delRepoRes.StatusCode -eq 404) {
+                    Write-Host "   [OK] Backing Git repo deleted (or already gone)." -ForegroundColor DarkGreen
+                }
+                else {
+                    Write-Host "   [WARN] Repo delete failed: $($delRepoRes.StatusCode) $($delRepoRes.ErrorMessage)" -ForegroundColor Red
+                }
+            }
+        }
+        else {
+            Write-Host "   [INFO] Wiki has no repositoryId; no repo delete attempted." -ForegroundColor DarkGray
         }
     }
 }
+
+Write-Host ""
+Write-Host "=============================================================" -ForegroundColor Green
+Write-Host "Completed processing all requested projects." -ForegroundColor Green
+Write-Host "Use -DryRun first if you want to review actions before real deletes." -ForegroundColor Green

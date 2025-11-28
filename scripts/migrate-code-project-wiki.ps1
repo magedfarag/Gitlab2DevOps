@@ -1,54 +1,15 @@
-<#
-.SYNOPSIS
-    Standardize all Azure DevOps projects to a single template Project wiki.
-
-.DESCRIPTION
-    - Reads ADO_COLLECTION_URL and ADO_PAT from a .env file.
-    - Uses the Project wiki from a chosen Template project as the "golden" wiki.
-    - For EVERY project in the collection:
-        * Deletes ALL code wikis (type = codeWiki) and their Git repositories.
-        * Ensures a Project wiki (type = projectWiki) exists.
-        * Clones the template Project wiki Git repo once and copies its content
-          into each project's Project wiki Git repo via Git (commit & push).
-
-    Authentication:
-        Uses PAT over HTTPS via Git's http.extraheader:
-        Authorization: Basic <base64("user:PAT")>
-
-    WARNING
-        This script is DESTRUCTIVE when -DryRun is NOT used:
-        - Deletes ALL code wikis and their repos in ALL projects.
-        - Overwrites ALL Project wiki repos with the template content.
-
-    Use -DryRun to verify actions first. Use -Force to skip the interactive prompt.
-
-PREREQUISITES
-    - Azure DevOps Server 2020/2022 (or Services).
-    - .env file with:
-        ADO_COLLECTION_URL=<collection URL>
-        ADO_PAT=<PAT with Wiki + Code + Project permissions>
-    - Git CLI installed and available in PATH.
-
-USAGE EXAMPLES
-    # Safe: see what would happen only
-    .\standardize-project-wikis.ps1 -TemplateProjectName "shaheed-system" -DryRun
-
-    # Real run, with interactive confirmation
-    .\standardize-project-wikis.ps1 -TemplateProjectName "shaheed-system"
-
-    # Non-interactive destructive run
-    .\standardize-project-wikis.ps1 -TemplateProjectName "shaheed-system" -Force
-#>
 
 param(
     [Parameter(Mandatory = $true)]
-    [string]$TemplateProjectName,     # Project that hosts the golden Project wiki
+    [string]$TemplateProjectName,
 
-    [string]$TemplateWikiName,       # Optional, default = "<TemplateProjectName>.wiki"
+    [string]$TemplateWikiName,
 
     [string]$EnvPath   = ".\.env",
-    [string]$WorkFolder = "$env:TEMP\WikiMigration",
+    [string]$WorkFolder = "$($env:TEMP)\WikiMigration",
 
+    [int]$MaxMigrationAttempts = 3,
+    [int]$ValidationDelaySeconds = 5,
     [switch]$DryRun,
     [switch]$Force
 )
@@ -57,14 +18,12 @@ if (-not $TemplateWikiName) {
     $TemplateWikiName = "$TemplateProjectName.wiki"
 }
 
-# ---------- Basic validation ----------
-
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     throw "git CLI not found in PATH. Install Git and re-run the script."
 }
 
 if (-not (Test-Path $EnvPath)) {
-    throw "Env file not found at '$EnvPath'. Create it with ADO_COLLECTION_URL and ADO_PAT."
+    throw "Env file not found at '$EnvPath'. Expected ADO_COLLECTION_URL and ADO_PAT."
 }
 
 # ---------- Load .env ----------
@@ -84,10 +43,10 @@ Get-Content $EnvPath |
     }
 
 if (-not $envVars.ADO_COLLECTION_URL) {
-    throw "ADO_COLLECTION_URL is missing in '$EnvPath'."
+    throw "ADO_COLLECTION_URL missing in .env."
 }
 if (-not $envVars.ADO_PAT) {
-    throw "ADO_PAT is missing in '$EnvPath'."
+    throw "ADO_PAT missing in .env."
 }
 
 $CollectionUrl = $envVars.ADO_COLLECTION_URL.TrimEnd('/')
@@ -95,25 +54,23 @@ $Pat           = $envVars.ADO_PAT
 
 Write-Host "[INFO] ADO_COLLECTION_URL = $CollectionUrl" -ForegroundColor Green
 
-# ---------- Auth + global settings ----------
 
-$ApiVersion = "7.1"   # Wiki/Git REST API version
+# --- Basic checks ---
+
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    throw "Git CLI not found in PATH. Install Git and re-run."
+}
+
+if (-not (Test-Path $EnvPath)) {
+    throw ".env file not found at '$EnvPath'. Expected COLLECTION_URL and ADO_PAT."
+}
+
 
 if (-not (Test-Path $WorkFolder)) {
     New-Item -ItemType Directory -Path $WorkFolder | Out-Null
 }
 
-# Build Authorization header for PAT: Base64("user:PAT")
-function New-GitAuthHeader {
-    param(
-        [Parameter(Mandatory=$true)][string]$Pat,
-        [string]$UserName = "ado-user"
-    )
-
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes("$UserName`:$Pat")
-    $b64   = [System.Convert]::ToBase64String($bytes)
-    return "Authorization: Basic $b64"
-}
+# --- Auth ---
 
 $Headers = @{
     Authorization = "Basic " + [System.Convert]::ToBase64String(
@@ -121,9 +78,19 @@ $Headers = @{
     )
 }
 
-$global:GitAuthHeader = New-GitAuthHeader -Pat $Pat
+# For git http.extraheader
+$global:GitAuthHeader = "Authorization: Basic " + [System.Convert]::ToBase64String(
+    [System.Text.Encoding]::UTF8.GetBytes("ado-user`:$Pat")
+)
 
-# ---------- REST helper ----------
+# --- Global tracking ---
+
+$Global:MigratedProjects      = New-Object System.Collections.Generic.List[object]
+$Global:SkippedProjects       = New-Object System.Collections.Generic.List[object]
+$Global:FailedValidation      = New-Object System.Collections.Generic.List[object]
+$Global:ErrorProjects         = New-Object System.Collections.Generic.List[object]
+
+# --- Helper: REST wrapper ---
 
 function Invoke-AdoRest {
     param(
@@ -137,7 +104,7 @@ function Invoke-AdoRest {
     Write-Host "[REST] $Method $Uri" -ForegroundColor DarkCyan
 
     if ($PSBoundParameters.ContainsKey('Body') -and $null -ne $Body) {
-        $json = $Body | ConvertTo-Json -Depth 10
+        $json = $Body | ConvertTo-Json -Depth 20
         return Invoke-RestMethod -Method $Method -Uri $Uri -Headers $Headers -ContentType "application/json" -Body $json
     }
     else {
@@ -145,12 +112,12 @@ function Invoke-AdoRest {
     }
 }
 
-# ---------- Git helper with PAT + retries ----------
+# --- Helper: Git clone with PAT header ---
 
 function Invoke-GitCloneWithPat {
     param(
-        [Parameter(Mandatory = $true)][string]$Url,
-        [Parameter(Mandatory = $true)][string]$TargetPath,
+        [Parameter(Mandatory=$true)][string]$Url,
+        [Parameter(Mandatory=$true)][string]$TargetPath,
         [int]$MaxRetries = 3
     )
 
@@ -158,30 +125,28 @@ function Invoke-GitCloneWithPat {
     while ($attempt -lt $MaxRetries) {
         $attempt++
 
-        Write-Host "[GIT] clone attempt $attempt of $($MaxRetries): $Url" -ForegroundColor Cyan
+        Write-Host "[GIT] clone attempt $attempt/$($MaxRetries): $Url"
 
         if (Test-Path $TargetPath) {
             Remove-Item $TargetPath -Recurse -Force
         }
 
         if ($DryRun) {
-            Write-Host "[DRYRUN] Would run: git -c ""http.extraheader=$($global:GitAuthHeader)"" clone $Url $TargetPath" -ForegroundColor Yellow
+            Write-Host "[DRYRUN] git -c ""http.extraheader=$($global:GitAuthHeader)"" clone $Url $TargetPath"
             return
         }
 
         git -c "http.extraheader=$($global:GitAuthHeader)" clone $Url $TargetPath
-        if ($LASTEXITCODE -eq 0) {
-            return
-        }
+        if ($LASTEXITCODE -eq 0) { return }
 
-        Write-Host "[WARN] git clone failed with exit code $LASTEXITCODE. Retrying..." -ForegroundColor Yellow
+        Write-Host "[WARN] git clone failed (exit $LASTEXITCODE). Retrying..."
         Start-Sleep -Seconds (5 * $attempt)
     }
 
-    throw "git clone failed for '$Url' after $MaxRetries attempts (last exit code $LASTEXITCODE)."
+    throw "git clone failed for '$Url' after $MaxRetries attempts."
 }
 
-# ---------- Get all projects ----------
+# --- Helper: list projects ---
 
 function Get-AdoProjects {
     $projects = @()
@@ -189,22 +154,29 @@ function Get-AdoProjects {
     $skip = 0
 
     while ($true) {
-        $uri = "$CollectionUrl/_apis/projects?api-version=$ApiVersion&`$top=$top&`$skip=$skip"
-        $page = Invoke-AdoRest -Method GET -Uri $uri
+        $uri  = "$CollectionUrl/_apis/projects?api-version=$ApiVersion&`$top=$top&`$skip=$skip"
+        $page = Invoke-AdoRest -Method GET -Uri $uri -Body $null
 
         if (-not $page.value -or $page.value.Count -eq 0) { break }
 
         $projects += $page.value
-
         if ($page.value.Count -lt $top) { break }
-
         $skip += $top
     }
 
     return $projects
 }
 
-# ---------- Resolve wiki -> Git clone URL (backing repo.remoteUrl) ----------
+# --- Helper: list wikis in a project ---
+
+function Get-ProjectWikis {
+    param([Parameter(Mandatory=$true)][string]$ProjectName)
+
+    $uri = "$CollectionUrl/$ProjectName/_apis/wiki/wikis?api-version=$ApiVersion"
+    return Invoke-AdoRest -Method GET -Uri $uri -Body $null
+}
+
+# --- Helper: resolve wiki -> Git clone URL ---
 
 function Get-WikiGitCloneUrl {
     param(
@@ -214,40 +186,25 @@ function Get-WikiGitCloneUrl {
 
     if ($Wiki.repositoryId) {
         $repoUri = "$CollectionUrl/$ProjectName/_apis/git/repositories/$($Wiki.repositoryId)?api-version=$ApiVersion"
-        $repo = Invoke-AdoRest -Method GET -Uri $repoUri
-        if ($repo.remoteUrl) {
-            return $repo.remoteUrl
-        }
+        $repo    = Invoke-AdoRest -Method GET -Uri $repoUri -Body $null
+        if ($repo.remoteUrl) { return $repo.remoteUrl }
     }
 
-    # Fallback: search all repos (including hidden) by name / id
+    # fallback: search repo list including hidden
     $reposUri = "$CollectionUrl/$ProjectName/_apis/git/repositories?api-version=$ApiVersion&includeHidden=true"
-    $repos = Invoke-AdoRest -Method GET -Uri $reposUri
+    $repos    = Invoke-AdoRest -Method GET -Uri $reposUri -Body $null
 
     $match = $repos.value | Where-Object { $_.name -eq $Wiki.name } | Select-Object -First 1
     if (-not $match) {
         $match = $repos.value | Where-Object { $_.id -eq $Wiki.id } | Select-Object -First 1
     }
 
-    if ($match -and $match.remoteUrl) {
-        return $match.remoteUrl
-    }
+    if ($match -and $match.remoteUrl) { return $match.remoteUrl }
 
     throw "Cannot resolve Git clone URL for wiki '$($Wiki.name)' in project '$ProjectName'."
 }
 
-# ---------- List wikis for a project ----------
-
-function Get-ProjectWikis {
-    param(
-        [Parameter(Mandatory=$true)][string]$ProjectName
-    )
-
-    $wikisUri = "$CollectionUrl/$ProjectName/_apis/wiki/wikis?api-version=$ApiVersion"
-    return Invoke-AdoRest -Method GET -Uri $wikisUri
-}
-
-# ---------- Delete all code wikis (and their repos) in a project ----------
+# --- Helper: delete all code wikis in a project ---
 
 function Remove-CodeWikisForProject {
     param(
@@ -256,54 +213,48 @@ function Remove-CodeWikisForProject {
     )
 
     $projectName = $Project.name
-    $codeWikis = @()
+    $codeWikis   = @()
 
     if ($WikisResponse.value) {
-        $codeWikis = $WikisResponse.value |
-            Where-Object { $_.type -eq "codeWiki" }
+        $codeWikis = $WikisResponse.value | Where-Object { $_.type -eq "codeWiki" }
     }
 
     if (-not $codeWikis -or $codeWikis.Count -eq 0) {
-        Write-Host "[INFO] Project '$projectName': no code wikis to delete." -ForegroundColor DarkGray
+        Write-Host "[INFO] '$projectName': no code wikis to delete."
         return
     }
 
     foreach ($wiki in $codeWikis) {
-        Write-Host "[WARN] Project '$projectName': deleting code wiki '$($wiki.name)' (id=$($wiki.id))..." -ForegroundColor Yellow
+        Write-Host "[WARN] '$projectName': deleting code wiki '$($wiki.name)' (id=$($wiki.id))"
 
         if ($DryRun) {
-            Write-Host "    [DRYRUN] Would DELETE wiki '$($wiki.name)' and repoId '$($wiki.repositoryId)'." -ForegroundColor Yellow
+            Write-Host "   [DRYRUN] would DELETE wiki and repoId '$($wiki.repositoryId)'."
             continue
         }
 
-        # 1) Delete wiki resource (codeWiki)
         try {
             $delWikiUri = "$CollectionUrl/$projectName/_apis/wiki/wikis/$($wiki.id)?api-version=$ApiVersion"
-            Invoke-AdoRest -Method DELETE -Uri $delWikiUri | Out-Null
-            Write-Host "    - Wiki resource deleted." -ForegroundColor Yellow
+            Invoke-AdoRest -Method DELETE -Uri $delWikiUri -Body $null | Out-Null
+            Write-Host "   - wiki deleted."
         }
         catch {
-            Write-Host "    - [WARN] Failed to delete wiki resource: $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "   - [WARN] wiki delete failed: $($_.Exception.Message)"
         }
 
-        # 2) Delete backing Git repository (if we have repositoryId)
         if ($wiki.repositoryId) {
             try {
                 $delRepoUri = "$CollectionUrl/$projectName/_apis/git/repositories/$($wiki.repositoryId)?api-version=$ApiVersion"
-                Invoke-AdoRest -Method DELETE -Uri $delRepoUri | Out-Null
-                Write-Host "    - Backing Git repo deleted (id=$($wiki.repositoryId))." -ForegroundColor Yellow
+                Invoke-AdoRest -Method DELETE -Uri $delRepoUri -Body $null | Out-Null
+                Write-Host "   - backing repo deleted (id=$($wiki.repositoryId))."
             }
             catch {
-                Write-Host "    - [WARN] Failed to delete backing Git repo: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host "   - [WARN] repo delete failed: $($_.Exception.Message)"
             }
-        }
-        else {
-            Write-Host "    - [INFO] No repositoryId on wiki, skipping repo delete." -ForegroundColor DarkGray
         }
     }
 }
 
-# ---------- Ensure a Project wiki exists for a project ----------
+# --- Helper: ensure project wiki exists ---
 
 function Ensure-ProjectWiki {
     param(
@@ -315,7 +266,6 @@ function Ensure-ProjectWiki {
     $projectId   = $Project.id
 
     $projectWiki = $null
-
     if ($ExistingWikisResponse.value) {
         $projectWiki = $ExistingWikisResponse.value |
             Where-Object { $_.type -eq "projectWiki" } |
@@ -323,7 +273,7 @@ function Ensure-ProjectWiki {
     }
 
     if (-not $projectWiki) {
-        Write-Host "[INFO] Project '$projectName': creating Project wiki '$projectName.wiki'..." -ForegroundColor Cyan
+        Write-Host "[INFO] '$projectName': creating Project wiki '$projectName.wiki'..."
 
         $body = @{
             type      = "projectWiki"
@@ -332,8 +282,7 @@ function Ensure-ProjectWiki {
         }
 
         if ($DryRun) {
-            Write-Host "[DRYRUN] Would POST create Project wiki '$projectName.wiki'." -ForegroundColor Yellow
-            # fake object to keep flow working
+            Write-Host "   [DRYRUN] would POST create project wiki."
             return [pscustomobject]@{
                 id           = [guid]::NewGuid().ToString()
                 name         = "$projectName.wiki"
@@ -346,18 +295,77 @@ function Ensure-ProjectWiki {
         $projectWiki = Invoke-AdoRest -Method POST -Uri $createUri -Body $body
     }
 
-    if ($DryRun) {
-        return $projectWiki
-    }
+    if ($DryRun) { return $projectWiki }
 
-    # Re-fetch to ensure we have full properties (repositoryId, etc.)
     $getUri = "$CollectionUrl/$projectName/_apis/wiki/wikis/$($projectWiki.id)?api-version=$ApiVersion"
-    $projectWiki = Invoke-AdoRest -Method GET -Uri $getUri
-
-    return $projectWiki
+    return Invoke-AdoRest -Method GET -Uri $getUri -Body $null
 }
 
-# ---------- Clone template Project wiki once ----------
+# --- Helper: get all wiki page paths using recursionLevel=Full ---
+
+function Get-WikiPagePaths {
+    param(
+        [Parameter(Mandatory=$true)][psobject]$Wiki,
+        [Parameter(Mandatory=$true)][string]$ProjectName
+    )
+
+    $wikiId = $Wiki.id
+    $uri    = "$CollectionUrl/$ProjectName/_apis/wiki/wikis/$wikiId/pages?path=/&recursionLevel=Full&includeContent=false&api-version=$ApiVersion"
+
+    try {
+        $root = Invoke-AdoRest -Method GET -Uri $uri -Body $null
+    }
+    catch {
+        Write-Host "[WARN] '$ProjectName': failed to read wiki pages for '$($Wiki.name)': $($_.Exception.Message)"
+        return @()
+    }
+
+    $paths = @()
+    $stack = New-Object System.Collections.Stack
+    $stack.Push($root)
+
+    while ($stack.Count -gt 0) {
+        $p = $stack.Pop()
+
+        if ($p.PSObject.Properties.Name -contains "path" -and $p.path) {
+            $paths += [string]$p.path
+        }
+
+        if ($p.PSObject.Properties.Name -contains "subPages" -and $p.subPages) {
+            foreach ($sp in $p.subPages) {
+                $stack.Push($sp)
+            }
+        }
+    }
+
+    return $paths
+}
+
+# --- Helper: compare template vs target page sets ---
+
+function Test-TemplateCoverage {
+    param(
+        [Parameter(Mandatory=$true)][string[]]$TemplatePaths,
+        [Parameter(Mandatory=$true)][string[]]$TargetPaths
+    )
+
+    $tpl = $TemplatePaths | Where-Object { $_ -ne "/" } | ForEach-Object { $_.ToLowerInvariant() } | Sort-Object -Unique
+    $dst = $TargetPaths   | Where-Object { $_ -ne "/" } | ForEach-Object { $_.ToLowerInvariant() } | Sort-Object -Unique
+
+    if ($tpl.Count -eq 0) {
+        Write-Host "[WARN] Template wiki appears empty (no page paths other than '/')."
+        return $false
+    }
+
+    foreach ($t in $tpl) {
+        if (-not ($dst -contains $t)) {
+            return $false
+        }
+    }
+    return $true
+}
+
+# --- Helper: clone template wiki once ---
 
 function Clone-TemplateWiki {
     param(
@@ -366,14 +374,12 @@ function Clone-TemplateWiki {
     )
 
     $projectName = $TemplateProject.name
-
     Write-Host ""
-    Write-Host "=== Preparing template wiki from project '$projectName' ===" -ForegroundColor Magenta
+    Write-Host "=== Using template wiki from '$projectName' ==="
 
     $wikis = Get-ProjectWikis -ProjectName $projectName
-
     if (-not $wikis.value) {
-        throw "Template project '$projectName' has no wikis. Create a Project wiki first."
+        throw "Template project '$projectName' has no wikis."
     }
 
     $tplWiki = $wikis.value |
@@ -387,35 +393,36 @@ function Clone-TemplateWiki {
     }
 
     if (-not $tplWiki) {
-        throw "Template project '$projectName' has no Project wiki. Create one and re-run."
+        throw "Template project '$projectName' has no Project wiki."
     }
 
     if (-not $DryRun) {
-        # Refresh full wiki object
         $getUri = "$CollectionUrl/$projectName/_apis/wiki/wikis/$($tplWiki.id)?api-version=$ApiVersion"
-        $tplWiki = Invoke-AdoRest -Method GET -Uri $getUri
+        $tplWiki = Invoke-AdoRest -Method GET -Uri $getUri -Body $null
     }
 
-    # Get Git clone URL from backing repo
     $tplCloneUrl = Get-WikiGitCloneUrl -Wiki $tplWiki -ProjectName $projectName
-    Write-Host "[INFO] Template Project wiki '$($tplWiki.name)' Git clone URL: $tplCloneUrl" -ForegroundColor Green
+    Write-Host "[INFO] Template wiki '$($tplWiki.name)' Git URL: $tplCloneUrl"
 
     $tplPath = Join-Path $WorkFolder "TemplateProjectWiki"
-    if (Test-Path $tplPath) {
-        Remove-Item $tplPath -Recurse -Force
-    }
+    if (Test-Path $tplPath) { Remove-Item $tplPath -Recurse -Force }
 
-    Write-Host "[INFO] Cloning template wiki repo..." -ForegroundColor Cyan
+    Write-Host "[INFO] Cloning template wiki repo..."
     Invoke-GitCloneWithPat -Url $tplCloneUrl -TargetPath $tplPath
 
+    # Page set for template
+    $tplPaths = Get-WikiPagePaths -Wiki $tplWiki -ProjectName $projectName
+    Write-Host "[INFO] Template wiki has $($tplPaths.Count) pages (including '/')."
+
     return @{
-        WikiObject = $tplWiki
-        Path       = $tplPath
-        CloneUrl   = $tplCloneUrl
+        WikiObject   = $tplWiki
+        Path         = $tplPath
+        CloneUrl     = $tplCloneUrl
+        PagePaths    = $tplPaths
     }
 }
 
-# ---------- Copy template wiki content into a project wiki ----------
+# --- Helper: sync wiki from template via Git ---
 
 function Sync-ProjectWikiFromTemplate {
     param(
@@ -425,128 +432,187 @@ function Sync-ProjectWikiFromTemplate {
     )
 
     $projectName = $Project.name
-    $sanitizedProjectName = ($projectName -replace '[^\w\.-]', '_')
+    $sanitized   = ($projectName -replace '[^\w\.-]', '_')
 
-    # Resolve Git clone URL for this project's wiki repo
     $dstCloneUrl = Get-WikiGitCloneUrl -Wiki $ProjectWiki -ProjectName $projectName
-
-    $dstPath = Join-Path $WorkFolder "$sanitizedProjectName-ProjectWiki"
-
-    Write-Host "[INFO] Project '$projectName': cloning Project wiki Git repo..." -ForegroundColor Cyan
-    Invoke-GitCloneWithPat -Url $dstCloneUrl -TargetPath $dstPath
+    $dstPath     = Join-Path $WorkFolder "$sanitized-ProjectWiki"
 
     if ($DryRun) {
-        Write-Host "[DRYRUN] Would clear content of '$dstPath' (except .git) and copy from template '$TemplatePath'." -ForegroundColor Yellow
+        Write-Host "[DRYRUN] Would clone '$dstCloneUrl', wipe contents, and copy from '$TemplatePath'."
         return
     }
 
+    Write-Host "[INFO] '$projectName': cloning project wiki repo..."
+    Invoke-GitCloneWithPat -Url $dstCloneUrl -TargetPath $dstPath
+
     # Clear target content except .git
-    Write-Host "[INFO] Project '$projectName': clearing existing wiki content..." -ForegroundColor Cyan
     Get-ChildItem -Path $dstPath -Force |
         Where-Object { $_.Name -ne ".git" } |
         Remove-Item -Recurse -Force
 
-    # Copy everything from template except .git
-    Write-Host "[INFO] Project '$projectName': copying template wiki content..." -ForegroundColor Cyan
+    # Copy template contents except .git
     Get-ChildItem -Path $TemplatePath -Force |
         Where-Object { $_.Name -ne ".git" } |
         ForEach-Object {
             Copy-Item -Path $_.FullName -Destination $dstPath -Recurse
         }
 
-    # Commit + push only if there are changes
     Push-Location $dstPath
-
     $status = git status --porcelain
+
     if (-not [string]::IsNullOrWhiteSpace($status)) {
         git add .
         if ($LASTEXITCODE -ne 0) {
             Pop-Location
-            throw "git add failed for project '$projectName'."
+            throw "git add failed for '$projectName'."
         }
 
-        git commit -m "Standardize Project wiki from template '$TemplateProjectName'"
-
-        Write-Host "[INFO] Project '$projectName': pushing standardized wiki content..." -ForegroundColor Cyan
+        git commit -m "Seed project wiki from template '$TemplateProjectName'"
         git -c "http.extraheader=$($global:GitAuthHeader)" push
         if ($LASTEXITCODE -ne 0) {
             Pop-Location
-            throw "git push failed for project '$projectName' (exit code $LASTEXITCODE)."
+            throw "git push failed for '$projectName'."
         }
+
+        Write-Host "[INFO] '$projectName': wiki content pushed."
     }
     else {
-        Write-Host "[INFO] Project '$projectName': no changes to push (already matches template)." -ForegroundColor DarkGray
+        Write-Host "[INFO] '$projectName': no changes to push (already identical)."
     }
 
     Pop-Location
 }
 
-# ---------- MAIN ----------
+# --- MAIN ---
 
 Write-Host ""
-Write-Host ">>> This script will:" -ForegroundColor Cyan
-Write-Host "    - Delete ALL code wikis + repos in ALL projects." -ForegroundColor Cyan
-Write-Host "    - Overwrite ALL Project wikis with template from '$TemplateProjectName'." -ForegroundColor Cyan
+Write-Host "This run will:"
+Write-Host " - Delete ALL code wikis in ALL projects."
+Write-Host " - Ensure each project has a project wiki."
+Write-Host " - Seed project wikis from '$TemplateProjectName' only when they do NOT yet contain all template pages."
+Write-Host " - Validate each migration by comparing page paths and retry up to $MaxMigrationAttempts times."
 
 if (-not $DryRun -and -not $Force) {
     $answer = Read-Host "Type YES to continue, anything else to abort"
     if ($answer -ne "YES") {
-        Write-Host "Aborted by user." -ForegroundColor Yellow
+        Write-Host "Aborted."
         exit 1
     }
 }
 
 Write-Host ""
-Write-Host ">>> Enumerating all projects in '$CollectionUrl'..." -ForegroundColor Cyan
+Write-Host ">>> Enumerating projects..."
 $allProjects = Get-AdoProjects
-Write-Host "[INFO] Found $($allProjects.Count) projects." -ForegroundColor Green
+Write-Host "[INFO] Found $($allProjects.Count) projects."
 
-# Locate template project
 $templateProject = $allProjects | Where-Object { $_.name -eq $TemplateProjectName } | Select-Object -First 1
 if (-not $templateProject) {
-    throw "Template project '$TemplateProjectName' not found in this collection."
+    throw "Template project '$TemplateProjectName' not found."
 }
 
-# Clone template wiki once
 $templateInfo = Clone-TemplateWiki -TemplateProject $templateProject -TemplateWikiName $TemplateWikiName
-$templatePath = $templateInfo.Path
+$templatePath   = $templateInfo.Path
+$templatePaths  = $templateInfo.PagePaths
 
-# PASS 1: delete all code wikis (and repos)
 foreach ($proj in $allProjects) {
     try {
         Write-Host ""
-        Write-Host "=================================================================" -ForegroundColor Magenta
-        Write-Host "=== PASS 1 (Delete code wikis) - Project: $($proj.name) [$($proj.id)] ===" -ForegroundColor Magenta
+        Write-Host "============================================================="
+        Write-Host "Project: $($proj.name)"
 
-        $wikis = Get-ProjectWikis -ProjectName $proj.name
+        $projectName = $proj.name
+
+        # Skip re-seeding the template project itself; only clean its code wikis
+        $wikis = Get-ProjectWikis -ProjectName $projectName
         Remove-CodeWikisForProject -Project $proj -WikisResponse $wikis
+
+        if ($projectName -eq $TemplateProjectName) {
+            Write-Host "[INFO] Template project detected; skip seeding, only cleaned code wikis."
+            $Global:SkippedProjects.Add([pscustomobject]@{
+                ProjectName = $projectName
+                Reason      = "TemplateProject"
+            })
+            continue
+        }
+
+        # Refresh and ensure project wiki exists
+        $wikis2   = Get-ProjectWikis -ProjectName $projectName
+        $projWiki = Ensure-ProjectWiki -Project $proj -ExistingWikisResponse $wikis2
+
+        # Current page set
+        $currentPaths = Get-WikiPagePaths -Wiki $projWiki -ProjectName $projectName
+        $hasTemplate  = Test-TemplateCoverage -TemplatePaths $templatePaths -TargetPaths $currentPaths
+
+        if ($hasTemplate) {
+            Write-Host "[SKIP] '$projectName': wiki already contains all template pages."
+            $Global:SkippedProjects.Add([pscustomobject]@{
+                ProjectName = $projectName
+                Reason      = "AlreadyHasTemplate"
+            })
+            continue
+        }
+
+        # Needs migration + validation
+        $migrationOk = $false
+        for ($attempt = 1; $attempt -le $MaxMigrationAttempts; $attempt++) {
+            Write-Host "[INFO] '$projectName': migration attempt $attempt/$MaxMigrationAttempts..."
+
+            Sync-ProjectWikiFromTemplate -Project $proj -ProjectWiki $projWiki -TemplatePath $templatePath
+
+            if (-not $DryRun) {
+                Write-Host "[INFO] '$projectName': waiting $ValidationDelaySeconds seconds before validation..."
+                Start-Sleep -Seconds $ValidationDelaySeconds
+            }
+
+            $afterPaths = Get-WikiPagePaths -Wiki $projWiki -ProjectName $projectName
+            $afterHasTemplate = Test-TemplateCoverage -TemplatePaths $templatePaths -TargetPaths $afterPaths
+
+            if ($afterHasTemplate) {
+                Write-Host "[OK] '$projectName': wiki now contains all template pages."
+                $migrationOk = $true
+                $Global:MigratedProjects.Add([pscustomobject]@{
+                    ProjectName = $projectName
+                    Attempts    = $attempt
+                })
+                break
+            }
+            else {
+                Write-Host "[WARN] '$projectName': validation failed after attempt $attempt; template pages still missing."
+            }
+        }
+
+        if (-not $migrationOk) {
+            Write-Host "[ERROR] '$projectName': migration validation failed after $MaxMigrationAttempts attempts."
+            $Global:FailedValidation.Add([pscustomobject]@{
+                ProjectName = $projectName
+                Attempts    = $MaxMigrationAttempts
+            })
+        }
     }
     catch {
-        Write-Host "[ERROR] PASS 1: Project '$($proj.name)' failed: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# PASS 2: ensure Project wiki exists and sync from template
-foreach ($proj in $allProjects) {
-    try {
-        Write-Host ""
-        Write-Host "=================================================================" -ForegroundColor Magenta
-        Write-Host "=== PASS 2 (Sync template Project wiki) - Project: $($proj.name) [$($proj.id)] ===" -ForegroundColor Magenta
-
-        $wikis = Get-ProjectWikis -ProjectName $proj.name
-        $projWiki = Ensure-ProjectWiki -Project $proj -ExistingWikisResponse $wikis
-
-        Sync-ProjectWikiFromTemplate -Project $proj -ProjectWiki $projWiki -TemplatePath $templatePath
-        Write-Host "[DONE] Project '$($proj.name)' wiki standardized from template." -ForegroundColor Green
-    }
-    catch {
-        Write-Host "[ERROR] PASS 2: Project '$($proj.name)' failed: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "[ERROR] '$($proj.name)': $($_.Exception.Message)"
+        $Global:ErrorProjects.Add([pscustomobject]@{
+            ProjectName = $proj.name
+            Error       = $_.Exception.Message
+        })
     }
 }
 
 Write-Host ""
-Write-Host "=================================================================" -ForegroundColor Green
-Write-Host "[ALL DONE]" -ForegroundColor Green
-Write-Host " - All code wikis and their repos have been deleted in all projects (where present), unless -DryRun." -ForegroundColor Green
-Write-Host " - Every project now has a Project wiki whose Git repo content matches the template project '$TemplateProjectName', unless -DryRun." -ForegroundColor Green
-Write-Host "=================================================================" -ForegroundColor Green
+Write-Host "============================================================="
+Write-Host "Run summary:"
+Write-Host "  Migrated (validated OK): $($MigratedProjects.Count)"
+Write-Host "  Skipped (template / already had template): $($SkippedProjects.Count)"
+Write-Host "  Failed validation: $($FailedValidation.Count)"
+Write-Host "  Errors: $($ErrorProjects.Count)"
+
+if ($FailedValidation.Count -gt 0) {
+    Write-Host ""
+    Write-Host "Projects that failed validation:"
+    $FailedValidation | Format-Table -AutoSize
+}
+if ($ErrorProjects.Count -gt 0) {
+    Write-Host ""
+    Write-Host "Projects with errors:"
+    $ErrorProjects | Format-Table -AutoSize
+}
