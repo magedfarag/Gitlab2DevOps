@@ -1,4 +1,4 @@
-# Temporary script to remove all dashboards except default from all Azure DevOps projects
+# Temporary script to remove all dashboards from all Azure DevOps projects
 # Uses credentials from .env file
 
 # Load environment variables from .env file
@@ -91,38 +91,31 @@ foreach ($project in $projects) {
     Write-Host "Processing project: $projectName"
 
     # Get dashboards for this project
-    $dashboardsUrl = "$adoUrl/$projectId/_apis/dashboard/dashboards?api-version=7.1-preview.1"
+    $dashboardsUrl = "$adoUrl/$projectId/_apis/dashboard/dashboards"
+    Write-Host "Processing : $dashboardsUrl"
+
     $dashboardsResponse = Invoke-AdoApi -Uri $dashboardsUrl
 
-    if (-not $dashboardsResponse -or -not $dashboardsResponse.dashboardEntries) {
+    #Write-Host "response : $($dashboardsResponse | ConvertTo-Json -Depth 3)"
+    if (-not $dashboardsResponse -or -not $dashboardsResponse.value) {
         Write-Host "  No dashboards found for $projectName"
         continue
     }
 
-    $dashboards = $dashboardsResponse.dashboardEntries
+    $dashboards = $dashboardsResponse.value
     Write-Host "  Found $($dashboards.Count) dashboards for $projectName"
 
-    if ($dashboards.Count -le 1) {
-        Write-Host "  Only $($dashboards.Count) dashboard(s) found, skipping"
+    if ($dashboards.count -eq 0) {
+        Write-Host "  No dashboards found for $projectName"
         continue
     }
 
-    # Find the default dashboard (usually position 0 or the first one)
-    $defaultDashboard = $dashboards | Where-Object { $_.position -eq 0 } | Select-Object -First 1
-    if (-not $defaultDashboard) {
-        $defaultDashboard = $dashboards[0]  # Fallback to first dashboard
-    }
-
-    Write-Host "  Keeping default dashboard: $($defaultDashboard.name) (ID: $($defaultDashboard.id))"
-
-    # Delete all other dashboards
+    # Delete all dashboards
     foreach ($dashboard in $dashboards) {
-        if ($dashboard.id -eq $defaultDashboard.id) {
-            continue
-        }
-
         Write-Host "  Deleting dashboard: $($dashboard.name) (ID: $($dashboard.id))"
-        $deleteUrl = "$adoUrl/$projectId/_apis/dashboard/dashboards/$($dashboard.id)?api-version=7.1-preview.1"
+        $deleteUrl = $dashboard.href ?? $dashboard.url
+        Write-Host "  Deleting dashboard: $($deleteUrl)"
+        
         $deleteResponse = Invoke-AdoApi -Uri $deleteUrl -Method 'DELETE'
 
         if ($deleteResponse) {

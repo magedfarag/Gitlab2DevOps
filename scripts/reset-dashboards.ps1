@@ -298,61 +298,82 @@ function Get-RecommendedDashboardDefinitions {
     $workItemsUrl= "$projectBase/_workitems"
 
     $businessMd = @"
-# Business / Product
+# Business / Product Dashboard
 
-**Purpose:** Product vision, value and delivery focus for *$ProjectName / $TeamName*.
+**Purpose:** Track product vision, value delivery, and business priorities for *$ProjectName / $TeamName*.
 
-**Key navigation**
+## Key Focus Areas
+- **Product Backlog:** Review and prioritize features, user stories, and bugs.
+- **Epic Progress:** Monitor the status of major initiatives and epics.
+- **Blockers & Risks:** Identify any impediments to delivery.
+- **Roadmap Alignment:** Ensure current work aligns with strategic goals.
 
-- [Boards]($boardsUrl)
-- [Repos]($reposUrl)
-- [Pipelines]($buildsUrl)
-- [Wiki]($wikiUrl)
-- [Test Plans]($testPlansUrl)
+## Action Items
+- Review sprint backlog and adjust priorities as needed.
+- Check for blocked work items and resolve dependencies.
+- Update epic status and communicate progress to stakeholders.
+- Validate that the team is working on the highest-value items.
 
-**Checks**
-
-- Are we delivering the right items first?
-- Which epics or features are blocked?
-- How does current scope compare to roadmap?
+Use the Boards hub to manage work items and sprints.
 "@
-$devMd = @"
-### Engineering / Dev
+    $devMd = @"
+# Engineering / Development Dashboard
 
-- Project: **$ProjectName**
-- Team: **$TeamName**
+**Purpose:** Monitor development activities, code quality, and delivery pipeline for *$ProjectName / $TeamName*.
 
-Use this dashboard to:
-- Link to sprints, boards, and pull requests.
-- Pin build / pipeline overviews.
-- Track branch policy and code health signals.
+## Key Focus Areas
+- **Sprint Progress:** Track current sprint velocity and burndown.
+- **Code Quality:** Review pull requests, code reviews, and branch policies.
+- **Build Status:** Monitor CI/CD pipeline health and recent builds.
+- **Technical Debt:** Identify areas needing refactoring or improvement.
+
+## Action Items
+- Review open pull requests and provide timely feedback.
+- Monitor build failures and address issues promptly.
+- Ensure code coverage and quality gates are met.
+- Plan technical debt reduction for upcoming sprints.
+
+Use the Repos and Pipelines hubs for detailed code and build information.
 "@
-$qaMd = @"
-### Quality / Testing
+    $qaMd = @"
+# Quality / Testing Dashboard
 
-- Project: **$ProjectName**
-- Team: **$TeamName**
+**Purpose:** Oversee testing activities, defect management, and quality metrics for *$ProjectName / $TeamName*.
 
-Use this dashboard to:
-- Link to test plans and regression suites.
-- Pin defect queries (critical, escape defects, aging).
-- Track test completion vs. scope for the release.
+## Key Focus Areas
+- **Test Execution:** Track test case execution and coverage.
+- **Defect Trends:** Monitor bug rates, severity, and resolution times.
+- **Regression Testing:** Ensure critical paths are validated.
+- **Quality Gates:** Verify that quality standards are met before release.
+
+## Action Items
+- Review test results and update test cases as needed.
+- Prioritize and resolve high-severity defects.
+- Plan regression testing for upcoming releases.
+- Analyze defect trends to identify process improvements.
+
+Use the Test Plans hub for detailed test management and reporting.
 "@
-$opsMd = @"
-### Operations / Release
+    $opsMd = @"
+# Operations / Release Dashboard
 
-- Project: **$ProjectName**
-- Team: **$TeamName**
+**Purpose:** Monitor deployment activities, system health, and operational metrics for *$ProjectName / $TeamName*.
 
-Use this dashboard to:
-- Link to release / deployment pipelines.
-- Pin incident and hotfix queries.
-- Surface SLO/SLA metrics and post-mortem links.
-"@
+## Key Focus Areas
+- **Release Status:** Track deployment pipelines and release progress.
+- **Incident Management:** Monitor production issues and response times.
+- **Performance Metrics:** Review system uptime, response times, and SLAs.
+- **Post-Mortems:** Document lessons learned from incidents.
 
-    $dashboards = @()
+## Action Items
+- Monitor release pipelines and address deployment failures.
+- Respond to incidents and communicate status updates.
+- Review performance metrics and optimize as needed.
+- Conduct post-mortems for significant incidents.
 
-    $dashboards = @()
+Use the Pipelines and Wiki hubs for release management and documentation.
+"@    
+
     $dashboards = @()
 
     function New-SimpleDashboardDef {
@@ -377,17 +398,9 @@ Use this dashboard to:
                     configurationContributionId = $markdownConfig
                 },
                 @{
-                    name            = "Team Members"
-                    position        = @{ row = 3; column = 1 }
-                    size            = @{ rowSpan = 1; columnSpan = 2 }
-                    settings        = $null
-                    settingsVersion = $settingsVersion
-                    contributionId  = $teamMembersContribution
-                },
-                @{
                     name                        = "New Work Item"
-                    position                    = @{ row = 3; column = 3 }
-                    size                        = @{ rowSpan = 1; columnSpan = 2 }
+                    position                    = @{ row = 3; column = 1 }
+                    size                        = @{ rowSpan = 1; columnSpan = 4 }
                     settings                    = $null
                     settingsVersion             = $settingsVersion
                     contributionId              = $newWitContribution
@@ -480,7 +493,18 @@ foreach ($project in $projects) {
                 }
 
                 $primaryDef = $recommendedByName[$primaryName]
-                Write-Host "    CREATE primary '$primaryName' before deleting old dashboards..." -ForegroundColor Green
+
+                if ($existingByName.ContainsKey($primaryName) -and $Force) {
+                    Write-Host "    FORCE: DELETE existing '$primaryName' first..." -ForegroundColor Yellow
+                    if (-not $DryRun) {
+                        Remove-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardId $existingByName[$primaryName].id
+                        $existingByName.Remove($primaryName)
+                        $dashboards = $dashboards | Where-Object { $_.name -ne $primaryName }
+                        $deletedCount++
+                    }
+                }
+
+                Write-Host "    CREATE primary '$primaryName'..." -ForegroundColor Green
 
                 if (-not $DryRun) {
                     $created = New-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardDef $primaryDef
