@@ -38,6 +38,7 @@ if ($adoUrl -match 'https://dev\.azure\.com/([^/]+)') {
 Write-Host "Organization: $organization"
 Write-Host "ADO URL: $adoUrl"
 
+
 # Function to make API calls
 function Invoke-AdoApi {
     param(
@@ -63,10 +64,10 @@ function Invoke-AdoApi {
 
     try {
         $response = Invoke-RestMethod @params
-        return $response
+        return @{ Success = $true; Data = $response }
     } catch {
         Write-Warning "API call failed: $($_.Exception.Message)"
-        return $null
+        return @{ Success = $false; Data = $null }
     }
 }
 
@@ -75,12 +76,12 @@ Write-Host "Getting all projects..."
 $projectsUrl = "$adoUrl/_apis/projects?api-version=7.1"
 $projectsResponse = Invoke-AdoApi -Uri $projectsUrl
 
-if (-not $projectsResponse -or -not $projectsResponse.value) {
+if (-not $projectsResponse.Success -or -not $projectsResponse.Data.value) {
     Write-Error "Failed to get projects"
     exit 1
 }
 
-$projects = $projectsResponse.value
+$projects = $projectsResponse.Data.value
 Write-Host "Found $($projects.Count) projects"
 
 # Process each project
@@ -90,19 +91,19 @@ foreach ($project in $projects) {
 
     Write-Host "Processing project: $projectName"
 
-    # Get dashboards for this project
-    $dashboardsUrl = "$adoUrl/$projectId/_apis/dashboard/dashboards"
+# Get dashboards for this project
+    $dashboardsUrl = "$adoUrl/$projectId/_apis/dashboard/dashboards?api-version=7.1-preview.3"
     Write-Host "Processing : $dashboardsUrl"
 
     $dashboardsResponse = Invoke-AdoApi -Uri $dashboardsUrl
 
     #Write-Host "response : $($dashboardsResponse | ConvertTo-Json -Depth 3)"
-    if (-not $dashboardsResponse -or -not $dashboardsResponse.value) {
+    if (-not $dashboardsResponse.Success -or -not $dashboardsResponse.Data.value) {
         Write-Host "  No dashboards found for $projectName"
         continue
     }
 
-    $dashboards = $dashboardsResponse.value
+    $dashboards = $dashboardsResponse.Data.value
     Write-Host "  Found $($dashboards.Count) dashboards for $projectName"
 
     if ($dashboards.count -eq 0) {
@@ -113,12 +114,11 @@ foreach ($project in $projects) {
     # Delete all dashboards
     foreach ($dashboard in $dashboards) {
         Write-Host "  Deleting dashboard: $($dashboard.name) (ID: $($dashboard.id))"
-        $deleteUrl = $dashboard.href ?? $dashboard.url
+        $deleteUrl = "$($dashboard.url)?api-version=7.1-preview.3"
         Write-Host "  Deleting dashboard: $($deleteUrl)"
         
         $deleteResponse = Invoke-AdoApi -Uri $deleteUrl -Method 'DELETE'
-
-        if ($deleteResponse) {
+        if ($deleteResponse.Success) {
             Write-Host "    Successfully deleted"
         } else {
             Write-Host "    Failed to delete"

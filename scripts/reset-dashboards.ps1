@@ -88,7 +88,7 @@ if ($dashboardApiOverride) {
 }
 
 $script:CoreApiVersion      = if ($coreApiOverride)      { $coreApiOverride }      else { '7.0' }
-$script:DashboardApiVersion = if ($dashboardApiOverride) { $dashboardApiOverride } else { '7.0-preview.3' }
+$script:DashboardApiVersion = if ($dashboardApiOverride) { $dashboardApiOverride } else { '7.0-preview.2' }
 
 # For on-prem ADO, TLS 1.2 avoids handshake issues
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -96,7 +96,7 @@ $script:DashboardApiVersion = if ($dashboardApiOverride) { $dashboardApiOverride
 $patBytes   = [Text.Encoding]::ASCII.GetBytes(":$pat")
 $patEncoded = [Convert]::ToBase64String($patBytes)
 
-$script:BaseUrl = "$collection"
+$script:BaseUrl = "https://devops.mod.gov.sa/E-Services"
 $script:DefaultHeaders = @{
     Authorization  = "Basic $patEncoded"
     "Content-Type" = "application/json"
@@ -124,23 +124,28 @@ function Invoke-AdoRest {
         [Parameter()]
         [object] $Body,
 
-        [switch] $IgnoreNotFound
+        [switch] $IgnoreNotFound,
+
+        [hashtable] $AdditionalHeaders
     )
 
     if ([string]::IsNullOrWhiteSpace($RelativeUrl)) {
         throw "Internal error: RelativeUrl is null or empty in Invoke-AdoRest."
     }
 
-    $uri = if ($RelativeUrl.StartsWith('http', [System.StringComparison]::OrdinalIgnoreCase)) {
-        $RelativeUrl
-    } else {
-        "$($script:BaseUrl)/$($RelativeUrl.TrimStart('/'))"
+    $uri = "https://devops.mod.gov.sa/E-Services/$($RelativeUrl)"
+
+    $headers = $script:DefaultHeaders.Clone()
+    if ($AdditionalHeaders) {
+        foreach ($key in $AdditionalHeaders.Keys) {
+            $headers[$key] = $AdditionalHeaders[$key]
+        }
     }
 
     $params = @{
         Method  = $Method
-        Uri     = $uri
-        Headers = $script:DefaultHeaders
+        Uri     = "https://devops.mod.gov.sa/E-Services/$($RelativeUrl)"
+        Headers = $headers
     }
 
     if ($PSBoundParameters.ContainsKey('Body')) {
@@ -209,10 +214,28 @@ function Get-AdoDashboards {
     $result   = Invoke-AdoRest -Method GET -RelativeUrl $relative -IgnoreNotFound
 
     if (-not $result) { return @() }
-    if ($result.value) { return @($result.value) }
+    #if ($result.value) { return @($result.value) }
     if ($result.dashboardEntries) { return @($result.dashboardEntries) }
     if ($result.dashboards) { return @($result.dashboards) }
     return @()
+}
+
+function Get-AdoDashboard {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string] $ProjectId,
+
+        [Parameter(Mandatory)]
+        [string] $TeamId,
+
+        [Parameter(Mandatory)]
+        [string] $DashboardId
+    )
+
+    # Dashboards - Get
+    $relative = "$($ProjectId)/$($TeamId)/_apis/dashboard/dashboards/$($DashboardId)?api-version=$($script:DashboardApiVersion)"
+    return Invoke-AdoRest -Method GET -RelativeUrl $relative
 }
 
 function Remove-AdoDashboard {
@@ -275,9 +298,90 @@ function New-AdoDashboard {
     return Invoke-AdoRest -Method POST -RelativeUrl $relative -Body $DashboardDef
 }
 
+function Set-AdoDashboard {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string] $ProjectId,
+
+        [Parameter(Mandatory)]
+        [string] $TeamId,
+
+        [Parameter(Mandatory)]
+        [string] $DashboardId,
+
+        [Parameter(Mandatory)]
+        [hashtable] $DashboardDef
+    )
+
+    # Dashboards - Update
+    $relative = "$($ProjectId)/_apis/dashboard/dashboards/$($DashboardId)?api-version=$($script:DashboardApiVersion)"
+    $additionalHeaders = @{
+        "If-Match" = "`"$([string]$DashboardDef.eTag)`""
+    }
+    return Invoke-AdoRest -Method PUT -RelativeUrl $relative -Body $DashboardDef -AdditionalHeaders $additionalHeaders
+}
+
 # -------------------------------------------------------
 # 5. Recommended SDLC dashboards (widgets)
 # -------------------------------------------------------
+function Get-SharedQueriesFolderId {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string] $ProjectId,
+
+        [Parameter(Mandatory)]
+        [string] $TeamId
+    )
+
+    $relative = $ProjectId + '/_apis/wit/queries?api-version=7.1'
+    $result = Invoke-AdoRest -Method GET -RelativeUrl $relative
+
+    $shared = $result.value | Where-Object { $_.name -eq "Shared Queries" -and $_.isFolder }
+    if (-not $shared) {
+        throw "Shared Queries folder not found for project $ProjectId"
+    }
+    return $shared.id
+}
+
+function New-Query {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string] $ProjectId,
+
+        [Parameter(Mandatory)]
+        [string] $TeamId,
+
+        [Parameter(Mandatory)]
+        [string] $FolderId,
+
+        [Parameter(Mandatory)]
+        [string] $Name,
+
+        [Parameter(Mandatory)]
+        [string] $Wiql
+    )
+
+    # Check if query already exists
+    $listRelative = $ProjectId + '/_apis/wit/queries/' + $FolderId + '?$expand=All&api-version=7.1'
+    $existing = Invoke-AdoRest -Method GET -RelativeUrl $listRelative
+    $existingQuery = $existing | Select-Object -ExpandProperty children -ErrorAction SilentlyContinue | Where-Object { $_.name -eq $Name -and -not $_.isFolder }
+    if ($existingQuery) {
+        return $existingQuery.id
+    }
+
+    $body = @{
+        name = $Name
+        wiql = $Wiql
+    }
+
+    $relative = $ProjectId + '/_apis/wit/queries/' + $FolderId + '?api-version=7.1'
+    $result = Invoke-AdoRest -Method POST -RelativeUrl $relative -Body $body
+    return $result.id
+}
+
 function Get-RecommendedDashboardDefinitions {
     [CmdletBinding()]
     param(
@@ -285,7 +389,13 @@ function Get-RecommendedDashboardDefinitions {
         [string] $ProjectName,
 
         [Parameter(Mandatory)]
-        [string] $TeamName
+        [string] $TeamName,
+
+        [Parameter(Mandatory)]
+        [string] $ProjectId,
+
+        [Parameter(Mandatory)]
+        [string] $TeamId
     )
 
     # Project-level URLs (default team) following standard Azure DevOps hubs
@@ -297,82 +407,65 @@ function Get-RecommendedDashboardDefinitions {
     $testPlansUrl= "$projectBase/_testPlans"
     $workItemsUrl= "$projectBase/_workitems"
 
-    $businessMd = @"
-# Business / Product Dashboard
+    # Dashboard Markdown Templates
+#-----------------------------------------------------------------------------------------------------------------------------------------
 
-**Purpose:** Track product vision, value delivery, and business priorities for *$ProjectName / $TeamName*.
+# Dashboard Configuration Variables
+$TeamAreaPath = $ProjectName
+$CurrentIteration = "@CurrentIteration"
+$PastIterations = "@CurrentIteration - 3"
+$FutureIterations = "@CurrentIteration + 3"
 
-## Key Focus Areas
-- **Product Backlog:** Review and prioritize features, user stories, and bugs.
-- **Epic Progress:** Monitor the status of major initiatives and epics.
-- **Blockers & Risks:** Identify any impediments to delivery.
-- **Roadmap Alignment:** Ensure current work aligns with strategic goals.
+    $folderId = Get-SharedQueriesFolderId -ProjectId $ProjectId -TeamId $TeamId
 
-## Action Items
-- Review sprint backlog and adjust priorities as needed.
-- Check for blocked work items and resolve dependencies.
-- Update epic status and communicate progress to stakeholders.
-- Validate that the team is working on the highest-value items.
+# ============================================
+# BUSINESS / PRODUCT DASHBOARD CONFIGURATION
+# ============================================
 
-Use the Boards hub to manage work items and sprints.
-"@
-    $devMd = @"
-# Engineering / Development Dashboard
+$businessQueries = @(
+    @{Name = "Product Backlog Health"; Wiql = "SELECT [System.Id], [System.Title], [Microsoft.VSTS.Common.Priority], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Feature', 'Epic') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Priority]" },
+    @{Name = "High-Value Items"; Wiql = "SELECT [System.Id], [System.Title], [Microsoft.VSTS.Common.BusinessValue], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [Microsoft.VSTS.Common.BusinessValue] > 50 AND [System.State] <> 'Closed'" },
+    @{Name = "Strategic Initiatives"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Epic' AND [System.State] <> 'Closed' ORDER BY [System.CreatedDate]" },
+    @{Name = "Stakeholder Requests"; Wiql = "SELECT [System.Id], [System.Title], [System.CreatedDate] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'User Story' AND [System.State] NOT IN ('Closed', 'Done')" },
+    @{Name = "Market Dependency Tracker"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND [System.State] <> 'Closed'" },
+    @{Name = "Revenue Impact Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Feature' AND [System.State] <> 'Closed'" },
+    @{Name = "Regulatory Compliance Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Requirement' ORDER BY [System.CreatedDate]" },
+    @{Name = "Customer Feedback Integration"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Feedback' AND [System.State] NOT IN ('Closed', 'Rejected')" },
+    @{Name = "Competitive Analysis Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Epic' AND [System.State] <> 'Closed'" },
+    @{Name = "Partnership Integration Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Feature' AND [System.State] IN ('Active', 'New')" },
+    @{Name = "Go-to-Market Readiness"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Feature' AND [System.State] <> 'Closed'" }
+)
 
-**Purpose:** Monitor development activities, code quality, and delivery pipeline for *$ProjectName / $TeamName*.
+# ============================================
+# ENGINEERING / DEVELOPMENT DASHBOARD CONFIGURATION
+# ============================================
 
-## Key Focus Areas
-- **Sprint Progress:** Track current sprint velocity and burndown.
-- **Code Quality:** Review pull requests, code reviews, and branch policies.
-- **Build Status:** Monitor CI/CD pipeline health and recent builds.
-- **Technical Debt:** Identify areas needing refactoring or improvement.
+$devQueries = @(
+    @{Name = "Sprint Task Breakdown"; Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Scheduling.RemainingWork] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' ORDER BY [System.State]" },
+    @{Name = "Code Review Queue"; Wiql = "SELECT [System.Id], [System.Title], [System.CreatedDate] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Code Review' AND [System.State] = 'Active' ORDER BY [System.CreatedDate]" },
+    @{Name = "Technical Debt Backlog"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.State] <> 'Closed' ORDER BY [System.CreatedDate]" },
+    @{Name = "Security Vulnerability Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND [System.State] <> 'Closed'" },
+    @{Name = "Performance Optimization Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.State] <> 'Closed'" },
+    @{Name = "Architecture Refactoring Tasks"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' ORDER BY [System.CreatedDate]" },
+    @{Name = "Development Spike Tasks"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task'" },
+    @{Name = "Test Automation Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Test Case' AND [System.State] <> 'Closed'" },
+    @{Name = "DevOps Improvement Tasks"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.State] IN ('New', 'Active')" },
+    @{Name = "Code Migration Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' ORDER BY [System.CreatedDate]" },
+    @{Name = "Documentation Tasks"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.State] <> 'Closed'" },
+    @{Name = "Infrastructure As Code Tasks"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.State] IN ('New', 'Active')" }
+)
 
-## Action Items
-- Review open pull requests and provide timely feedback.
-- Monitor build failures and address issues promptly.
-- Ensure code coverage and quality gates are met.
-- Plan technical debt reduction for upcoming sprints.
+# ============================================
+# QUALITY / TESTING DASHBOARD CONFIGURATION
+# ============================================
 
-Use the Repos and Pipelines hubs for detailed code and build information.
-"@
-    $qaMd = @"
-# Quality / Testing Dashboard
+$qaQueries = @()
 
-**Purpose:** Oversee testing activities, defect management, and quality metrics for *$ProjectName / $TeamName*.
+# ============================================
+# OPERATIONS / RELEASE DASHBOARD CONFIGURATION
+# ============================================
 
-## Key Focus Areas
-- **Test Execution:** Track test case execution and coverage.
-- **Defect Trends:** Monitor bug rates, severity, and resolution times.
-- **Regression Testing:** Ensure critical paths are validated.
-- **Quality Gates:** Verify that quality standards are met before release.
-
-## Action Items
-- Review test results and update test cases as needed.
-- Prioritize and resolve high-severity defects.
-- Plan regression testing for upcoming releases.
-- Analyze defect trends to identify process improvements.
-
-Use the Test Plans hub for detailed test management and reporting.
-"@
-    $opsMd = @"
-# Operations / Release Dashboard
-
-**Purpose:** Monitor deployment activities, system health, and operational metrics for *$ProjectName / $TeamName*.
-
-## Key Focus Areas
-- **Release Status:** Track deployment pipelines and release progress.
-- **Incident Management:** Monitor production issues and response times.
-- **Performance Metrics:** Review system uptime, response times, and SLAs.
-- **Post-Mortems:** Document lessons learned from incidents.
-
-## Action Items
-- Monitor release pipelines and address deployment failures.
-- Respond to incidents and communicate status updates.
-- Review performance metrics and optimize as needed.
-- Conduct post-mortems for significant incidents.
-
-Use the Pipelines and Wiki hubs for release management and documentation.
-"@    
+$opsQueries = @()
 
     $dashboards = @()
 
@@ -380,40 +473,38 @@ Use the Pipelines and Wiki hubs for release management and documentation.
         param(
             [string] $Name,
             [int]    $Position,
-            [string] $MarkdownText
+            [array]  $Queries,
+            [string] $ProjectId,
+            [string] $TeamId,
+            [string] $FolderId
         )
+
+        $widgets = @()
+
+        $widgets += @{
+            name                        = "New Work Item"
+            position                    = @{ row = 1; column = 1 }
+            size                        = @{ rowSpan = 1; columnSpan = 2 }
+            settings                    = $null
+            settingsVersion             = $settingsVersion
+            contributionId              = $newWitContribution
+            configurationContributionId = $newWitConfig
+        }
 
         return @{
             name            = $Name
             position        = $Position
             refreshInterval = 0
-            widgets         = @(
-                @{
-                    name                        = "Overview"
-                    position                    = @{ row = 1; column = 1 }
-                    size                        = @{ rowSpan = 2; columnSpan = 4 }
-                    settings                    = $MarkdownText
-                    settingsVersion             = $settingsVersion
-                    contributionId              = $markdownContribution
-                    configurationContributionId = $markdownConfig
-                },
-                @{
-                    name                        = "New Work Item"
-                    position                    = @{ row = 3; column = 1 }
-                    size                        = @{ rowSpan = 1; columnSpan = 4 }
-                    settings                    = $null
-                    settingsVersion             = $settingsVersion
-                    contributionId              = $newWitContribution
-                    configurationContributionId = $newWitConfig
-                }
-            )
+            dashboardScope  = "project"
+            ownerId         = $TeamId
+            widgets         = $widgets
         }
     }
 
-    $dashboards += New-SimpleDashboardDef -Name "01 - Business / Product"   -Position 1 -MarkdownText $businessMd
-    $dashboards += New-SimpleDashboardDef -Name "02 - Engineering / Dev"    -Position 2 -MarkdownText $devMd
-    $dashboards += New-SimpleDashboardDef -Name "03 - Quality / Testing"    -Position 3 -MarkdownText $qaMd
-    $dashboards += New-SimpleDashboardDef -Name "04 - Operations / Release" -Position 4 -MarkdownText $opsMd
+    $dashboards += New-SimpleDashboardDef -Name "01 - Business Product"   -Position 1 -Queries $businessQueries -ProjectId $ProjectId -TeamId $TeamId -FolderId $folderId
+    $dashboards += New-SimpleDashboardDef -Name "02 - Engineering Dev"    -Position 2 -Queries $devQueries -ProjectId $ProjectId -TeamId $TeamId -FolderId $folderId
+    $dashboards += New-SimpleDashboardDef -Name "03 - Quality Testing"    -Position 3 -Queries $qaQueries -ProjectId $ProjectId -TeamId $TeamId -FolderId $folderId
+    $dashboards += New-SimpleDashboardDef -Name "04 - Operations Release" -Position 4 -Queries $opsQueries -ProjectId $ProjectId -TeamId $TeamId -FolderId $folderId
 
     return $dashboards
 }
@@ -443,8 +534,9 @@ if ($projects.Count -eq 0) {
     return
 }
 
+$projectIndex = 0
 foreach ($project in $projects) {
-    $projectIndex = [array]::IndexOf($projects, $project) + 1
+    $projectIndex++
     Write-Progress -Activity "Processing Projects" -Status "Project: $($project.name)" -PercentComplete (($projectIndex / $projects.Count) * 100)
 
     Write-Host ""
@@ -459,92 +551,71 @@ foreach ($project in $projects) {
     foreach ($team in $teams) {
         Write-Host "  Team: $($team.name) [$($team.id)]" -ForegroundColor Yellow
 
-                # 1) Read current dashboards safely as array
+        # 1) Read current dashboards safely as array
         $dashboards = @(Get-AdoDashboards -ProjectId $project.id -TeamId $team.id)
+        Write-Host "    DEBUG: Found $($dashboards.Count) existing dashboards." -ForegroundColor Cyan
+        foreach ($d in $dashboards) {
+            Write-Host "      DEBUG: Existing dashboard - Name: '$($d.name)'" -ForegroundColor Gray
+        }
 
         # 2) Recommended SDLC dashboards for this team
-        $recommended = @(Get-RecommendedDashboardDefinitions -ProjectName $project.name -TeamName $team.name)
+        $recommended = @(Get-RecommendedDashboardDefinitions -ProjectName $project.name -TeamName $team.name -ProjectId $project.id -TeamId $team.id)
 
         # Map recommended by name for fast lookup
-        $recommendedByName = @{}
+        $recommendedByName = @{ }
         foreach ($def in $recommended) {
-            if ($null -ne $def -and $def.name) {
-                $recommendedByName[$def.name] = $def
+            if ($null -ne $def -and $def['name']) {
+                $recommendedByName[$def['name']] = $def
+            } else {
+                Write-Host "      DEBUG: Skipped invalid recommended dashboard definition" -ForegroundColor Yellow
             }
         }
 
         # Map existing dashboards by name
+        Write-Host "    Found $($dashboards.Count) existing dashboard(s)." -ForegroundColor Cyan
         $existingByName = @{}
         foreach ($d in $dashboards) {
             if ($null -ne $d -and $d.PSObject.Properties['name']) {
-                $existingByName[$d.name] = $d
+                $existingByName[$d.name] = $d.PSObject.Properties['id'].Value
             }
         }
-
+$ClearExistingDashboards=$true;
         if ($ClearExistingDashboards) {
             # --------- RESET MODE ---------
+            Write-Host "    FORCE: Clear Existing Dashboards..." -ForegroundColor Yellow
 
-            $primaryName = "01 - Business / Product"
-
-            # 2.1 Ensure the primary recommended dashboard exists
-            if (-not $existingByName.ContainsKey($primaryName) -or $Force) {
-                if (-not $recommendedByName.ContainsKey($primaryName)) {
-                    throw "Internal error: recommended dashboard '$primaryName' not found."
-                }
-
-                $primaryDef = $recommendedByName[$primaryName]
-
-                if ($existingByName.ContainsKey($primaryName) -and $Force) {
-                    Write-Host "    FORCE: DELETE existing '$primaryName' first..." -ForegroundColor Yellow
-                    if (-not $DryRun) {
-                        Remove-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardId $existingByName[$primaryName].id
-                        $existingByName.Remove($primaryName)
-                        $dashboards = $dashboards | Where-Object { $_.name -ne $primaryName }
-                        $deletedCount++
-                    }
-                }
-
-                Write-Host "    CREATE primary '$primaryName'..." -ForegroundColor Green
-
+            # Create all recommended dashboards first to avoid deleting the last dashboard
+            foreach ($def in $recommended) {
+                # Modify name to avoid duplicate name error
+                $newDef = $def.Clone()
+                $randomSuffix = Get-Random -Minimum 1000 -Maximum 9999
+                $newDef.name = $def.name + " (R$randomSuffix)"
+                Write-Host "    CREATE '$($newDef.name)'..." -ForegroundColor Green
                 if (-not $DryRun) {
-                    $created = New-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardDef $primaryDef
+                    $created = New-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardDef $newDef
                     if ($created -and $created.id) {
-                        Write-Host "      -> primary created id $($created.id)" -ForegroundColor DarkGreen
-                        # Track it as existing now
-                        $dashboards += $created
-                        $existingByName[$primaryName] = $created
+                        Write-Host "      -> created" -ForegroundColor DarkGreen
                         $createdCount++
                     }
                 }
-            } else {
-                Write-Host "    Primary '$primaryName' already exists; will keep it." -ForegroundColor DarkGray
             }
 
-            # 2.2 Delete all dashboards that are NOT in the recommended set
-            $recommendedNamesSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-            foreach ($name in $recommendedByName.Keys) {
-                [void]$recommendedNamesSet.Add($name)
-            }
-
-            $toDelete = @($dashboards | Where-Object { -not $recommendedNamesSet.Contains($_.name) })
-
-            if ($toDelete.Count -gt 0) {
-                Write-Host "    Deleting $($toDelete.Count) non-standard dashboard(s)..." -ForegroundColor Red
-                foreach ($dash in $toDelete) {
-                    Write-Host "      DELETE '$($dash.name)' ($($dash.id))"
+            # Then delete existing dashboards that are not recommended
+            $recommendedNames = $recommended | ForEach-Object { $_.name }
+            foreach ($name in $existingByName.Keys) {
+                if ($name -notin $recommendedNames) {
+                    $id = $existingByName[$name]
+                    Write-Host "      DELETE '$name'" -ForegroundColor Red
                     if (-not $DryRun) {
-                        Remove-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardId $dash.id
+                        Remove-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardId $id
                         $deletedCount++
                     }
                 }
-            } else {
-                Write-Host "    No non-standard dashboards to delete." -ForegroundColor DarkGray
             }
-
-            # Refresh dashboards after deletion (in case something changed)
-            $dashboards     = @(Get-AdoDashboards -ProjectId $project.id -TeamId $team.id)
+        } else {
             $existingByName = @{}
             foreach ($d in $dashboards) {
+                Write-Host "    Found $($d.url) existing dashboard(s)." -ForegroundColor Cyan
                 if ($null -ne $d -and $d.PSObject.Properties['name']) {
                     $existingByName[$d.name] = $d
                 }
@@ -562,28 +633,7 @@ foreach ($project in $projects) {
                 if (-not $DryRun) {
                     $created = New-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardDef $def
                     if ($created -and $created.id) {
-                        Write-Host "      -> created id $($created.id)" -ForegroundColor DarkGreen
-                        $createdCount++
-                    }
-                }
-            }
-        }
-        else {
-            # --------- ADDITIVE MODE (no delete) ---------
-            Write-Host "    Existing dashboards kept (use -ClearExistingDashboards to wipe)." -ForegroundColor DarkGray
-
-            foreach ($def in $recommended) {
-                $name = $def.name
-                if ($existingByName.ContainsKey($name)) {
-                    Write-Host "    SKIP create '$name' (already exists)." -ForegroundColor DarkGray
-                    continue
-                }
-
-                Write-Host "    CREATE '$name'" -ForegroundColor Green
-                if (-not $DryRun) {
-                    $created = New-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardDef $def
-                    if ($created -and $created.id) {
-                        Write-Host "      -> created id $($created.id)" -ForegroundColor DarkGreen
+                        Write-Host "      -> created" -ForegroundColor DarkGreen
                         $createdCount++
                     }
                 }
