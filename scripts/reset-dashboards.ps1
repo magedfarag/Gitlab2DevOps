@@ -43,8 +43,8 @@ $ErrorActionPreference = "Stop"
 $markdownContribution   = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.MarkdownWidget"
 $markdownConfig         = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.MarkdownWidget.Configuration"
 $teamMembersContribution= "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.TeamMembersWidget"
-$newWitContribution     = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.NewWorkItemWidget"
-$newWitConfig           = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.NewWorkItemWidget.Configuration"
+$newWitContribution     = "ms.vss-dashboards-web.new-work-item-widget"
+$newWitConfig           = "ms.vss-dashboards-web.new-work-item-widget.configuration"
 
 $settingsVersion = @{
     major = 1
@@ -364,22 +364,68 @@ function New-Query {
         [string] $Wiql
     )
 
-    # Check if query already exists
-    $listRelative = $ProjectId + '/_apis/wit/queries/' + $FolderId + '?$expand=All&api-version=7.1'
+    # Make name unique to avoid conflicts
+    $uniqueName = $Name + " (" + [guid]::NewGuid().ToString().Substring(0,8) + ")"
+
+    # Check if query already exists in the entire project hierarchy
+    $listRelative = $ProjectId + '/_apis/wit/queries?$expand=All&api-version=7.1'
     $existing = Invoke-AdoRest -Method GET -RelativeUrl $listRelative
-    $existingQuery = $existing | Select-Object -ExpandProperty children -ErrorAction SilentlyContinue | Where-Object { $_.name -eq $Name -and -not $_.isFolder }
+
+    # Function to recursively find query by name
+    function Find-QueryByName {
+        param($queries, $targetName)
+        foreach ($query in $queries) {
+            if ($query.name -eq $targetName -and -not $query.isFolder) {
+                return $query
+            }
+            if ($query.isFolder) {
+                $childrenProp = $query.PSObject.Properties['children']
+                if ($childrenProp -and $childrenProp.Value) {
+                    $found = Find-QueryByName -queries $childrenProp.Value -targetName $targetName
+                    if ($found) { return $found }
+                }
+            }
+        }
+        return $null
+    }
+
+    $existingQuery = Find-QueryByName -queries $existing.value -targetName $uniqueName
     if ($existingQuery) {
+        # Update the existing query with new WIQL
+        $body = @{
+            name = $uniqueName
+            wiql = $Wiql
+        }
+        $updateRelative = $ProjectId + '/_apis/wit/queries/' + $existingQuery.id + '?api-version=7.1'
+        Invoke-AdoRest -Method PUT -RelativeUrl $updateRelative -Body $body | Out-Null
         return $existingQuery.id
     }
 
     $body = @{
-        name = $Name
+        name = $uniqueName
         wiql = $Wiql
     }
 
     $relative = $ProjectId + '/_apis/wit/queries/' + $FolderId + '?api-version=7.1'
-    $result = Invoke-AdoRest -Method POST -RelativeUrl $relative -Body $body
-    return $result.id
+    try {
+        $result = Invoke-AdoRest -Method POST -RelativeUrl $relative -Body $body
+        return $result.id
+    }
+    catch {
+        if ($_.Exception.Message -match "TF237018") {
+            # Name conflict, try to find and update
+            $existingQuery = Find-QueryByName -queries $existing.value -targetName $uniqueName
+            if ($existingQuery) {
+                $updateRelative = $ProjectId + '/_apis/wit/queries/' + $existingQuery.id + '?api-version=7.1'
+                Invoke-AdoRest -Method PUT -RelativeUrl $updateRelative -Body $body | Out-Null
+                return $existingQuery.id
+            } else {
+                throw
+            }
+        } else {
+            throw
+        }
+    }
 }
 
 function Get-RecommendedDashboardDefinitions {
@@ -481,14 +527,45 @@ $opsQueries = @()
 
         $widgets = @()
 
-        $widgets += @{
-            name                        = "New Work Item"
-            position                    = @{ row = 1; column = 1 }
-            size                        = @{ rowSpan = 1; columnSpan = 2 }
-            settings                    = $null
-            settingsVersion             = $settingsVersion
-            contributionId              = $newWitContribution
-            configurationContributionId = $newWitConfig
+        # $widgets += @{
+        #     name                        = "New Work Item"
+        #     position                    = @{ row = 1; column = 1 }
+        #     size                        = @{ rowSpan = 1; columnSpan = 2 }
+        #     settings                    = $null
+        #     settingsVersion             = $settingsVersion
+        #     contributionId              = $newWitContribution
+        #     configurationContributionId = $newWitConfig
+        # }
+        # Add query result widgets
+        $row = 2
+        foreach ($query in $Queries) {
+            $queryId = New-Query -ProjectId $ProjectId -TeamId $TeamId -FolderId $FolderId -Name $query.Name -Wiql $query.Wiql
+            if($null -eq $queryId) {
+                continue
+            }
+            $settings = @{
+                            defaultBackgroundColor="#51399f";
+                            queryId=$queryId;
+                            queryName="Open Issues";
+                            colorRules= @( @{ isEnabled=$true;backgroundColor="#339947";thresholdCount=0;operator="<=" } )  | ConvertTo-Json -Compress;
+                            lastArtifactName="Open Issues";
+                            showTitle=$true;title="Open Issues";titleSize=2;showBorder=$true;
+                            borderColor="#cccccc";showHeader=$true;headerColor="#f4f4f4";
+                            showFooter=$false;footerColor="#f4f4f4";layout="list";
+                            pageSize=5;sortOrder="Descending";sortBy="ChangedDate";
+                            fieldsToDisplay=@("Id";"Title";"State";"AssignedTo";"ChangedDate")  | ConvertTo-Json -Compress;
+                            linkBehavior="newTab"
+                        }
+
+            $widgets += @{
+                name            = $query.Name
+                position        = @{ row = $row; column = 1 }
+                size            = @{ rowSpan = 2; columnSpan = 4 }
+                settings        = ($settings  | ConvertTo-Json -Compress)
+                settingsVersion = $settingsVersion
+                contributionId  = "ms.vss-work-web.query-widget"
+            }
+            $row += 2
         }
 
         return @{
@@ -564,8 +641,8 @@ foreach ($project in $projects) {
         # Map recommended by name for fast lookup
         $recommendedByName = @{ }
         foreach ($def in $recommended) {
-            if ($null -ne $def -and $def['name']) {
-                $recommendedByName[$def['name']] = $def
+            if ($null -ne $def -and $def.name) {
+                $recommendedByName[$def.name] = $def
             } else {
                 Write-Host "      DEBUG: Skipped invalid recommended dashboard definition" -ForegroundColor Yellow
             }
@@ -590,7 +667,7 @@ $ClearExistingDashboards=$true;
                 $newDef = $def.Clone()
                 $randomSuffix = Get-Random -Minimum 1000 -Maximum 9999
                 $newDef.name = $def.name + " (R$randomSuffix)"
-                Write-Host "    CREATE '$($newDef.name)'..." -ForegroundColor Green
+                Write-Host "    CREATE '$($newDef.Name)'..." -ForegroundColor Green
                 if (-not $DryRun) {
                     $created = New-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardDef $newDef
                     if ($created -and $created.id) {
@@ -601,7 +678,7 @@ $ClearExistingDashboards=$true;
             }
 
             # Then delete existing dashboards that are not recommended
-            $recommendedNames = $recommended | ForEach-Object { $_.name }
+            $recommendedNames = $recommended | ForEach-Object { $_.Name }
             foreach ($name in $existingByName.Keys) {
                 if ($name -notin $recommendedNames) {
                     $id = $existingByName[$name]

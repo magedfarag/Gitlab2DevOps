@@ -8,7 +8,7 @@ Do not include secrets or attempt network access.
 
 Purpose: give concise, repository-specific context so an AI assistant can make safe, useful changes quickly.
 
-Keep responses focused and actionable. When proposing edits, reference exact file paths (e.g. `modules/Core.Rest.psm1`) and small, testable changes.
+Keep responses focused and actionable. When proposing edits, reference exact file paths (e.g. `modules/Core.Rest.psm1`) and small, testable changes, never remove any feature or function unless approved and confirmed.
 
 ## Big-picture architecture (what to know first)
 
