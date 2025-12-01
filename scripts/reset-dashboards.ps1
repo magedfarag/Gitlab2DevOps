@@ -96,7 +96,7 @@ $script:DashboardApiVersion = if ($dashboardApiOverride) { $dashboardApiOverride
 $patBytes   = [Text.Encoding]::ASCII.GetBytes(":$pat")
 $patEncoded = [Convert]::ToBase64String($patBytes)
 
-$script:BaseUrl = "https://devops.mod.gov.sa/E-Services"
+$script:BaseUrl = $collection
 $script:DefaultHeaders = @{
     Authorization  = "Basic $patEncoded"
     "Content-Type" = "application/json"
@@ -133,7 +133,7 @@ function Invoke-AdoRest {
         throw "Internal error: RelativeUrl is null or empty in Invoke-AdoRest."
     }
 
-    $uri = "https://devops.mod.gov.sa/E-Services/$($RelativeUrl)"
+    $uri = "$($script:BaseUrl)/$($RelativeUrl)"
 
     $headers = $script:DefaultHeaders.Clone()
     if ($AdditionalHeaders) {
@@ -144,7 +144,7 @@ function Invoke-AdoRest {
 
     $params = @{
         Method  = $Method
-        Uri     = "https://devops.mod.gov.sa/E-Services/$($RelativeUrl)"
+        Uri     = "$($script:BaseUrl)/$($RelativeUrl)"
         Headers = $headers
     }
 
@@ -272,13 +272,28 @@ function Set-AdoDashboard {
         [string] $DashboardId,
 
         [Parameter(Mandatory)]
-        [hashtable] $DashboardDef
+        [object] $DashboardDef
     )
 
-    # Dashboards - Replace Dashboard
+    # Dashboards - Replace / Update with optional eTag
     $relative = "$($ProjectId)/$($TeamId)/_apis/dashboard/dashboards/$($DashboardId)?api-version=$($script:DashboardApiVersion)"
-    Invoke-AdoRest -Method PUT -RelativeUrl $relative -Body $DashboardDef | Out-Null
+
+    $additionalHeaders = @{}
+    if ($DashboardDef -and $DashboardDef.PSObject.Properties.Name -contains 'eTag' -and $DashboardDef.eTag) {
+        $additionalHeaders["If-Match"] = "`"$([string]$DashboardDef.eTag)`""
+    }
+
+    if ($additionalHeaders.Count -gt 0) {
+        return Invoke-AdoRest -Method PUT -RelativeUrl $relative -Body $DashboardDef -AdditionalHeaders $additionalHeaders
+    }
+    else {
+        return Invoke-AdoRest -Method PUT -RelativeUrl $relative -Body $DashboardDef
+    }
 }
+
+
+
+
 
 function New-AdoDashboard {
     [CmdletBinding()]
@@ -298,7 +313,12 @@ function New-AdoDashboard {
     return Invoke-AdoRest -Method POST -RelativeUrl $relative -Body $DashboardDef
 }
 
-function Set-AdoDashboard {
+
+
+# -------------------------------------------------------
+# 5. Recommended SDLC dashboards (widgets)
+# -------------------------------------------------------
+function Clean-OldQueries {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -308,23 +328,41 @@ function Set-AdoDashboard {
         [string] $TeamId,
 
         [Parameter(Mandatory)]
-        [string] $DashboardId,
-
-        [Parameter(Mandatory)]
-        [hashtable] $DashboardDef
+        [string] $FolderId
     )
 
-    # Dashboards - Update
-    $relative = "$($ProjectId)/_apis/dashboard/dashboards/$($DashboardId)?api-version=$($script:DashboardApiVersion)"
-    $additionalHeaders = @{
-        "If-Match" = "`"$([string]$DashboardDef.eTag)`""
+    $apiVersion = "7.1"
+    $listRelative = $ProjectId + '/_apis/wit/queries/' + $FolderId + '?$depth=1&api-version=' + $apiVersion
+    $existing = Invoke-AdoRest -Method GET -RelativeUrl $listRelative -IgnoreNotFound
+
+    $children = @()
+    if ($existing) {
+        try {
+            if ($existing.children) {
+                $children = $existing.children
+            } elseif ($existing.value) {
+                $children = $existing.value
+            } else {
+                $children = @($existing)
+            }
+        } catch {
+            $children = @($existing)
+        }
     }
-    return Invoke-AdoRest -Method PUT -RelativeUrl $relative -Body $DashboardDef -AdditionalHeaders $additionalHeaders
+
+    foreach ($query in $children) {
+        if ($query.name -like "[TMP]*") {
+            $deleteRelative = $ProjectId + '/_apis/wit/queries/' + $query.id + '?api-version=' + $apiVersion
+            try {
+                Invoke-AdoRest -Method DELETE -RelativeUrl $deleteRelative -IgnoreNotFound | Out-Null
+            } catch {
+                Write-Warning "Failed to delete leftover temporary query '$($query.name)' in project '$ProjectId'. $_"
+            }
+        }
+    }
 }
 
-# -------------------------------------------------------
-# 5. Recommended SDLC dashboards (widgets)
-# -------------------------------------------------------
+
 function Get-SharedQueriesFolderId {
     [CmdletBinding()]
     param(
@@ -338,7 +376,8 @@ function Get-SharedQueriesFolderId {
     $relative = $ProjectId + '/_apis/wit/queries?api-version=7.1'
     $result = Invoke-AdoRest -Method GET -RelativeUrl $relative
 
-    $shared = $result.value | Where-Object { $_.name -eq "Shared Queries" -and $_.isFolder }
+    $queries = try { $result.value } catch { $result }
+    $shared = $queries | Where-Object { $_.name -eq "Shared Queries" -and $_.isFolder }
     if (-not $shared) {
         throw "Shared Queries folder not found for project $ProjectId"
     }
@@ -364,69 +403,102 @@ function New-Query {
         [string] $Wiql
     )
 
-    # Make name unique to avoid conflicts
-    $uniqueName = $Name + " (" + [guid]::NewGuid().ToString().Substring(0,8) + ")"
+    $apiVersion = "7.1"
+    $targetName = $Name
+    $tempName   = "[TMP] $Name"
 
-    # Check if query already exists in the entire project hierarchy
-    $listRelative = $ProjectId + '/_apis/wit/queries?$expand=All&api-version=7.1'
-    $existing = Invoke-AdoRest -Method GET -RelativeUrl $listRelative
+    # 1) Load existing children under the target folder
+    $listRelative = $ProjectId + '/_apis/wit/queries/' + $FolderId + '?$depth=1&api-version=' + $apiVersion
+    $existing = Invoke-AdoRest -Method GET -RelativeUrl $listRelative -IgnoreNotFound
 
-    # Function to recursively find query by name
-    function Find-QueryByName {
-        param($queries, $targetName)
-        foreach ($query in $queries) {
-            if ($query.name -eq $targetName -and -not $query.isFolder) {
-                return $query
+    $children = @()
+    if ($existing) {
+        try {
+            if ($existing.children) {
+                $children = $existing.children
+            } elseif ($existing.value) {
+                $children = $existing.value
+            } else {
+                $children = @($existing)
             }
-            if ($query.isFolder) {
-                $childrenProp = $query.PSObject.Properties['children']
-                if ($childrenProp -and $childrenProp.Value) {
-                    $found = Find-QueryByName -queries $childrenProp.Value -targetName $targetName
-                    if ($found) { return $found }
-                }
-            }
+        } catch {
+            $children = @($existing)
         }
-        return $null
     }
 
-    $existingQuery = Find-QueryByName -queries $existing.value -targetName $uniqueName
-    if ($existingQuery) {
-        # Update the existing query with new WIQL
-        $body = @{
-            name = $uniqueName
-            wiql = $Wiql
+    $existingFinal = $null
+    $existingTemp  = $null
+
+    foreach ($item in $children) {
+        if ($item.name -eq $targetName) {
+            $existingFinal = $item
+        } elseif ($item.name -eq $tempName) {
+            $existingTemp = $item
         }
-        $updateRelative = $ProjectId + '/_apis/wit/queries/' + $existingQuery.id + '?api-version=7.1'
-        Invoke-AdoRest -Method PUT -RelativeUrl $updateRelative -Body $body | Out-Null
-        return $existingQuery.id
     }
 
+    # 2) Remove any leftover temporary query
+    if ($existingTemp) {
+        $deleteTempRelative = $ProjectId + '/_apis/wit/queries/' + $existingTemp.id + '?api-version=' + $apiVersion
+        try {
+            Invoke-AdoRest -Method DELETE -RelativeUrl $deleteTempRelative -IgnoreNotFound | Out-Null
+        } catch {
+            Write-Warning "Failed to delete temporary query '$tempName' in project '$ProjectId'. $_"
+        }
+    }
+
+    # 3) Create a new query with a temporary name
     $body = @{
-        name = $uniqueName
+        name = $tempName
         wiql = $Wiql
     }
 
-    $relative = $ProjectId + '/_apis/wit/queries/' + $FolderId + '?api-version=7.1'
+    $createRelative = $ProjectId + '/_apis/wit/queries/' + $FolderId + '?api-version=' + $apiVersion
+
     try {
-        $result = Invoke-AdoRest -Method POST -RelativeUrl $relative -Body $body
-        return $result.id
+        $created = Invoke-AdoRest -Method POST -RelativeUrl $createRelative -Body $body
+    } catch {
+        Write-Warning "Failed to create query '$tempName' under folder '$FolderId' in project '$ProjectId'. $_"
+        return $null
     }
-    catch {
-        if ($_.Exception.Message -match "TF237018") {
-            # Name conflict, try to find and update
-            $existingQuery = Find-QueryByName -queries $existing.value -targetName $uniqueName
-            if ($existingQuery) {
-                $updateRelative = $ProjectId + '/_apis/wit/queries/' + $existingQuery.id + '?api-version=7.1'
-                Invoke-AdoRest -Method PUT -RelativeUrl $updateRelative -Body $body | Out-Null
-                return $existingQuery.id
-            } else {
-                throw
-            }
-        } else {
-            throw
+
+    if (-not $created -or -not $created.id) {
+        Write-Warning "Query '$tempName' creation returned no id."
+        return $null
+    }
+
+    $newId = $created.id
+
+    # 4) Delete any existing query with the final name
+    if ($existingFinal) {
+        $deleteFinalRelative = $ProjectId + '/_apis/wit/queries/' + $existingFinal.id + '?api-version=' + $apiVersion
+        try {
+            Invoke-AdoRest -Method DELETE -RelativeUrl $deleteFinalRelative -IgnoreNotFound | Out-Null
+        } catch {
+            Write-Warning "Failed to delete existing query '$targetName' in project '$ProjectId'. $_"
         }
     }
+
+    # 5) Rename the new query from temporary name to final name
+    $updateBody = @{
+        name = $targetName
+        wiql = $Wiql
+    }
+
+    $updateRelative = $ProjectId + '/_apis/wit/queries/' + $newId + '?api-version=' + $apiVersion
+
+    try {
+        $updated = Invoke-AdoRest -Method PATCH -RelativeUrl $updateRelative -Body $updateBody
+        if ($updated -and $updated.id) {
+            $newId = $updated.id
+        }
+    } catch {
+        Write-Warning "Failed to rename query '$tempName' to '$targetName' under folder '$FolderId' in project '$ProjectId'. $_"
+    }
+
+    return $newId
 }
+
 
 function Get-RecommendedDashboardDefinitions {
     [CmdletBinding()]
@@ -464,54 +536,195 @@ $FutureIterations = "@CurrentIteration + 3"
 
     $folderId = Get-SharedQueriesFolderId -ProjectId $ProjectId -TeamId $TeamId
 
-# ============================================
-# BUSINESS / PRODUCT DASHBOARD CONFIGURATION
-# ============================================
+    Clean-OldQueries -ProjectId $ProjectId -TeamId $TeamId -FolderId $folderId
 
-$businessQueries = @(
-    @{Name = "Product Backlog Health"; Wiql = "SELECT [System.Id], [System.Title], [Microsoft.VSTS.Common.Priority], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Feature', 'Epic') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Priority]" },
-    @{Name = "High-Value Items"; Wiql = "SELECT [System.Id], [System.Title], [Microsoft.VSTS.Common.BusinessValue], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [Microsoft.VSTS.Common.BusinessValue] > 50 AND [System.State] <> 'Closed'" },
-    @{Name = "Strategic Initiatives"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Epic' AND [System.State] <> 'Closed' ORDER BY [System.CreatedDate]" },
-    @{Name = "Stakeholder Requests"; Wiql = "SELECT [System.Id], [System.Title], [System.CreatedDate] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'User Story' AND [System.State] NOT IN ('Closed', 'Done')" },
-    @{Name = "Market Dependency Tracker"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND [System.State] <> 'Closed'" },
-    @{Name = "Revenue Impact Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Feature' AND [System.State] <> 'Closed'" },
-    @{Name = "Regulatory Compliance Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Requirement' ORDER BY [System.CreatedDate]" },
-    @{Name = "Customer Feedback Integration"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Feedback' AND [System.State] NOT IN ('Closed', 'Rejected')" },
-    @{Name = "Competitive Analysis Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Epic' AND [System.State] <> 'Closed'" },
-    @{Name = "Partnership Integration Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Feature' AND [System.State] IN ('Active', 'New')" },
-    @{Name = "Go-to-Market Readiness"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Feature' AND [System.State] <> 'Closed'" }
-)
-
-# ============================================
-# ENGINEERING / DEVELOPMENT DASHBOARD CONFIGURATION
-# ============================================
-
-$devQueries = @(
-    @{Name = "Sprint Task Breakdown"; Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Scheduling.RemainingWork] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' ORDER BY [System.State]" },
-    @{Name = "Code Review Queue"; Wiql = "SELECT [System.Id], [System.Title], [System.CreatedDate] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Code Review' AND [System.State] = 'Active' ORDER BY [System.CreatedDate]" },
-    @{Name = "Technical Debt Backlog"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.State] <> 'Closed' ORDER BY [System.CreatedDate]" },
-    @{Name = "Security Vulnerability Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND [System.State] <> 'Closed'" },
-    @{Name = "Performance Optimization Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.State] <> 'Closed'" },
-    @{Name = "Architecture Refactoring Tasks"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' ORDER BY [System.CreatedDate]" },
-    @{Name = "Development Spike Tasks"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task'" },
-    @{Name = "Test Automation Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Test Case' AND [System.State] <> 'Closed'" },
-    @{Name = "DevOps Improvement Tasks"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.State] IN ('New', 'Active')" },
-    @{Name = "Code Migration Items"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' ORDER BY [System.CreatedDate]" },
-    @{Name = "Documentation Tasks"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.State] <> 'Closed'" },
-    @{Name = "Infrastructure As Code Tasks"; Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.State] IN ('New', 'Active')" }
-)
-
-# ============================================
-# QUALITY / TESTING DASHBOARD CONFIGURATION
-# ============================================
-
-$qaQueries = @()
-
-# ============================================
-# OPERATIONS / RELEASE DASHBOARD CONFIGURATION
-# ============================================
-
-$opsQueries = @()
+    # ============================================
+    # BUSINESS / PRODUCT DASHBOARD CONFIGURATION
+    # ============================================
+    
+    $businessQueries = @(
+        @{
+            Name = "Product Backlog Health"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Scheduling.StoryPoints], [Microsoft.VSTS.Common.BusinessValue] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('User Story', 'Product Backlog Item', 'Requirement', 'Bug') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [Microsoft.VSTS.Common.Priority], [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "High-Value Items"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [Microsoft.VSTS.Common.BusinessValue], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Feature', 'User Story', 'Product Backlog Item', 'Requirement') AND [Microsoft.VSTS.Common.BusinessValue] >= 50 AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.BusinessValue] DESC, [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Strategic Initiatives"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Epic', 'Feature') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.CreatedDate]"
+        },
+        @{
+            Name = "Stakeholder Requests"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [System.CreatedDate] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('User Story', 'Product Backlog Item', 'Requirement', 'Issue') AND [System.State] NOT IN ('Closed', 'Done', 'Removed', 'Resolved') ORDER BY [System.CreatedDate] DESC"
+        },
+        @{
+            Name = "Market Dependency Tracker"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story', 'Product Backlog Item', 'Requirement') AND [System.Tags] CONTAINS 'Dependency' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [System.Title]"
+        },
+        @{
+            Name = "Revenue Impact Items"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [Microsoft.VSTS.Common.BusinessValue], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Feature', 'User Story', 'Product Backlog Item', 'Requirement') AND [Microsoft.VSTS.Common.BusinessValue] >= 80 AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.BusinessValue] DESC"
+        },
+        @{
+            Name = "Regulatory Compliance Items"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Requirement', 'User Story', 'Product Backlog Item') AND ([System.Tags] CONTAINS 'Compliance' OR [System.Tags] CONTAINS 'Regulation') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.CreatedDate]"
+        },
+        @{
+            Name = "Customer Feedback Integration"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [System.CreatedDate] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND ([System.WorkItemType] IN ('Feedback Request', 'Feedback Response', 'Issue') OR [System.Tags] CONTAINS 'Feedback') AND [System.State] NOT IN ('Closed', 'Rejected', 'Removed') ORDER BY [System.CreatedDate] DESC"
+        },
+        @{
+            Name = "Competitive Analysis Items"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story', 'Product Backlog Item', 'Requirement') AND [System.Tags] CONTAINS 'Competitive' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [System.Title]"
+        },
+        @{
+            Name = "Partnership Integration Items"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Feature', 'User Story', 'Product Backlog Item', 'Requirement') AND [System.Tags] CONTAINS 'Partner' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [System.Title]"
+        },
+        @{
+            Name = "Go-to-Market Readiness"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Feature', 'User Story', 'Product Backlog Item', 'Requirement') AND ([System.Tags] CONTAINS 'GTM' OR [System.Tags] CONTAINS 'Go-To-Market' OR [System.Tags] CONTAINS 'Release') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [System.Title]"
+        }
+    )
+    
+    # ============================================
+    # ENGINEERING / DEVELOPMENT DASHBOARD CONFIG
+    # ============================================
+    
+    $devQueries = @(
+        @{
+            Name = "Sprint Task Breakdown"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Scheduling.RemainingWork], [System.AssignedTo] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [System.AssignedTo]"
+        },
+        @{
+            Name = "Code Review Queue"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [System.CreatedDate] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.Title] CONTAINS 'Code Review' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.CreatedDate]"
+        },
+        @{
+            Name = "Technical Debt Backlog"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.Tags] CONTAINS 'Tech Debt' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Security Vulnerability Items"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND ([System.Tags] CONTAINS 'Security' OR [System.Tags] CONTAINS 'Vulnerability') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Severity], [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Performance Optimization Items"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([System.Tags] CONTAINS 'Performance' OR [System.Tags] CONTAINS 'Perf') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Architecture Refactoring Tasks"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([System.Title] CONTAINS 'Refactor' OR [System.Tags] CONTAINS 'Refactor') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Development Spike Tasks"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Task', 'User Story', 'Product Backlog Item', 'Requirement') AND [System.Title] CONTAINS 'Spike' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Test Automation Items"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.TCM.AutomationStatus] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Test Case' AND [Microsoft.VSTS.TCM.AutomationStatus] <> 'Not Automated' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "DevOps Improvement Tasks"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([System.Tags] CONTAINS 'DevOps' OR [System.Tags] CONTAINS 'Pipeline' OR [System.Tags] CONTAINS 'CI/CD') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Code Migration Items"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([System.Title] CONTAINS 'Migration' OR [System.Title] CONTAINS 'Migrate' OR [System.Tags] CONTAINS 'Migration') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.CreatedDate]"
+        },
+        @{
+            Name = "Documentation Tasks"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([Microsoft.VSTS.Common.Activity] = 'Documentation' OR [System.Title] CONTAINS 'Doc' OR [System.Tags] CONTAINS 'Documentation') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Infrastructure As Code Tasks"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([System.Tags] CONTAINS 'IaC' OR [System.Tags] CONTAINS 'Terraform' OR [System.Tags] CONTAINS 'Bicep' OR [System.Tags] CONTAINS 'ARM Template') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        }
+    )
+    
+    # ============================================
+    # QUALITY / TESTING DASHBOARD CONFIGURATION
+    # ============================================
+    
+    $qaQueries = @(
+        @{
+            Name = "Open Defects By Priority"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity], [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Critical and High Defects"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND ([Microsoft.VSTS.Common.Severity] IN ('1 - Critical', '2 - High') OR [Microsoft.VSTS.Common.Priority] IN (1, 2)) AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Severity], [Microsoft.VSTS.Common.Priority], [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "New Defects (Last 7 Days)"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State], [System.CreatedDate] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND [System.CreatedDate] >= @Today - 7 ORDER BY [System.CreatedDate] DESC"
+        },
+        @{
+            Name = "Defects Ready For Test"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND [System.State] = 'Resolved' ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Production Defects"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND ([System.Tags] CONTAINS 'Production' OR [System.Title] CONTAINS 'Prod') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Severity], [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Active Test Cases"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Test Case' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [System.Title]"
+        },
+        @{
+            Name = "Test Cases Not Automated"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.TCM.AutomationStatus] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Test Case' AND [Microsoft.VSTS.TCM.AutomationStatus] = 'Not Automated' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Automated Test Cases"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.TCM.AutomationStatus] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Test Case' AND [Microsoft.VSTS.TCM.AutomationStatus] <> 'Not Automated' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Test Case Design Backlog"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Test Case' AND [System.State] = 'Design' ORDER BY [System.ChangedDate] DESC"
+        }
+    )
+    
+    # ============================================
+    # OPERATIONS / RELEASE DASHBOARD CONFIGURATION
+    # ============================================
+    
+    $opsQueries = @(
+        @{
+            Name = "Production Incidents"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Bug', 'Issue') AND ([System.Tags] CONTAINS 'Production' OR [System.Tags] CONTAINS 'Incident') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Severity], [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Open Operational Issues"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Issue' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Active Change Requests"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Change Request', 'Issue', 'User Story', 'Product Backlog Item') AND ([System.Tags] CONTAINS 'Change' OR [System.Title] CONTAINS 'Change Request') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Release Deployment Tasks"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([System.Title] CONTAINS 'Deployment' OR [System.Title] CONTAINS 'Deploy' OR [System.Tags] CONTAINS 'Deployment') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Failed Release Follow-Up"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Bug', 'Issue') AND ([System.Tags] CONTAINS 'Failed Deployment' OR [System.Title] CONTAINS 'Failed Deployment') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Service Availability Work Items"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Bug', 'Issue', 'Task') AND ([System.Tags] CONTAINS 'SLA' OR [System.Tags] CONTAINS 'Availability' OR [System.Tags] CONTAINS 'Reliability') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Hotfix Backlog"
+            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Bug', 'Issue') AND ([System.Tags] CONTAINS 'Hotfix' OR [System.Title] CONTAINS 'Hotfix') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        },
+        @{
+            Name = "Monitoring and Alerting Tasks"
+            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([System.Tags] CONTAINS 'Monitoring' OR [System.Tags] CONTAINS 'Alerting' OR [System.Tags] CONTAINS 'Alert') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+        }
+    )
 
     $dashboards = @()
 
@@ -559,7 +772,7 @@ $opsQueries = @()
 
             $widgets += @{
                 name            = $query.Name
-                position        = @{ row = $row; column = 1 }
+                position        = @{ row = $row; column = ($row/2 -band 1 ? 1 : 5) }
                 size            = @{ rowSpan = 2; columnSpan = 4 }
                 settings        = ($settings  | ConvertTo-Json -Compress)
                 settingsVersion = $settingsVersion
@@ -626,98 +839,134 @@ foreach ($project in $projects) {
     }
 
     foreach ($team in $teams) {
-        Write-Host "  Team: $($team.name) [$($team.id)]" -ForegroundColor Yellow
+    Write-Host "  Team: $($team.name) [$($team.id)]" -ForegroundColor Yellow
 
-        # 1) Read current dashboards safely as array
-        $dashboards = @(Get-AdoDashboards -ProjectId $project.id -TeamId $team.id)
-        Write-Host "    DEBUG: Found $($dashboards.Count) existing dashboards." -ForegroundColor Cyan
-        foreach ($d in $dashboards) {
-            Write-Host "      DEBUG: Existing dashboard - Name: '$($d.name)'" -ForegroundColor Gray
+    # 1) Load current dashboards for this team
+    $dashboards = @(Get-AdoDashboards -ProjectId $project.id -TeamId $team.id)
+    Write-Host "    Found $($dashboards.Count) existing dashboard(s)." -ForegroundColor Cyan
+
+    $existingByName = @{}
+    foreach ($d in $dashboards) {
+        if ($null -ne $d -and $d.PSObject.Properties['name']) {
+            $existingByName[$d.name] = $d
         }
-
-        # 2) Recommended SDLC dashboards for this team
-        $recommended = @(Get-RecommendedDashboardDefinitions -ProjectName $project.name -TeamName $team.name -ProjectId $project.id -TeamId $team.id)
-
-        # Map recommended by name for fast lookup
-        $recommendedByName = @{ }
-        foreach ($def in $recommended) {
-            if ($null -ne $def -and $def.name) {
-                $recommendedByName[$def.name] = $def
-            } else {
-                Write-Host "      DEBUG: Skipped invalid recommended dashboard definition" -ForegroundColor Yellow
-            }
-        }
-
-        # Map existing dashboards by name
-        Write-Host "    Found $($dashboards.Count) existing dashboard(s)." -ForegroundColor Cyan
-        $existingByName = @{}
-        foreach ($d in $dashboards) {
-            if ($null -ne $d -and $d.PSObject.Properties['name']) {
-                $existingByName[$d.name] = $d.PSObject.Properties['id'].Value
-            }
-        }
-$ClearExistingDashboards=$true;
-        if ($ClearExistingDashboards) {
-            # --------- RESET MODE ---------
-            Write-Host "    FORCE: Clear Existing Dashboards..." -ForegroundColor Yellow
-
-            # Create all recommended dashboards first to avoid deleting the last dashboard
-            foreach ($def in $recommended) {
-                # Modify name to avoid duplicate name error
-                $newDef = $def.Clone()
-                $randomSuffix = Get-Random -Minimum 1000 -Maximum 9999
-                $newDef.name = $def.name + " (R$randomSuffix)"
-                Write-Host "    CREATE '$($newDef.Name)'..." -ForegroundColor Green
-                if (-not $DryRun) {
-                    $created = New-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardDef $newDef
-                    if ($created -and $created.id) {
-                        Write-Host "      -> created" -ForegroundColor DarkGreen
-                        $createdCount++
-                    }
-                }
-            }
-
-            # Then delete existing dashboards that are not recommended
-            $recommendedNames = $recommended | ForEach-Object { $_.Name }
-            foreach ($name in $existingByName.Keys) {
-                if ($name -notin $recommendedNames) {
-                    $id = $existingByName[$name]
-                    Write-Host "      DELETE '$name'" -ForegroundColor Red
-                    if (-not $DryRun) {
-                        Remove-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardId $id
-                        $deletedCount++
-                    }
-                }
-            }
-        } else {
-            $existingByName = @{}
-            foreach ($d in $dashboards) {
-                Write-Host "    Found $($d.url) existing dashboard(s)." -ForegroundColor Cyan
-                if ($null -ne $d -and $d.PSObject.Properties['name']) {
-                    $existingByName[$d.name] = $d
-                }
-            }
-
-            # 2.3 Create any missing recommended dashboards
-            foreach ($def in $recommended) {
-                $name = $def.name
-                if ($existingByName.ContainsKey($name)) {
-                    Write-Host "    SKIP create '$name' (already exists)." -ForegroundColor DarkGray
-                    continue
-                }
-
-                Write-Host "    CREATE '$name'" -ForegroundColor Green
-                if (-not $DryRun) {
-                    $created = New-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardDef $def
-                    if ($created -and $created.id) {
-                        Write-Host "      -> created" -ForegroundColor DarkGreen
-                        $createdCount++
-                    }
-                }
-            }
-        }
-
     }
+
+    # 2) Build recommended SDLC dashboards for this team
+    $recommended = @(Get-RecommendedDashboardDefinitions -ProjectName $project.name -TeamName $team.name -ProjectId $project.id -TeamId $team.id)
+
+    if ($recommended.Count -eq 0) {
+        Write-Warning "    No recommended dashboards returned for team '$($team.name)'. Skipping."
+        continue
+    }
+
+    # 3) For each recommended dashboard, force replace by create -> delete old -> rename new
+    foreach ($def in $recommended) {
+        $finalName = $def.name
+        if (-not $finalName) { continue }
+
+        $tempName = "[TMP] $finalName"
+
+        # Remove any stale temp dashboards from previous runs
+        if ($existingByName.ContainsKey($tempName)) {
+            $tmp = $existingByName[$tempName]
+            Write-Host "    CLEAN temp dashboard '$tempName'..." -ForegroundColor DarkGray
+            if (-not $DryRun) {
+                try {
+                    Remove-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardId $tmp.id
+                    $deletedCount++
+                } catch {
+                    Write-Warning "      Failed to delete stale temp dashboard '$tempName' for team '$($team.name)'. $_"
+                }
+            }
+            $existingByName.Remove($tempName) | Out-Null
+        }
+
+        $existingFinal = $null
+        if ($existingByName.ContainsKey($finalName)) {
+            $existingFinal = $existingByName[$finalName]
+        }
+
+        # Create new dashboard with temporary name
+        $newDef = $def.Clone()
+        $newDef.name = $tempName
+
+        Write-Host "    CREATE/REPLACE '$finalName' (via temp '$tempName')" -ForegroundColor Green
+
+        $created = $null
+        if (-not $DryRun) {
+            try {
+                $created = New-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardDef $newDef
+            } catch {
+                Write-Warning "      Failed to create dashboard '$tempName' for team '$($team.name)'. $_"
+            }
+        }
+
+        if ($created -and $created.id) {
+            $createdCount++
+
+            # Delete old dashboard with the same final name
+            if ($existingFinal) {
+                Write-Host "      DELETE existing '$finalName' before rename" -ForegroundColor Red
+                if (-not $DryRun) {
+                    try {
+                        Remove-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardId $existingFinal.id
+                        $deletedCount++
+                    } catch {
+                        Write-Warning "        Failed to delete existing '$finalName' for team '$($team.name)'. $_"
+                    }
+                }
+                $existingByName.Remove($finalName) | Out-Null
+            }
+
+            # Rename newly created dashboard from tempName to finalName
+            if (-not $DryRun) {
+                try {
+                    $updatedDef = $created
+                    $updatedDef.name = $finalName
+                    $updated = Set-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardId $created.id -DashboardDef $updatedDef
+                    if ($updated) {
+                        $created = $updated
+                    }
+                } catch {
+                    Write-Warning "      Failed to rename dashboard '$tempName' to '$finalName' for team '$($team.name)'. $_"
+                }
+            }
+
+            $existingByName[$finalName] = $created
+        } else {
+            Write-Warning "      Skipped replace for '$finalName' because creation failed."
+        }
+    }
+
+    # 4) Remove any remaining dashboards that are not part of the standard set
+    $recommendedNames = $recommended | ForEach-Object { $_.name }
+    $currentDashboards = @(Get-AdoDashboards -ProjectId $project.id -TeamId $team.id)
+
+    foreach ($d in $currentDashboards) {
+        if ($null -eq $d -or -not $d.PSObject.Properties['name']) { continue }
+
+        $name   = $d.name
+        $isTemp = $name -like "[TMP]*"
+
+        if (-not $isTemp -and $name -in $recommendedNames) {
+            continue
+        }
+
+        Write-Host "    DELETE non-standard dashboard '$name'" -ForegroundColor Red
+        if (-not $DryRun) {
+            try {
+                Remove-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardId $d.id
+                Write-Host "      Deleted dashboard '$name'." -ForegroundColor DarkGray
+                $deletedCount++
+            } catch {
+                # Ignore failures such as last-dashboard constraints; script will continue.
+                Write-Warning "      Failed to delete non-standard dashboard '$name' for team '$($team.name)'. $_"
+            }
+        }
+    }
+}
+
 }
 
 Write-Progress -Activity "Processing Projects" -Completed
