@@ -165,17 +165,19 @@ function Invoke-AdoRest {
         $params.Body = ($Body | ConvertTo-Json -Depth 12)
     }
 
-    Write-Verbose "$Method $uri"
+    Write-Verbose "[REST] $Method $uri"
 
     try {
+        Write-Verbose "[REST-INVOKE] Executing $Method request to $uri"
         return Invoke-RestMethod @params
     }
     catch [System.Net.WebException] {
         $response = $_.Exception.Response
         if ($response -and $response.StatusCode -eq [System.Net.HttpStatusCode]::NotFound -and $IgnoreNotFound) {
-            Write-Verbose "404 Not Found (ignored): $uri"
+            Write-Verbose "[REST-IGNORED] 404 Not Found: $uri"
             return $null
         }
+        Write-Verbose "[REST-ERROR] $Method $uri failed: $($_.Exception.Message)"
         throw
     }
 }
@@ -187,13 +189,18 @@ function Get-AdoProjects {
     [CmdletBinding()]
     param()
 
+    Write-Verbose "[PROJECTS] Fetching all projects from collection..."
     # Projects - List
     $relative = "_apis/projects?`$top=1000&api-version=$($script:CoreApiVersion)"
     $result   = Invoke-AdoRest -Method GET -RelativeUrl $relative
 
-    if (-not $result) { return @() }
-    if ($result.value) { return @($result.value) }
-    return @()
+    if (-not $result) { 
+        Write-Verbose "[PROJECTS] No projects found"
+        return @() 
+    }
+    $projects = if ($result.value) { @($result.value) } else { @() }
+    Write-Verbose "[PROJECTS] Found $($projects.Count) project(s)"
+    return $projects
 }
 
 function Get-AdoTeams {
@@ -203,13 +210,18 @@ function Get-AdoTeams {
         [string] $ProjectId
     )
 
+    Write-Verbose "[TEAMS] Fetching teams for project $ProjectId..."
     # Teams - Get Teams
     $relative = "_apis/projects/$ProjectId/teams?`$top=100&api-version=$($script:CoreApiVersion)"
     $result   = Invoke-AdoRest -Method GET -RelativeUrl $relative
 
-    if (-not $result) { return @() }
-    if ($result.value) { return @($result.value) }
-    return @()
+    if (-not $result) { 
+        Write-Verbose "[TEAMS] No teams found for project $ProjectId"
+        return @() 
+    }
+    $teams = if ($result.value) { @($result.value) } else { @() }
+    Write-Verbose "[TEAMS] Found $($teams.Count) team(s) in project $ProjectId"
+    return $teams
 }
 
 function Get-AdoDashboards {
@@ -222,15 +234,18 @@ function Get-AdoDashboards {
         [string] $TeamId
     )
 
+    Write-Verbose "[DASHBOARDS] Fetching dashboards for project $ProjectId, team $TeamId..."
     # Dashboards - List
     $relative = "$ProjectId/$TeamId/_apis/dashboard/dashboards?api-version=$($script:DashboardApiVersion)"
     $result   = Invoke-AdoRest -Method GET -RelativeUrl $relative -IgnoreNotFound
 
-    if (-not $result) { return @() }
-    #if ($result.value) { return @($result.value) }
-    if ($result.dashboardEntries) { return @($result.dashboardEntries) }
-    if ($result.dashboards) { return @($result.dashboards) }
-    return @()
+    if (-not $result) { 
+        Write-Verbose "[DASHBOARDS] No dashboards found for team $TeamId"
+        return @() 
+    }
+    $dashboards = if ($result.dashboardEntries) { @($result.dashboardEntries) } elseif ($result.dashboards) { @($result.dashboards) } else { @() }
+    Write-Verbose "[DASHBOARDS] Found $($dashboards.Count) dashboard(s) in team $TeamId"
+    return $dashboards
 }
 
 function Get-AdoDashboard {
@@ -264,11 +279,13 @@ function Remove-AdoDashboard {
         [string] $DashboardId
     )
 
+    Write-Verbose "[DASHBOARD-DELETE] Deleting dashboard $DashboardId from project $ProjectId, team $TeamId"
     # Dashboards - Delete
     $relative = "$($ProjectId)/$($TeamId)/_apis/dashboard/dashboards/$($DashboardId)?api-version=$($script:DashboardApiVersion)"
 
     if ($PSCmdlet.ShouldProcess("Dashboard $DashboardId", "DELETE")) {
         Invoke-AdoRest -Method DELETE -RelativeUrl $relative -IgnoreNotFound | Out-Null
+        Write-Verbose "[DASHBOARD-DELETE] Successfully deleted dashboard $DashboardId"
     }
 }
 
@@ -281,18 +298,26 @@ function Clean-TempDashboards {
         [string] $TeamId
     )
 
+    Write-Verbose "[CLEANUP-TEMP] Cleaning temporary dashboards from project $ProjectId, team $TeamId..."
     $dashboards = Get-AdoDashboards -ProjectId $ProjectId -TeamId $TeamId
-    if (-not $dashboards) { return }
+    if (-not $dashboards) { 
+        Write-Verbose "[CLEANUP-TEMP] No dashboards found to clean"
+        return 
+    }
 
+    $tempCount = 0
     foreach ($dash in $dashboards) {
         if ($dash.name -like "[TMP]*") {
             try {
+                Write-Verbose "[CLEANUP-TEMP] Removing temporary dashboard: $($dash.name)"
                 Remove-AdoDashboard -ProjectId $ProjectId -TeamId $TeamId -DashboardId $dash.id
+                $tempCount++
             } catch {
                 Write-Warning "Failed to delete temporary dashboard '$($dash.name)' in project '$ProjectId' team '$TeamId'. $_"
             }
         }
     }
+    Write-Verbose "[CLEANUP-TEMP] Cleaned $tempCount temporary dashboard(s)"
 }
 
 
@@ -367,11 +392,15 @@ function Clean-OldQueries {
         [string] $FolderId
     )
 
+    Write-Verbose "[QUERY-CLEANUP] Cleaning old/temporary queries from project $ProjectId, folder $FolderId..."
     $apiVersion = "7.1"
     $listRelative = $ProjectId + '/_apis/wit/queries/' + $FolderId + '?$depth=2&api-version=' + $apiVersion
 
     $existing = Invoke-AdoRest -Method GET -RelativeUrl $listRelative -IgnoreNotFound
-    if (-not $existing) { return }
+    if (-not $existing) { 
+        Write-Verbose "[QUERY-CLEANUP] No queries found to clean"
+        return 
+    }
 
     $children = @()
     try {
@@ -386,6 +415,8 @@ function Clean-OldQueries {
         $children = @($existing)
     }
 
+    Write-Verbose "[QUERY-CLEANUP] Found $($children.Count) item(s) to examine in folder"
+    $cleanedCount = 0
     foreach ($item in $children) {
         if (-not $item.name) { continue }
 
@@ -395,12 +426,15 @@ function Clean-OldQueries {
         if ($item.name -like "[TMP]*" -or $item.name -match '\(R\d+\)$') {
             $deleteRelative = $ProjectId + '/_apis/wit/queries/' + $item.id + '?api-version=' + $apiVersion
             try {
+                Write-Verbose "[QUERY-CLEANUP] Deleting temporary/legacy query: $($item.name)"
                 Invoke-AdoRest -Method DELETE -RelativeUrl $deleteRelative -IgnoreNotFound | Out-Null
+                $cleanedCount++
             } catch {
                 Write-Warning "Failed to delete temporary/legacy query '$($item.name)' in project '$ProjectId'. $_"
             }
         }
     }
+    Write-Verbose "[QUERY-CLEANUP] Cleaned $cleanedCount old/temporary query(ies)"
 }
 
 
@@ -414,6 +448,7 @@ function Get-SharedQueriesFolderId {
         [string] $TeamId
     )
 
+    Write-Verbose "[QUERIES] Fetching Shared Queries folder ID for project $ProjectId..."
     $relative = $ProjectId + '/_apis/wit/queries?api-version=7.1'
     $result = Invoke-AdoRest -Method GET -RelativeUrl $relative
 
@@ -422,6 +457,7 @@ function Get-SharedQueriesFolderId {
     if (-not $shared) {
         throw "Shared Queries folder not found for project $ProjectId"
     }
+    Write-Verbose "[QUERIES] Found Shared Queries folder with ID: $($shared.id)"
     return $shared.id
 }
 
@@ -468,10 +504,12 @@ function New-Query {
     }
 
     # 1) Remove any leftover temporary queries for this name
+    Write-Verbose "[QUERY-CREATE] Removing any leftover temporary query: $tempName"
     foreach ($item in $children) {
         if ($item.name -eq $tempName) {
             $deleteTempRelative = $ProjectId + '/_apis/wit/queries/' + $item.id + '?api-version=' + $apiVersion
             try {
+                Write-Verbose "[QUERY-CREATE] Deleting leftover temporary query: $($item.name)"
                 Invoke-AdoRest -Method DELETE -RelativeUrl $deleteTempRelative -IgnoreNotFound | Out-Null
             } catch {
                 Write-Warning "Failed to delete temporary query '$tempName' in project '$ProjectId'. $_"
@@ -480,6 +518,7 @@ function New-Query {
     }
 
     # 2) Create a new query with the temporary name
+    Write-Verbose "[QUERY-CREATE] Creating new query: $tempName with WIQL pattern"
     $body = @{
         name = $tempName
         wiql = $Wiql
@@ -489,10 +528,12 @@ function New-Query {
 
     $created = $null
     try {
+        Write-Verbose "[QUERY-CREATE] Posting query creation request to $createRelative"
         $created = Invoke-AdoRest -Method POST -RelativeUrl $createRelative -Body $body
     } catch {
         # If we hit a naming conflict or similar, try to clean conflicting items and retry once
         Write-Warning "Failed to create temporary query '$tempName' under folder '$FolderId' for project '$ProjectId'. Attempting cleanup and retry. $_"
+        Write-Verbose "[QUERY-CREATE] Attempting cleanup and retry for query: $tempName"
 
         $existing = Invoke-AdoRest -Method GET -RelativeUrl $listRelative -IgnoreNotFound
         $children = @()
@@ -532,12 +573,15 @@ function New-Query {
 
     if (-not $created -or -not $created.id) {
         Write-Warning "Query '$tempName' creation returned no id."
+        Write-Verbose "[QUERY-CREATE] Failed to create query: $tempName"
         return $null
     }
 
     $newId = $created.id
+    Write-Verbose "[QUERY-CREATE] Successfully created temporary query with ID: $newId"
 
     # 3) Delete any existing query or folder with the final name
+    Write-Verbose "[QUERY-CREATE] Removing any conflicting final-named query: $targetName"
     $existing = Invoke-AdoRest -Method GET -RelativeUrl $listRelative -IgnoreNotFound
     $children = @()
     if ($existing) {
@@ -558,6 +602,7 @@ function New-Query {
         if ($item.name -eq $targetName -and $item.id -ne $newId) {
             $deleteFinalRelative = $ProjectId + '/_apis/wit/queries/' + $item.id + '?api-version=' + $apiVersion
             try {
+                Write-Verbose "[QUERY-CREATE] Deleting conflicting query: $($item.name) (ID: $($item.id))"
                 Invoke-AdoRest -Method DELETE -RelativeUrl $deleteFinalRelative -IgnoreNotFound | Out-Null
             } catch {
                 Write-Warning "Failed to delete existing query or folder '$targetName' in project '$ProjectId'. $_"
@@ -566,6 +611,7 @@ function New-Query {
     }
 
     # 4) Rename the new query from temporary name to final name
+    Write-Verbose "[QUERY-CREATE] Renaming query from '$tempName' to final name '$targetName'"
     $updateBody = @{
         name = $targetName
         wiql = $Wiql
@@ -574,14 +620,18 @@ function New-Query {
     $updateRelative = $ProjectId + '/_apis/wit/queries/' + $newId + '?api-version=' + $apiVersion
 
     try {
+        Write-Verbose "[QUERY-CREATE] Sending PATCH request to rename query ID: $newId"
         $updated = Invoke-AdoRest -Method PATCH -RelativeUrl $updateRelative -Body $updateBody
         if ($updated -and $updated.id) {
             $newId = $updated.id
+            Write-Verbose "[QUERY-CREATE] Successfully renamed query to: $targetName (ID: $newId)"
         }
     } catch {
         Write-Warning "Failed to rename query '$tempName' to '$targetName' in project '$ProjectId'. $_"
+        Write-Verbose "[QUERY-CREATE] Failed to rename query with ID: $newId"
     }
 
+    Write-Verbose "[QUERY-CREATE] Query creation complete. Final ID: $newId"
     return $newId
 }
 
@@ -1213,61 +1263,85 @@ $devQueries = @(
 # 6. Main orchestration
 # -------------------------------------------------------
 $projects = @(Get-AdoProjects)
+Write-Host "[PROJECTS] Total projects found: $($projects.Count)" -ForegroundColor Cyan
 
 $createdCount = 0
 $deletedCount = 0
+$projectsProcessed = 0
+$teamsProcessed = 0
 
 if ($ProjectInclude) {
     $includeSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $ProjectInclude | ForEach-Object { if ($_){ [void]$includeSet.Add($_) } }
     $projects = $projects | Where-Object { $includeSet.Contains($_.name) }
+    Write-Host "[FILTER] Applied include filter. Projects remaining: $($projects.Count)" -ForegroundColor Cyan
 }
 
 if ($ProjectExclude) {
     $excludeSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $ProjectExclude | ForEach-Object { if ($_){ [void]$excludeSet.Add($_) } }
     $projects = $projects | Where-Object { -not $excludeSet.Contains($_.name) }
+    Write-Host "[FILTER] Applied exclude filter. Projects remaining: $($projects.Count)" -ForegroundColor Cyan
 }
 
 if ($projects.Count -eq 0) {
-    Write-Warning "No projects found after filters. Nothing to do."
+    Write-Warning "[ERROR] No projects found after filters. Nothing to do."
     return
 }
+
+Write-Host "[PROCESSING] Starting to process $($projects.Count) project(s)..." -ForegroundColor Yellow
+Write-Verbose "[PROCESSING] DryRun mode: $DryRun | ClearExisting mode: $ClearExistingDashboards"
 
 $projectIndex = 0
 foreach ($project in $projects) {
     $projectIndex++
-    Write-Progress -Activity "Processing Projects" -Status "Project: $($project.name)" -PercentComplete (($projectIndex / $projects.Count) * 100)
+    $projectsProcessed++
+    Write-Progress -Activity "Processing Projects" -Status "[$projectIndex/$($projects.Count)] $($project.name)" -PercentComplete (($projectIndex / $projects.Count) * 100) -Id 1
 
     Write-Host ""
-    Write-Host ">>> Project: $($project.name)  [$($project.id)]" -ForegroundColor Magenta
+    Write-Host "[PROJECT] [$projectIndex/$($projects.Count)] Processing: $($project.name) [ID: $($project.id)]" -ForegroundColor Magenta
+    Write-Verbose "[PROJECT] Starting project processing: $($project.name)"
 
     $teams = @(Get-AdoTeams -ProjectId $project.id)
     if ($teams.Count -eq 0) {
-        Write-Warning "  No teams found in project '$($project.name)'. Skipping."
+        Write-Host "[PROJECT-SKIP] No teams found in project '$($project.name)'. Skipping." -ForegroundColor Yellow
+        Write-Verbose "[PROJECT] Skipped project $($project.name) - no teams found"
         continue
     }
+    Write-Host "[PROJECT] Found $($teams.Count) team(s) in project $($project.name)" -ForegroundColor Cyan
 
+    $teamIndex = 0
     foreach ($team in $teams) {
-    Write-Host "  Team: $($team.name) [$($team.id)]" -ForegroundColor Yellow
+    $teamIndex++
+    $teamsProcessed++
+    Write-Progress -Activity "Processing Teams" -Status "[$teamIndex/$($teams.Count)] $($team.name) in $($project.name)" -PercentComplete (($teamIndex / $teams.Count) * 100) -ParentId 1 -Id 2
+    
+    Write-Host "    [TEAM] [$teamIndex/$($teams.Count)] Processing: $($team.name) [ID: $($team.id)]" -ForegroundColor Yellow
+    Write-Verbose "[TEAM] Starting team processing: $($team.name) in project $($project.name)"
 
     # 0) Clean any temporary dashboards before proceeding
+    Write-Host "      [TEAM-CLEANUP] Cleaning temporary dashboards..." -ForegroundColor DarkGray
     Clean-TempDashboards -ProjectId $project.id -TeamId $team.id
 
     # 1) Read current dashboards safely as array (after cleanup)
+    Write-Host "      [TEAM-READ] Reading current dashboard list..." -ForegroundColor DarkGray
     $dashboards = @(Get-AdoDashboards -ProjectId $project.id -TeamId $team.id)
-    Write-Host "    DEBUG: Found $($dashboards.Count) existing dashboards after cleanup." -ForegroundColor Cyan
+    Write-Host "      [TEAM-READ] Found $($dashboards.Count) existing dashboard(s) after cleanup." -ForegroundColor Cyan
     foreach ($d in $dashboards) {
-        Write-Host "      DEBUG: Existing dashboard - Name: '$($d.name)'" -ForegroundColor Gray
+        Write-Verbose "[TEAM-READ] Existing dashboard: '$($d.name)' [ID: $($d.id)]"
     }
 
     # 2) Recommended SDLC dashboards for this team
+    Write-Host "      [TEAM-RECOMMEND] Generating recommended dashboard definitions..." -ForegroundColor DarkGray
+    Write-Verbose "[TEAM] Fetching recommended dashboard definitions for team $($team.name)"
     $recommended = @(Get-RecommendedDashboardDefinitions -ProjectName $project.name -TeamName $team.name -ProjectId $project.id -TeamId $team.id)
 
     if ($recommended.Count -eq 0) {
-        Write-Warning "    No recommended dashboards returned for team '$($team.name)'. Skipping."
+        Write-Host "      [TEAM-SKIP] No recommended dashboards returned for team '$($team.name)'. Skipping." -ForegroundColor Yellow
+        Write-Verbose "[TEAM] Skipped team $($team.name) - no recommended dashboards"
         continue
     }
+    Write-Host "      [TEAM-RECOMMEND] Generated $($recommended.Count) recommended dashboard(s)" -ForegroundColor Cyan
 
     # Map recommended by name for fast lookup
     $recommendedByName = @{}
@@ -1292,12 +1366,18 @@ foreach ($project in $projects) {
 
     if ($ClearExistingDashboards) {
         # --------- RESET MODE: force standard dashboards, remove the rest ----------
-        Write-Host "    FORCE: Reset dashboards for team '$($team.name)'..." -ForegroundColor Yellow
+        Write-Host "      [TEAM-RESET] FORCE MODE: Resetting dashboards for team '$($team.name)'..." -ForegroundColor Yellow
+        Write-Verbose "[TEAM] Entering dashboard reset mode for team $($team.name)"
 
         # 2.1 Create all recommended dashboards first with temporary [TMP] names
+        Write-Host "      [TEAM-CREATE-TMP] Creating temporary dashboards (Phase 1 of 3)..." -ForegroundColor DarkGray
         $createdTemp = @{}
+        $dashIndex = 0
 
         foreach ($def in $recommended) {
+            $dashIndex++
+            Write-Progress -Activity "Creating Temp Dashboards" -Status "[$dashIndex/$($recommended.Count)] $($def.name)" -PercentComplete (($dashIndex / $recommended.Count) * 100) -ParentId 2 -Id 3
+            
             $finalName = $def.name
             $tempName  = "[TMP] $finalName"
 
@@ -1308,20 +1388,31 @@ foreach ($project in $projects) {
                 widgets         = $def.widgets
             }
 
-            Write-Host "    CREATE TMP dashboard '$tempName'" -ForegroundColor Green
+            Write-Host "        [CREATE] [$dashIndex/$($recommended.Count)] Creating temporary dashboard: '$tempName'" -ForegroundColor Green
+            Write-Verbose "[DASHBOARD-CREATE] Creating temp dashboard: $tempName with $($def.widgets.Count) widget(s)"
             if (-not $DryRun) {
                 $created = New-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardDef $newDef
                 if ($created -and $created.id) {
                     $createdTemp[$finalName] = $created
-                    Write-Host "      -> created TMP id $($created.id)" -ForegroundColor DarkGreen
+                    Write-Host "          -> Created TMP dashboard ID: $($created.id)" -ForegroundColor DarkGreen
+                    Write-Verbose "[DASHBOARD-CREATE] Successfully created temp dashboard with ID: $($created.id)"
                     $createdCount++
+                } else {
+                    Write-Warning "          -> Failed to create temporary dashboard '$tempName'"
+                    Write-Verbose "[DASHBOARD-CREATE] Failed to create temp dashboard: $tempName"
                 }
+            } else {
+                Write-Host "          -> [DRY-RUN] Would create temporary dashboard" -ForegroundColor Cyan
             }
         }
+        Write-Progress -Activity "Creating Temp Dashboards" -Completed -ParentId 2 -Id 3
 
         if (-not $DryRun) {
             # Re-read dashboards including the newly created TMP ones
+            Write-Host "      [TEAM-DELETE] Deleting old dashboards (Phase 2 of 3)..." -ForegroundColor DarkGray
+            Write-Verbose "[TEAM] Re-reading dashboard list after temp creation"
             $dashboards = @(Get-AdoDashboards -ProjectId $project.id -TeamId $team.id)
+            Write-Host "        [READ] Found $($dashboards.Count) dashboard(s) total after temp creation" -ForegroundColor Cyan
 
             # 2.2 Delete all existing dashboards that are not one of the new TMP ones
             $recommendedNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -1331,41 +1422,60 @@ foreach ($project in $projects) {
             foreach ($kvp in $createdTemp.GetEnumerator()) {
                 if ($kvp.Value -and $kvp.Value.id) { [void]$tmpIds.Add([string]$kvp.Value.id) }
             }
+            Write-Verbose "[TEAM] Temporary dashboard IDs to preserve: $($tmpIds.Count) item(s)"
 
+            $delIndex = 0
+            $delCount = 0
             foreach ($d in $dashboards) {
                 if (-not $d -or -not $d.id) { continue }
 
                 $isTmp = $d.name -like "[TMP]*" -or $tmpIds.Contains([string]$d.id)
                 if ($isTmp) {
                     # Keep TMP dashboards for now; they will be renamed
+                    Write-Verbose "[DASHBOARD-DELETE] Skipping temporary dashboard: $($d.name) [will be renamed]"
                     continue
                 }
 
+                $delIndex++
                 # Delete everything else (old standard dashboards and custom ones)
-                Write-Host "    DELETE existing dashboard '$($d.name)'" -ForegroundColor DarkYellow
+                Write-Host "        [DELETE] [$delIndex] Deleting old dashboard: '$($d.name)' [ID: $($d.id)]" -ForegroundColor DarkYellow
+                Write-Verbose "[DASHBOARD-DELETE] Deleting dashboard: $($d.name)"
                 try {
                     Remove-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardId $d.id
                     $deletedCount++
+                    $delCount++
+                    Write-Verbose "[DASHBOARD-DELETE] Successfully deleted dashboard ID: $($d.id)"
                 } catch {
-                    Write-Warning "      -> failed to delete dashboard '$($d.name)' in team '$($team.name)'. $_"
+                    Write-Warning "        -> Failed to delete dashboard '$($d.name)' in team '$($team.name)'. $_"
+                    Write-Verbose "[DASHBOARD-DELETE] Error deleting dashboard $($d.id): $_"
                 }
             }
+            Write-Host "        [DELETE] Deleted $delCount old dashboard(s)" -ForegroundColor Cyan
 
             # 2.3 Rename each TMP dashboard to its final name (no numbers, no TMP prefix)
+            Write-Host "      [TEAM-RENAME] Renaming temporary dashboards (Phase 3 of 3)..." -ForegroundColor DarkGray
+            Write-Verbose "[TEAM] Re-reading dashboard list for rename phase"
             $dashboards = @(Get-AdoDashboards -ProjectId $project.id -TeamId $team.id)
             $dashById = @{}
             foreach ($d in $dashboards) {
                 if ($d -and $d.id) { $dashById[[string]$d.id] = $d }
             }
+            Write-Host "        [READ] Found $($dashById.Count) dashboard(s) for rename phase" -ForegroundColor Cyan
 
+            $renameIndex = 0
             foreach ($finalName in $recommendedByName.Keys) {
-                if (-not $createdTemp.ContainsKey($finalName)) { continue }
+                if (-not $createdTemp.ContainsKey($finalName)) { 
+                    Write-Verbose "[DASHBOARD-RENAME] Skipping rename for $finalName - not in created temp list"
+                    continue 
+                }
 
+                $renameIndex++
                 $tmpDash = $createdTemp[$finalName]
                 $dashId  = [string]$tmpDash.id
 
                 if (-not $dashById.ContainsKey($dashId)) {
-                    Write-Warning "    TMP dashboard for '$finalName' not found when renaming. Skipping."
+                    Write-Warning "        [RENAME] [$renameIndex] TMP dashboard for '$finalName' not found when renaming. Skipping."
+                    Write-Verbose "[DASHBOARD-RENAME] Dashboard ID $dashId not found in current list"
                     continue
                 }
 
@@ -1382,41 +1492,69 @@ foreach ($project in $projects) {
                     $updateDef['eTag'] = $current.eTag
                 }
 
-                Write-Host "    RENAME TMP '$($current.name)' -> '$finalName'" -ForegroundColor Green
+                Write-Host "        [RENAME] [$renameIndex] Renaming: '$($current.name)' -> '$finalName'" -ForegroundColor Green
+                Write-Verbose "[DASHBOARD-RENAME] Renaming dashboard ID $dashId from '$($current.name)' to '$finalName'"
                 try {
                     $updated = Set-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardId $dashId -DashboardDef $updateDef
                     if ($updated -and $updated.id) {
-                        Write-Host "      -> renamed id $($updated.id)" -ForegroundColor DarkGreen
+                        Write-Host "          -> Successfully renamed (ID: $($updated.id))" -ForegroundColor DarkGreen
+                        Write-Verbose "[DASHBOARD-RENAME] Successfully renamed dashboard to: $finalName (ID: $($updated.id))"
+                    } else {
+                        Write-Warning "          -> Rename returned no ID"
                     }
                 } catch {
-                    Write-Warning "      -> failed to rename dashboard '$($current.name)' to '$finalName' in team '$($team.name)'. $_"
+                    Write-Warning "          -> Failed to rename dashboard '$($current.name)' to '$finalName' in team '$($team.name)'. $_"
+                    Write-Verbose "[DASHBOARD-RENAME] Error renaming dashboard ID $($dashId): $_"
                 }
             }
+            Write-Host "      [TEAM-RESET] Dashboard reset complete for team '$($team.name)'" -ForegroundColor Cyan
         }
     }
     else {
         # Non-reset mode: only create missing dashboards, keep others intact
+        Write-Host "      [TEAM-MERGE] MERGE MODE: Creating missing dashboards only..." -ForegroundColor Yellow
+        Write-Verbose "[TEAM] Entering merge mode for team $($team.name)"
+        $createIndex = 0
         foreach ($def in $recommended) {
             $name = $def.name
             if ($existingByName.ContainsKey($name)) {
-                Write-Host "    SKIP create '$name' (already exists)." -ForegroundColor DarkGray
+                Write-Host "        [SKIP] Dashboard '$name' already exists (keeping)." -ForegroundColor DarkGray
+                Write-Verbose "[TEAM-MERGE] Skipping dashboard creation for $name - already exists"
                 continue
             }
 
-            Write-Host "    CREATE '$name'" -ForegroundColor Green
+            $createIndex++
+            Write-Host "        [CREATE] [$createIndex] Creating new dashboard: '$name'" -ForegroundColor Green
+            Write-Verbose "[TEAM-MERGE] Creating missing dashboard: $name"
             if (-not $DryRun) {
                 $created = New-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardDef $def
                 if ($created -and $created.id) {
-                    Write-Host "      -> created" -ForegroundColor DarkGreen
+                    Write-Host "          -> Successfully created (ID: $($created.id))" -ForegroundColor DarkGreen
+                    Write-Verbose "[TEAM-MERGE] Created dashboard with ID: $($created.id)"
                     $createdCount++
+                } else {
+                    Write-Warning "          -> Failed to create dashboard '$name'"
+                    Write-Verbose "[TEAM-MERGE] Failed to create dashboard: $name"
                 }
+            } else {
+                Write-Host "          -> [DRY-RUN] Would create dashboard" -ForegroundColor Cyan
             }
         }
     }
+    Write-Verbose "[TEAM] Completed team processing: $($team.name)"
 }
 
+    Write-Verbose "[PROJECT] Completed project processing: $($project.name)"
 }
 
-Write-Progress -Activity "Processing Projects" -Completed
+Write-Progress -Activity "Processing Projects" -Completed -Id 1
 Write-Host ""
-Write-Host "Done. Created: $createdCount, Deleted: $deletedCount" -ForegroundColor Cyan
+Write-Host "[COMPLETE] Dashboard operation completed!" -ForegroundColor Green
+Write-Host "[SUMMARY] Statistics:" -ForegroundColor Cyan
+Write-Host "  - Projects Processed: $projectsProcessed" -ForegroundColor Cyan
+Write-Host "  - Teams Processed: $teamsProcessed" -ForegroundColor Cyan
+Write-Host "  - Dashboards Created: $createdCount" -ForegroundColor Green
+Write-Host "  - Dashboards Deleted: $deletedCount" -ForegroundColor Yellow
+Write-Host "  - DryRun Mode: $DryRun" -ForegroundColor Cyan
+Write-Host "  - Reset Mode: $ClearExistingDashboards" -ForegroundColor Cyan
+Write-Verbose "[COMPLETE] Dashboard reset/creation process finished. Projects: $projectsProcessed, Teams: $teamsProcessed, Created: $createdCount, Deleted: $deletedCount"
