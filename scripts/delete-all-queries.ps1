@@ -53,6 +53,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Initialize logging and progress tracking
+$script:StartTime = Get-Date
+$script:ProjectsProcessed = 0
+$script:ProjectsSkipped = 0
+$script:QueriesDeleted = 0
+$script:FoldersDeleted = 0
+$script:TotalQueriesFound = 0
+$script:TotalFoldersFound = 0
+
+Write-Host "=== Azure DevOps Query Deletion Script ==="
+Write-Host "Started at: $($script:StartTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+Write-Host ""
+
 # Load environment variables from .env file
 if (Test-Path $EnvPath) {
     $envContent = Get-Content $EnvPath | Where-Object { $_ -notmatch '^#' -and $_ -notmatch '^\s*$' }
@@ -125,7 +138,10 @@ function Invoke-AdoDelete {
         [string]$Url,
 
         [Parameter(Mandatory = $true)]
-        [string]$ItemDescription
+        [string]$ItemDescription,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ItemType  # "query" or "folder"
     )
 
     if ($script:DoWhatIf) {
@@ -137,7 +153,22 @@ function Invoke-AdoDelete {
     Write-Host "DELETE $ItemDescription"
     Write-Verbose "DELETE $Url"
 
-    Invoke-RestMethod -Method Delete -Uri $Url -Headers $headers | Out-Null
+    try {
+        Invoke-RestMethod -Method Delete -Uri $Url -Headers $headers | Out-Null
+
+        # Track deletions
+        if ($ItemType -eq "query") {
+            $script:QueriesDeleted++
+        } elseif ($ItemType -eq "folder") {
+            $script:FoldersDeleted++
+        }
+
+        Write-Host "  ✓ Successfully deleted $ItemType"
+    }
+    catch {
+        Write-Host "  ✗ Failed to delete $ItemType : $($_.Exception.Message)" -ForegroundColor Red
+        throw
+    }
 }
 
 function Get-AdoRootQueryFolders {
@@ -182,6 +213,15 @@ function Remove-AdoQueriesUnderFolder {
         $children = $folder.value
     }
 
+    $queriesCount = ($children | Where-Object { -not $_.isFolder }).Count
+    $foldersCount = ($children | Where-Object { $_.isFolder }).Count
+
+    if ($children.Count -gt 0) {
+        Write-Host "         📋 Found $($children.Count) items: $queriesCount queries, $foldersCount folders"
+    } else {
+        Write-Host "         📋 No items found in this folder"
+    }
+
     foreach ($child in $children) {
         if ($child.isFolder -eq $true) {
             # Recurse into sub-folder first
@@ -190,13 +230,13 @@ function Remove-AdoQueriesUnderFolder {
             # Then delete the folder itself
             $deleteUrl = ("{0}/_apis/wit/queries/{1}?api-version={2}" -f $ProjectUrl, $child.id, $apiVersion)
             $desc = "folder '{0}' ({1})" -f $child.name, $child.id
-            Invoke-AdoDelete -Url $deleteUrl -ItemDescription $desc
+            Invoke-AdoDelete -Url $deleteUrl -ItemDescription $desc -ItemType "folder"
         }
         else {
             # Delete individual query
             $deleteUrl = ("{0}/_apis/wit/queries/{1}?api-version={2}" -f $ProjectUrl, $child.id, $apiVersion)
             $desc = "query '{0}' ({1})" -f $child.name, $child.id
-            Invoke-AdoDelete -Url $deleteUrl -ItemDescription $desc
+            Invoke-AdoDelete -Url $deleteUrl -ItemDescription $desc -ItemType "query"
         }
     }
 }
@@ -205,8 +245,11 @@ Write-Host "Azure DevOps organization: $trimmedOrg"
 Write-Host "API version              : $apiVersion"
 Write-Host "WhatIf mode              : $($script:DoWhatIf)"
 Write-Host "Env file                 : $EnvPath"
+Write-Host ""
 
 # Get all projects
+Write-Host "🔍 Discovering projects..."
+$projectStartTime = Get-Date
 $projectsUrl = "$trimmedOrg/_apis/projects?`$top=1000&api-version=$apiVersion"
 $projectsResponse = Invoke-AdoGet -Url $projectsUrl
 
@@ -215,39 +258,87 @@ if (-not $projectsResponse -or -not $projectsResponse.value) {
 }
 
 $projects = $projectsResponse.value
-Write-Host "Found $($projects.Count) projects to process."
+$projectDiscoveryTime = (Get-Date) - $projectStartTime
+Write-Host "✅ Found $($projects.Count) projects to process (took $([math]::Round($projectDiscoveryTime.TotalSeconds, 2))s)"
+Write-Host ""
 
+# Process each project
+$projectIndex = 0
 foreach ($project in $projects) {
-    Write-Host ""
-    Write-Host "Processing project: $($project.name) ($($project.id))"
+    $projectIndex++
+    $projectStartTime = Get-Date
+
+    Write-Host "📁 [$projectIndex/$($projects.Count)] Processing project: $($project.name) ($($project.id))"
+    Write-Host "   Started at: $($projectStartTime.ToString('HH:mm:ss'))"
 
     $projectUrl = "$trimmedOrg/$($project.name)"
+    $projectQueriesFound = 0
+    $projectFoldersFound = 0
 
-    $rootFolders = Get-AdoRootQueryFolders -ProjectUrl $projectUrl
+    try {
+        $rootFolders = Get-AdoRootQueryFolders -ProjectUrl $projectUrl
 
-    if (-not $rootFolders) {
-        Write-Warning "No root query folders returned for project $($project.name). Skipping."
-        continue
+        if (-not $rootFolders) {
+            Write-Warning "No root query folders returned for project $($project.name). Skipping."
+            $script:ProjectsSkipped++
+            continue
+        }
+
+        $targets = $rootFolders | Where-Object {
+            $_.name -eq 'Shared Queries' -or $_.name -eq 'My Queries'
+        }
+
+        if (-not $targets) {
+            Write-Warning "Could not find 'Shared Queries' or 'My Queries' roots for project $($project.name). Skipping."
+            $script:ProjectsSkipped++
+            continue
+        }
+
+        Write-Host "   📂 Found $($targets.Count) root folders to process"
+
+        foreach ($root in $targets) {
+            Write-Host "     🔄 Processing root folder: $($root.name) ($($root.id))"
+            $folderStartTime = Get-Date
+
+            Remove-AdoQueriesUnderFolder -ProjectUrl $projectUrl -FolderId $root.id
+
+            $folderProcessingTime = (Get-Date) - $folderStartTime
+            Write-Host "     ✅ Completed $($root.name) (took $([math]::Round($folderProcessingTime.TotalSeconds, 2))s)"
+        }
+
+        $projectProcessingTime = (Get-Date) - $projectStartTime
+        $script:ProjectsProcessed++
+
+        Write-Host "   ✅ Project completed (took $([math]::Round($projectProcessingTime.TotalSeconds, 2))s)"
+        Write-Host "   📊 Project stats: $($script:QueriesDeleted) queries, $($script:FoldersDeleted) folders deleted so far"
+    }
+    catch {
+        Write-Host "   ❌ Error processing project $($project.name): $($_.Exception.Message)" -ForegroundColor Red
+        $script:ProjectsSkipped++
     }
 
-    $targets = $rootFolders | Where-Object {
-        $_.name -eq 'Shared Queries' -or $_.name -eq 'My Queries'
-    }
-
-    if (-not $targets) {
-        Write-Warning "Could not find 'Shared Queries' or 'My Queries' roots for project $($project.name). Skipping."
-        continue
-    }
-
-    foreach ($root in $targets) {
-        Write-Host "  Processing root folder: $($root.name) ($($root.id))"
-        Remove-AdoQueriesUnderFolder -ProjectUrl $projectUrl -FolderId $root.id
-    }
+    Write-Host ""
 }
 
+# Final summary
+$endTime = Get-Date
+$totalTime = $endTime - $script:StartTime
+
+Write-Host "=== EXECUTION SUMMARY ==="
+Write-Host "Started:  $($script:StartTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+Write-Host "Finished: $($endTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+Write-Host "Duration: $([math]::Round($totalTime.TotalMinutes, 2)) minutes"
 Write-Host ""
+Write-Host "📊 Statistics:"
+Write-Host "   Projects processed: $($script:ProjectsProcessed)"
+Write-Host "   Projects skipped:   $($script:ProjectsSkipped)"
+Write-Host "   Queries deleted:    $($script:QueriesDeleted)"
+Write-Host "   Folders deleted:    $($script:FoldersDeleted)"
+Write-Host ""
+
 if ($script:DoWhatIf) {
-    Write-Host "Completed in WhatIf mode. No queries were actually deleted."
+    Write-Host "ℹ️  Completed in WhatIf mode. No queries were actually deleted."
+    Write-Host "   Run without -WhatIf to perform actual deletions."
 } else {
-    Write-Host "Completed. All queries and sub-folders under 'Shared Queries' and 'My Queries' have been deleted from all projects."
+    Write-Host "✅ Completed. All queries and sub-folders under 'Shared Queries' and 'My Queries' have been deleted from all projects."
 }
