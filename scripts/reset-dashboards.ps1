@@ -40,6 +40,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# Generate a unique run ID to avoid conflicts with failed previous runs
+$script:RunId = Get-Random -Minimum 10000 -Maximum 99999
+Write-Verbose "[INIT] Generated unique run ID: $script:RunId"
+
 $markdownContribution   = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.MarkdownWidget"
 $markdownConfig         = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.MarkdownWidget.Configuration"
 $teamMembersContribution= "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.TeamMembersWidget"
@@ -307,7 +312,8 @@ function Clean-TempDashboards {
 
     $tempCount = 0
     foreach ($dash in $dashboards) {
-        if ($dash.name -like "[TMP]*") {
+        # Match both old [TMP] format and new [TMP-XXXXX] format
+        if ($dash.name -like "[TMP]*" -or $dash.name -match '^\[TMP-\d{5}\]') {
             try {
                 Write-Verbose "[CLEANUP-TEMP] Removing temporary dashboard: $($dash.name)"
                 Remove-AdoDashboard -ProjectId $ProjectId -TeamId $TeamId -DashboardId $dash.id
@@ -339,19 +345,27 @@ function Set-AdoDashboard {
         [object] $DashboardDef
     )
 
-    # Dashboards - Replace / Update with optional eTag
+    # Dashboards - Update using PATCH method for partial updates
     $relative = "$($ProjectId)/$($TeamId)/_apis/dashboard/dashboards/$($DashboardId)?api-version=$($script:DashboardApiVersion)"
+
+    # Remove eTag from the body as it should be in headers if needed
+    $bodyToSend = [ordered]@{}
+    foreach ($key in $DashboardDef.Keys) {
+        if ($key -ne 'eTag' -and $key -ne 'id' -and $key -ne '_links') {
+            $bodyToSend[$key] = $DashboardDef[$key]
+        }
+    }
 
     $additionalHeaders = @{}
     if ($DashboardDef -and $DashboardDef.PSObject.Properties.Name -contains 'eTag' -and $DashboardDef.eTag) {
-        $additionalHeaders["If-Match"] = "`"$([string]$DashboardDef.eTag)`""
+        $additionalHeaders["If-Match"] = $DashboardDef.eTag
     }
 
     if ($additionalHeaders.Count -gt 0) {
-        return Invoke-AdoRest -Method PUT -RelativeUrl $relative -Body $DashboardDef -AdditionalHeaders $additionalHeaders
+        return Invoke-AdoRest -Method PUT -RelativeUrl $relative -Body $bodyToSend -AdditionalHeaders $additionalHeaders
     }
     else {
-        return Invoke-AdoRest -Method PUT -RelativeUrl $relative -Body $DashboardDef
+        return Invoke-AdoRest -Method PUT -RelativeUrl $relative -Body $bodyToSend
     }
 }
 
@@ -421,9 +435,9 @@ function Clean-OldQueries {
         if (-not $item.name) { continue }
 
         # Clean up any temporary or legacy queries:
-        # - Names starting with [TMP]
+        # - Names starting with [TMP] or [TMP-XXXXX]
         # - Legacy random-suffix pattern "(R123)"
-        if ($item.name -like "[TMP]*" -or $item.name -match '\(R\d+\)$') {
+        if ($item.name -like "[TMP]*" -or $item.name -match '^\[TMP-\d{5}\]' -or $item.name -match '\(R\d+\)$') {
             $deleteRelative = $ProjectId + '/_apis/wit/queries/' + $item.id + '?api-version=' + $apiVersion
             try {
                 Write-Verbose "[QUERY-CLEANUP] Deleting temporary/legacy query: $($item.name)"
@@ -482,7 +496,7 @@ function New-Query {
 
     $apiVersion = "7.1"
     $targetName = $Name
-    $tempName   = "[TMP] $Name"
+    $tempName   = "[TMP-$($script:RunId)] $Name"
 
     # Helper: list all children under the folder
     $listRelative = $ProjectId + '/_apis/wit/queries/' + $FolderId + '?$depth=1&api-version=' + $apiVersion
@@ -678,189 +692,21 @@ $FutureIterations = "@CurrentIteration + 3"
 # BUSINESS / PRODUCT DASHBOARD CONFIGURATION
 # ============================================
 
-$businessQueries = @(
-        @{
-            Name = "Product Backlog Health"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Scheduling.StoryPoints], [Microsoft.VSTS.Common.BusinessValue] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('User Story', 'Product Backlog Item', 'Requirement', 'Bug') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [Microsoft.VSTS.Common.Priority], [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "High-Value Items"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [Microsoft.VSTS.Common.BusinessValue], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Feature', 'User Story', 'Product Backlog Item', 'Requirement') AND [Microsoft.VSTS.Common.BusinessValue] >= 50 AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.BusinessValue] DESC, [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Strategic Initiatives"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Epic', 'Feature') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.CreatedDate]"
-        },
-        @{
-            Name = "Stakeholder Requests"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [System.CreatedDate] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('User Story', 'Product Backlog Item', 'Requirement', 'Issue') AND [System.State] NOT IN ('Closed', 'Done', 'Removed', 'Resolved') ORDER BY [System.CreatedDate] DESC"
-        },
-        @{
-            Name = "Market Dependency Tracker"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story', 'Product Backlog Item', 'Requirement') AND [System.Tags] CONTAINS 'Dependency' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [System.Title]"
-        },
-        @{
-            Name = "Revenue Impact Items"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [Microsoft.VSTS.Common.BusinessValue], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Feature', 'User Story', 'Product Backlog Item', 'Requirement') AND [Microsoft.VSTS.Common.BusinessValue] >= 80 AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.BusinessValue] DESC"
-        },
-        @{
-            Name = "Regulatory Compliance Items"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Requirement', 'User Story', 'Product Backlog Item') AND ([System.Tags] CONTAINS 'Compliance' OR [System.Tags] CONTAINS 'Regulation') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.CreatedDate]"
-        },
-        @{
-            Name = "Customer Feedback Integration"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [System.CreatedDate] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND ([System.WorkItemType] IN ('Feedback Request', 'Feedback Response', 'Issue') OR [System.Tags] CONTAINS 'Feedback') AND [System.State] NOT IN ('Closed', 'Rejected', 'Removed') ORDER BY [System.CreatedDate] DESC"
-        },
-        @{
-            Name = "Competitive Analysis Items"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story', 'Product Backlog Item', 'Requirement') AND [System.Tags] CONTAINS 'Competitive' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [System.Title]"
-        },
-        @{
-            Name = "Partnership Integration Items"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Feature', 'User Story', 'Product Backlog Item', 'Requirement') AND [System.Tags] CONTAINS 'Partner' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [System.Title]"
-        },
-        @{
-            Name = "Go-to-Market Readiness"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Feature', 'User Story', 'Product Backlog Item', 'Requirement') AND ([System.Tags] CONTAINS 'GTM' OR [System.Tags] CONTAINS 'Go-To-Market' OR [System.Tags] CONTAINS 'Release') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [System.Title]"
-        }
-)
-
 # ============================================
-# ENGINEERING / DEVELOPMENT DASHBOARD CONFIGURATION
+# BUSINESS / PRODUCT DASHBOARD CONFIGURATION
 # ============================================
 
-$devQueries = @(
-        @{
-            Name = "Sprint Task Breakdown"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Scheduling.RemainingWork], [System.AssignedTo] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [System.AssignedTo]"
-        },
-        @{
-            Name = "Code Review Queue"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [System.CreatedDate] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.Title] CONTAINS 'Code Review' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.CreatedDate]"
-        },
-        @{
-            Name = "Technical Debt Backlog"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND [System.Tags] CONTAINS 'Tech Debt' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Security Vulnerability Items"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND ([System.Tags] CONTAINS 'Security' OR [System.Tags] CONTAINS 'Vulnerability') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Severity], [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Performance Optimization Items"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([System.Tags] CONTAINS 'Performance' OR [System.Tags] CONTAINS 'Perf') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Architecture Refactoring Tasks"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([System.Title] CONTAINS 'Refactor' OR [System.Tags] CONTAINS 'Refactor') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Development Spike Tasks"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Task', 'User Story', 'Product Backlog Item', 'Requirement') AND [System.Title] CONTAINS 'Spike' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Test Automation Items"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.TCM.AutomationStatus] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Test Case' AND [Microsoft.VSTS.TCM.AutomationStatus] <> 'Not Automated' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "DevOps Improvement Tasks"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([System.Tags] CONTAINS 'DevOps' OR [System.Tags] CONTAINS 'Pipeline' OR [System.Tags] CONTAINS 'CI/CD') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Code Migration Items"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([System.Title] CONTAINS 'Migration' OR [System.Title] CONTAINS 'Migrate' OR [System.Tags] CONTAINS 'Migration') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.CreatedDate]"
-        },
-        @{
-            Name = "Documentation Tasks"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([Microsoft.VSTS.Common.Activity] = 'Documentation' OR [System.Title] CONTAINS 'Doc' OR [System.Tags] CONTAINS 'Documentation') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Infrastructure As Code Tasks"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([System.Tags] CONTAINS 'IaC' OR [System.Tags] CONTAINS 'Terraform' OR [System.Tags] CONTAINS 'Bicep' OR [System.Tags] CONTAINS 'ARM Template') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        }
-)
+# Load queries from external JSON file
+$queryConfigPath = Join-Path $PSScriptRoot "dashboard-queries.json"
+if (-not (Test-Path $queryConfigPath)) {
+    throw "Query configuration file not found: $queryConfigPath"
+}
+$queryConfig = Get-Content $queryConfigPath -Raw | ConvertFrom-Json
 
-# ============================================
-# QUALITY / TESTING DASHBOARD CONFIGURATION
-# ============================================
-
-    $qaQueries = @(
-        @{
-            Name = "Open Defects By Priority"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity], [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Critical and High Defects"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND ([Microsoft.VSTS.Common.Severity] IN ('1 - Critical', '2 - High') OR [Microsoft.VSTS.Common.Priority] IN (1, 2)) AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Severity], [Microsoft.VSTS.Common.Priority], [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "New Defects (Last 7 Days)"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State], [System.CreatedDate] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND [System.CreatedDate] >= @Today - 7 ORDER BY [System.CreatedDate] DESC"
-        },
-        @{
-            Name = "Defects Ready For Test"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND [System.State] = 'Resolved' ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Production Defects"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Bug' AND ([System.Tags] CONTAINS 'Production' OR [System.Title] CONTAINS 'Prod') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Severity], [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Active Test Cases"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Test Case' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [System.Title]"
-        },
-        @{
-            Name = "Test Cases Not Automated"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.TCM.AutomationStatus] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Test Case' AND [Microsoft.VSTS.TCM.AutomationStatus] = 'Not Automated' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Automated Test Cases"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.TCM.AutomationStatus] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Test Case' AND [Microsoft.VSTS.TCM.AutomationStatus] <> 'Not Automated' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Test Case Design Backlog"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Test Case' AND [System.State] = 'Design' ORDER BY [System.ChangedDate] DESC"
-        }
-    )
-
-# ============================================
-# OPERATIONS / RELEASE DASHBOARD CONFIGURATION
-# ============================================
-
-    $opsQueries = @(
-        @{
-            Name = "Production Incidents"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Bug', 'Issue') AND ([System.Tags] CONTAINS 'Production' OR [System.Tags] CONTAINS 'Incident') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Severity], [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Open Operational Issues"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Issue' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Active Change Requests"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Change Request', 'Issue', 'User Story', 'Product Backlog Item') AND ([System.Tags] CONTAINS 'Change' OR [System.Title] CONTAINS 'Change Request') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Release Deployment Tasks"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([System.Title] CONTAINS 'Deployment' OR [System.Title] CONTAINS 'Deploy' OR [System.Tags] CONTAINS 'Deployment') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Failed Release Follow-Up"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Bug', 'Issue') AND ([System.Tags] CONTAINS 'Failed Deployment' OR [System.Title] CONTAINS 'Failed Deployment') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Service Availability Work Items"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Bug', 'Issue', 'Task') AND ([System.Tags] CONTAINS 'SLA' OR [System.Tags] CONTAINS 'Availability' OR [System.Tags] CONTAINS 'Reliability') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Hotfix Backlog"
-            Wiql = "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] IN ('Bug', 'Issue') AND ([System.Tags] CONTAINS 'Hotfix' OR [System.Title] CONTAINS 'Hotfix') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        },
-        @{
-            Name = "Monitoring and Alerting Tasks"
-            Wiql = "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.AreaPath] UNDER '$TeamAreaPath' AND [System.WorkItemType] = 'Task' AND ([System.Tags] CONTAINS 'Monitoring' OR [System.Tags] CONTAINS 'Alerting' OR [System.Tags] CONTAINS 'Alert') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
-        }
-    )
+$businessQueries = $queryConfig.Business
+$devQueries = $queryConfig.Engineering
+$qaQueries = $queryConfig.Quality
+$opsQueries = $queryConfig.Operations
 
     $dashboards = @()
 
@@ -876,318 +722,93 @@ $devQueries = @(
 
         $widgets = @()
 
-        # Analytics and KPI widgets per role (6 per dashboard)
+        # Load widget configuration from JSON file
+        $configPath = Join-Path $PSScriptRoot "dashboard-widgets-config.json"
+        if (-not (Test-Path $configPath)) {
+            Write-Warning "[WIDGET-CONFIG] Configuration file not found: $configPath. Using fallback configuration."
+            $widgetConfig = @{ "Fallback" = @() }
+        } else {
+            try {
+                $widgetConfig = Get-Content $configPath -Raw | ConvertFrom-Json -AsHashtable
+                Write-Verbose "[WIDGET-CONFIG] Loaded widget configuration from $configPath"
+            } catch {
+                Write-Warning "[WIDGET-CONFIG] Failed to load configuration file: $_. Using fallback configuration."
+                $widgetConfig = @{ "Fallback" = @() }
+            }
+        }
+
+        # Determine which widget set to use based on dashboard name
+        $widgetSetName = "Fallback"
+        if ($Name -like "*Business*") { $widgetSetName = "Business" }
+        elseif ($Name -like "*Engineering*") { $widgetSetName = "Engineering" }
+        elseif ($Name -like "*Quality*") { $widgetSetName = "Quality" }
+        elseif ($Name -like "*Operations*") { $widgetSetName = "Operations" }
+
+        $widgetDefinitions = $widgetConfig[$widgetSetName]
+        if (-not $widgetDefinitions) {
+            Write-Warning "[WIDGET-CONFIG] No widget definitions found for '$widgetSetName'. Using Fallback."
+            $widgetDefinitions = $widgetConfig["Fallback"]
+        }
+
+        Write-Verbose "[WIDGET-CONFIG] Using widget set: $widgetSetName with $($widgetDefinitions.Count) widget(s)"
+
+        # Build widgets from configuration
         $row = 1
-
-        if ($Name -like "*Business*") {
-            # Business / Product: flow, throughput, and responsiveness
-            $widgets += @{
-                name            = "Business - Cumulative Flow"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $cumulativeFlowContribution
+        $currentColumn = 1
+        foreach ($widgetDef in $widgetDefinitions) {
+            # Handle optional row gap (for Fallback's second KPI Count)
+            # Access hashtable properties safely
+            $hasRowGap = $false
+            if ($widgetDef -is [hashtable]) {
+                $hasRowGap = $widgetDef.ContainsKey('addRowGap') -and $widgetDef['addRowGap']
+            } elseif ($widgetDef.PSObject.Properties['addRowGap']) {
+                $hasRowGap = $widgetDef.addRowGap
             }
-            $row += 3
-
-            $widgets += @{
-                name            = "Business - Velocity"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $velocityContribution
+            
+            if ($hasRowGap) {
+                $row += 3
             }
-            $row += 3
 
-            $widgets += @{
-                name            = "Business - Lead Time"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $leadTimeContribution
-            }
-            $row += 3
+            # Get properties safely from hashtable or PSObject
+            $widgetName = if ($widgetDef -is [hashtable]) { $widgetDef['name'] } else { $widgetDef.name }
+            $widgetColumn = if ($widgetDef -is [hashtable]) { $widgetDef['column'] } else { $widgetDef.column }
+            $widgetContribId = if ($widgetDef -is [hashtable]) { $widgetDef['contributionId'] } else { $widgetDef.contributionId }
 
-            $widgets += @{
-                name            = "Business - Cycle Time"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $cycleTimeContribution
+            # Map contribution ID string to actual variable
+            $contributionIdValue = switch ($widgetContribId) {
+                "cumulativeFlowContribution" { $cumulativeFlowContribution }
+                "velocityContribution" { $velocityContribution }
+                "leadTimeContribution" { $leadTimeContribution }
+                "cycleTimeContribution" { $cycleTimeContribution }
+                "sprintBurndownContribution" { $sprintBurndownContribution }
+                "queryScalarContribution" { $queryScalarContribution }
+                "buildHistogramContribution" { $buildHistogramContribution }
+                "codeScalarContribution" { $codeScalarContribution }
+                "witChartContribution" { $witChartContribution }
+                default { 
+                    Write-Warning "[WIDGET-CONFIG] Unknown contribution ID: $widgetContribId"
+                    $null 
+                }
             }
-            $row += 3
 
-            $widgets += @{
-                name            = "Business - Sprint Burndown"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $sprintBurndownContribution
+            if ($null -eq $contributionIdValue) {
+                Write-Warning "[WIDGET-CONFIG] Skipping widget '$widgetName' - invalid contribution ID"
+                continue
             }
-            $row += 3
 
             $widgets += @{
-                name            = "Business - KPI Count"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
+                name            = $widgetName
+                position        = @{ row = $row; column = $widgetColumn }
+                size            = @{ rowSpan = 3; columnSpan = 5 }
                 settings        = $null
                 settingsVersion = $settingsVersion
-                contributionId  = $queryScalarContribution
+                contributionId  = $contributionIdValue
             }
-            $row += 3
-        }
-        elseif ($Name -like "*Engineering*") {
-            # Engineering / Dev: sprint health, build history, and flow
-            $widgets += @{
-                name            = "Dev - Sprint Burndown"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $sprintBurndownContribution
-            }
-            $row += 3
 
-            $widgets += @{
-                name            = "Dev - Velocity"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $velocityContribution
+            # Track column to increment row after every 2 widgets (columns 1 and 6)
+            if ($widgetColumn -eq 6) {
+                $row += 3
             }
-            $row += 3
-
-            $widgets += @{
-                name            = "Dev - Cumulative Flow"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $cumulativeFlowContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "Dev - Cycle Time"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $cycleTimeContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "Dev - Build History"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $buildHistogramContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "Dev - Code Activity"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $codeScalarContribution
-            }
-            $row += 3
-        }
-        elseif ($Name -like "*Quality*") {
-            # Quality / Testing: flow of bugs/tests and lead time
-            $widgets += @{
-                name            = "QA - Sprint Burndown"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $sprintBurndownContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "QA - Cumulative Flow"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $cumulativeFlowContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "QA - Lead Time"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $leadTimeContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "QA - Cycle Time"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $cycleTimeContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "QA - Bug/Defect Chart"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $witChartContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "QA - KPI Count"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $queryScalarContribution
-            }
-            $row += 3
-        }
-        elseif ($Name -like "*Operations*") {
-            # Operations / Release: deployment flow and build history
-            $widgets += @{
-                name            = "Ops - Sprint Burndown"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $sprintBurndownContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "Ops - Cumulative Flow"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $cumulativeFlowContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "Ops - Velocity"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $velocityContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "Ops - Lead Time"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $leadTimeContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "Ops - Build History"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $buildHistogramContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "Ops - KPI Count"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $queryScalarContribution
-            }
-            $row += 3
-        }
-        else {
-            # Fallback: generic mix if name doesn't match a known role
-            $widgets += @{
-                name            = "Team - Cumulative Flow"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $cumulativeFlowContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "Team - Velocity"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $velocityContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "Team - Lead Time"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $leadTimeContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "Team - Cycle Time"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $cycleTimeContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "Team - Sprint Burndown"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $sprintBurndownContribution
-            }
-            $row += 3
-
-            $widgets += @{
-                name            = "Team - KPI Count"
-                position        = @{ row = $row; column = 1 }
-                size            = @{ rowSpan = 3; columnSpan = 4 }
-                settings        = $null
-                settingsVersion = $settingsVersion
-                contributionId  = $queryScalarContribution
-            }
-            $row += 3
         }
 
         $analyticsCount  = $widgets.Count
@@ -1210,35 +831,57 @@ $devQueries = @(
         $queryIndex = 0
         foreach ($query in $Queries) {
             if ($queryIndex -ge $maxQueryWidgets) { break }
-            $queryIndex++
 
             $queryId = New-Query -ProjectId $ProjectId -TeamId $TeamId -FolderId $FolderId -Name $query.Name -Wiql $query.Wiql
             if($null -eq $queryId) {
+                Write-Warning "[WIDGET-CREATE] Skipping query widget '$($query.Name)' - query creation failed"
                 continue
             }
-            $settings = @{
-                            defaultBackgroundColor="#51399f";
-                            queryId=$queryId;
-                            queryName="Open Issues";
-                            colorRules= @( @{ isEnabled=$true;backgroundColor="#339947";thresholdCount=0;operator="<=" } )  | ConvertTo-Json -Compress;
-                            lastArtifactName="Open Issues";
-                            showTitle=$true;title="Open Issues";titleSize=2;showBorder=$true;
-                            borderColor="#cccccc";showHeader=$true;headerColor="#f4f4f4";
-                            showFooter=$false;footerColor="#f4f4f4";layout="list";
-                            pageSize=5;sortOrder="Descending";sortBy="ChangedDate";
-                            fieldsToDisplay=@("Id";"Title";"State";"AssignedTo";"ChangedDate")  | ConvertTo-Json -Compress;
-                            linkBehavior="newTab"
-                        }
-
-            $widgets += @{
-                name            = $query.Name
-                position        = @{ row = $row; column = ($row/2 -band 1 ? 1 : 5) }
-                size            = @{ rowSpan = 2; columnSpan = 4 }
-                settings        = ($settings  | ConvertTo-Json -Compress)
-                settingsVersion = $settingsVersion
-                contributionId  = "ms.vss-work-web.query-widget"
+            
+            # Verify the query exists before creating the widget
+            Write-Verbose "[WIDGET-CREATE] Verifying query exists: $queryId"
+            $apiVersion = "7.1"
+            $verifyRelative = "$ProjectId/_apis/wit/queries/$queryId`?api-version=$apiVersion"
+            $queryExists = $null
+            try {
+                $queryExists = Invoke-AdoRest -Method GET -RelativeUrl $verifyRelative -IgnoreNotFound
+            } catch {
+                Write-Warning "[WIDGET-CREATE] Failed to verify query '$($query.Name)' (ID: $queryId): $_"
             }
-            $row += 2
+            
+            if (-not $queryExists -or -not $queryExists.id) {
+                Write-Warning "[WIDGET-CREATE] Skipping query widget '$($query.Name)' - query does not exist or is inaccessible (ID: $queryId)"
+                continue
+            }
+            
+            Write-Verbose "[WIDGET-CREATE] Query verified successfully: $($queryExists.name) (ID: $queryId)"
+            $queryIndex++
+            
+            # Build query widget - use Query Tile Widget which displays query results
+            # Alternate between left (column 1) and right (column 6) columns
+            $column = if (($queryIndex % 2) -eq 1) { 1 } else { 6 }
+            
+            # Query Tile Widget settings - requires queryId and queryName in settings JSON
+            $querySettings = @{
+                queryId = $queryId
+                queryName = $queryExists.name
+            } | ConvertTo-Json -Compress
+            
+            Write-Verbose "[WIDGET-CREATE] Creating query tile widget: $($query.Name) at row $row, column $column (Query ID: $queryId)"
+            
+            $widgets += @{
+                name                        = $query.Name
+                position                    = @{ row = $row; column = $column }
+                size                        = @{ rowSpan = 2; columnSpan = 5 }
+                settings                    = $querySettings
+                settingsVersion             = @{ major = 1; minor = 0; patch = 0 }
+                contributionId              = "ms.vss-dashboards-web.Microsoft.VisualStudioOnline.Dashboards.QueryTileWidget"
+            }
+            
+            # Move to next row after every 2 widgets
+            if (($queryIndex % 2) -eq 0) {
+                $row += 2
+            }
         }
 
         return @{
@@ -1310,67 +953,75 @@ foreach ($project in $projects) {
     }
     Write-Host "[PROJECT] Found $($teams.Count) team(s) in project $($project.name)" -ForegroundColor Cyan
 
-    $teamIndex = 0
-    foreach ($team in $teams) {
-    $teamIndex++
-    $teamsProcessed++
-    Write-Progress -Activity "Processing Teams" -Status "[$teamIndex/$($teams.Count)] $($team.name) in $($project.name)" -PercentComplete (($teamIndex / $teams.Count) * 100) -ParentId 1 -Id 2
+    # Use the default team for project-level dashboards
+    $defaultTeam = $teams | Where-Object { $_.name -eq "$($project.name) Team" } | Select-Object -First 1
+    if (-not $defaultTeam) {
+        # If no team matches project name, use first team
+        $defaultTeam = $teams[0]
+    }
     
-    Write-Host "    [TEAM] [$teamIndex/$($teams.Count)] Processing: $($team.name) [ID: $($team.id)]" -ForegroundColor Yellow
-    Write-Verbose "[TEAM] Starting team processing: $($team.name) in project $($project.name)"
+    Write-Host "    [PROJECT-DASHBOARD] Using team '$($defaultTeam.name)' for project-level dashboards" -ForegroundColor Cyan
+    Write-Verbose "[PROJECT] Processing project-level dashboards using team: $($defaultTeam.name) [ID: $($defaultTeam.id)]"
 
     # 0) Clean any temporary dashboards before proceeding
-    Write-Host "      [TEAM-CLEANUP] Cleaning temporary dashboards..." -ForegroundColor DarkGray
-    Clean-TempDashboards -ProjectId $project.id -TeamId $team.id
+    Write-Host "      [PROJECT-CLEANUP] Cleaning temporary dashboards..." -ForegroundColor DarkGray
+    Clean-TempDashboards -ProjectId $project.id -TeamId $defaultTeam.id
 
     # 1) Read current dashboards safely as array (after cleanup)
-    Write-Host "      [TEAM-READ] Reading current dashboard list..." -ForegroundColor DarkGray
-    $dashboards = @(Get-AdoDashboards -ProjectId $project.id -TeamId $team.id)
-    Write-Host "      [TEAM-READ] Found $($dashboards.Count) existing dashboard(s) after cleanup." -ForegroundColor Cyan
+    Write-Host "      [PROJECT-READ] Reading current dashboard list..." -ForegroundColor DarkGray
+    $dashboards = @(Get-AdoDashboards -ProjectId $project.id -TeamId $defaultTeam.id)
+    Write-Host "      [PROJECT-READ] Found $($dashboards.Count) existing dashboard(s) after cleanup." -ForegroundColor Cyan
     foreach ($d in $dashboards) {
-        Write-Verbose "[TEAM-READ] Existing dashboard: '$($d.name)' [ID: $($d.id)]"
+        Write-Verbose "[PROJECT-READ] Existing dashboard: '$($d.name)' [ID: $($d.id)]"
     }
 
-    # 2) Recommended SDLC dashboards for this team
-    Write-Host "      [TEAM-RECOMMEND] Generating recommended dashboard definitions..." -ForegroundColor DarkGray
-    Write-Verbose "[TEAM] Fetching recommended dashboard definitions for team $($team.name)"
-    $recommended = @(Get-RecommendedDashboardDefinitions -ProjectName $project.name -TeamName $team.name -ProjectId $project.id -TeamId $team.id)
+    # 2) Recommended SDLC dashboards for this project
+    Write-Host "      [PROJECT-RECOMMEND] Generating recommended dashboard definitions..." -ForegroundColor DarkGray
+    Write-Verbose "[PROJECT] Fetching recommended dashboard definitions for project $($project.name)"
+    $recommended = @(Get-RecommendedDashboardDefinitions -ProjectName $project.name -TeamName $defaultTeam.name -ProjectId $project.id -TeamId $defaultTeam.id)
 
     if ($recommended.Count -eq 0) {
-        Write-Host "      [TEAM-SKIP] No recommended dashboards returned for team '$($team.name)'. Skipping." -ForegroundColor Yellow
-        Write-Verbose "[TEAM] Skipped team $($team.name) - no recommended dashboards"
+        Write-Host "      [PROJECT-SKIP] No recommended dashboards returned for project '$($project.name)'. Skipping." -ForegroundColor Yellow
+        Write-Verbose "[PROJECT] Skipped project $($project.name) - no recommended dashboards"
         continue
     }
-    Write-Host "      [TEAM-RECOMMEND] Generated $($recommended.Count) recommended dashboard(s)" -ForegroundColor Cyan
+    Write-Host "      [PROJECT-RECOMMEND] Generated $($recommended.Count) recommended dashboard(s)" -ForegroundColor Cyan
 
     # Map recommended by name for fast lookup
     $recommendedByName = @{}
     foreach ($def in $recommended) {
-        if ($null -ne $def -and $def.PSObject.Properties['name']) {
+        # Hashtables use .ContainsKey, PSObjects use .PSObject.Properties
+        $hasName = $false
+        if ($def -is [hashtable] -or $def -is [System.Collections.IDictionary]) {
+            $hasName = $def.ContainsKey('name')
+        } elseif ($def.PSObject.Properties['name']) {
+            $hasName = $true
+        }
+        
+        if ($null -ne $def -and $hasName -and $def.name) {
             $recommendedByName[$def.name] = $def
         }
     }
 
-    # Map existing dashboards by name (ignore any [TMP] remnants just in case)
+    # Map existing dashboards by name (ignore any [TMP] or [TMP-XXXXX] remnants just in case)
     Write-Host "    Found $($dashboards.Count) existing dashboard(s)." -ForegroundColor Cyan
     $existingByName = @{}
     foreach ($d in $dashboards) {
         if ($null -ne $d -and $d.PSObject.Properties['name']) {
-            if ($d.name -notlike "[TMP]*") {
+            # Exclude both old [TMP] and new [TMP-XXXXX] formats
+            if ($d.name -notlike "[TMP]*" -and $d.name -notmatch '^\[TMP-\d{5}\]') {
                 $existingByName[$d.name] = $d
             }
         }
     }
 
-    $ClearExistingDashboards = $true
-
     if ($ClearExistingDashboards) {
         # --------- RESET MODE: force standard dashboards, remove the rest ----------
-        Write-Host "      [TEAM-RESET] FORCE MODE: Resetting dashboards for team '$($team.name)'..." -ForegroundColor Yellow
-        Write-Verbose "[TEAM] Entering dashboard reset mode for team $($team.name)"
+        Write-Host "      [PROJECT-RESET] FORCE MODE: Resetting dashboards for project '$($project.name)'..." -ForegroundColor Yellow
+        Write-Verbose "[PROJECT] Entering dashboard reset mode for project $($project.name)"
 
-        # 2.1 Create all recommended dashboards first with temporary [TMP] names
-        Write-Host "      [TEAM-CREATE-TMP] Creating temporary dashboards (Phase 1 of 3)..." -ForegroundColor DarkGray
+        # 2.1 Create all recommended dashboards first with temporary [TMP-XXXXX] names
+        Write-Host "      [PROJECT-CREATE-TMP] Creating temporary dashboards with unique ID [$script:RunId] (Phase 1 of 3)..." -ForegroundColor DarkGray
         $createdTemp = @{}
         $dashIndex = 0
 
@@ -1379,7 +1030,7 @@ foreach ($project in $projects) {
             Write-Progress -Activity "Creating Temp Dashboards" -Status "[$dashIndex/$($recommended.Count)] $($def.name)" -PercentComplete (($dashIndex / $recommended.Count) * 100) -ParentId 2 -Id 3
             
             $finalName = $def.name
-            $tempName  = "[TMP] $finalName"
+            $tempName  = "[TMP-$script:RunId] $finalName"
 
             $newDef = [ordered]@{
                 name            = $tempName
@@ -1391,7 +1042,7 @@ foreach ($project in $projects) {
             Write-Host "        [CREATE] [$dashIndex/$($recommended.Count)] Creating temporary dashboard: '$tempName'" -ForegroundColor Green
             Write-Verbose "[DASHBOARD-CREATE] Creating temp dashboard: $tempName with $($def.widgets.Count) widget(s)"
             if (-not $DryRun) {
-                $created = New-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardDef $newDef
+                $created = New-AdoDashboard -ProjectId $project.id -TeamId $defaultTeam.id -DashboardDef $newDef
                 if ($created -and $created.id) {
                     $createdTemp[$finalName] = $created
                     Write-Host "          -> Created TMP dashboard ID: $($created.id)" -ForegroundColor DarkGreen
@@ -1409,9 +1060,9 @@ foreach ($project in $projects) {
 
         if (-not $DryRun) {
             # Re-read dashboards including the newly created TMP ones
-            Write-Host "      [TEAM-DELETE] Deleting old dashboards (Phase 2 of 3)..." -ForegroundColor DarkGray
-            Write-Verbose "[TEAM] Re-reading dashboard list after temp creation"
-            $dashboards = @(Get-AdoDashboards -ProjectId $project.id -TeamId $team.id)
+            Write-Host "      [PROJECT-DELETE] Deleting old dashboards (Phase 2 of 3)..." -ForegroundColor DarkGray
+            Write-Verbose "[PROJECT] Re-reading dashboard list after temp creation"
+            $dashboards = @(Get-AdoDashboards -ProjectId $project.id -TeamId $defaultTeam.id)
             Write-Host "        [READ] Found $($dashboards.Count) dashboard(s) total after temp creation" -ForegroundColor Cyan
 
             # 2.2 Delete all existing dashboards that are not one of the new TMP ones
@@ -1422,14 +1073,14 @@ foreach ($project in $projects) {
             foreach ($kvp in $createdTemp.GetEnumerator()) {
                 if ($kvp.Value -and $kvp.Value.id) { [void]$tmpIds.Add([string]$kvp.Value.id) }
             }
-            Write-Verbose "[TEAM] Temporary dashboard IDs to preserve: $($tmpIds.Count) item(s)"
+            Write-Verbose "[PROJECT] Temporary dashboard IDs to preserve: $($tmpIds.Count) item(s)"
 
             $delIndex = 0
             $delCount = 0
             foreach ($d in $dashboards) {
                 if (-not $d -or -not $d.id) { continue }
 
-                $isTmp = $d.name -like "[TMP]*" -or $tmpIds.Contains([string]$d.id)
+                $isTmp = $d.name -like "[TMP]*" -or $d.name -match '^\[TMP-\d{5}\]' -or $tmpIds.Contains([string]$d.id)
                 if ($isTmp) {
                     # Keep TMP dashboards for now; they will be renamed
                     Write-Verbose "[DASHBOARD-DELETE] Skipping temporary dashboard: $($d.name) [will be renamed]"
@@ -1441,21 +1092,21 @@ foreach ($project in $projects) {
                 Write-Host "        [DELETE] [$delIndex] Deleting old dashboard: '$($d.name)' [ID: $($d.id)]" -ForegroundColor DarkYellow
                 Write-Verbose "[DASHBOARD-DELETE] Deleting dashboard: $($d.name)"
                 try {
-                    Remove-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardId $d.id
+                    Remove-AdoDashboard -ProjectId $project.id -TeamId $defaultTeam.id -DashboardId $d.id
                     $deletedCount++
                     $delCount++
                     Write-Verbose "[DASHBOARD-DELETE] Successfully deleted dashboard ID: $($d.id)"
                 } catch {
-                    Write-Warning "        -> Failed to delete dashboard '$($d.name)' in team '$($team.name)'. $_"
+                    Write-Warning "        -> Failed to delete dashboard '$($d.name)' in project '$($project.name)'. $_"
                     Write-Verbose "[DASHBOARD-DELETE] Error deleting dashboard $($d.id): $_"
                 }
             }
             Write-Host "        [DELETE] Deleted $delCount old dashboard(s)" -ForegroundColor Cyan
 
             # 2.3 Rename each TMP dashboard to its final name (no numbers, no TMP prefix)
-            Write-Host "      [TEAM-RENAME] Renaming temporary dashboards (Phase 3 of 3)..." -ForegroundColor DarkGray
-            Write-Verbose "[TEAM] Re-reading dashboard list for rename phase"
-            $dashboards = @(Get-AdoDashboards -ProjectId $project.id -TeamId $team.id)
+            Write-Host "      [PROJECT-RENAME] Renaming temporary dashboards (Phase 3 of 3)..." -ForegroundColor DarkGray
+            Write-Verbose "[PROJECT] Re-reading dashboard list for rename phase"
+            $dashboards = @(Get-AdoDashboards -ProjectId $project.id -TeamId $defaultTeam.id)
             $dashById = @{}
             foreach ($d in $dashboards) {
                 if ($d -and $d.id) { $dashById[[string]$d.id] = $d }
@@ -1463,39 +1114,68 @@ foreach ($project in $projects) {
             Write-Host "        [READ] Found $($dashById.Count) dashboard(s) for rename phase" -ForegroundColor Cyan
 
             $renameIndex = 0
+            
             foreach ($finalName in $recommendedByName.Keys) {
-                if (-not $createdTemp.ContainsKey($finalName)) { 
-                    Write-Verbose "[DASHBOARD-RENAME] Skipping rename for $finalName - not in created temp list"
-                    continue 
+                # Find ANY temp dashboard that matches this final name (from current or previous runs)
+                $matchingTempDash = $null
+                $matchingTempId = $null
+                
+                # First, try dashboards created in this run
+                if ($createdTemp.ContainsKey($finalName)) {
+                    $matchingTempDash = $createdTemp[$finalName]
+                    $matchingTempId = [string]$matchingTempDash.id
+                } else {
+                    # Look for any existing temp dashboard with this name pattern
+                    foreach ($d in $dashById.Values) {
+                        if ($d.name -match '^\[TMP-\d{5}\]\s+(.+)$') {
+                            if ($matches[1] -eq $finalName) {
+                                $matchingTempDash = $d
+                                $matchingTempId = [string]$d.id
+                                Write-Verbose "[DASHBOARD-RENAME] Found orphaned temp dashboard from previous run: $($d.name)"
+                                break
+                            }
+                        }
+                    }
                 }
 
-                $renameIndex++
-                $tmpDash = $createdTemp[$finalName]
-                $dashId  = [string]$tmpDash.id
-
-                if (-not $dashById.ContainsKey($dashId)) {
-                    Write-Warning "        [RENAME] [$renameIndex] TMP dashboard for '$finalName' not found when renaming. Skipping."
-                    Write-Verbose "[DASHBOARD-RENAME] Dashboard ID $dashId not found in current list"
+                if (-not $matchingTempDash) {
+                    Write-Verbose "[DASHBOARD-RENAME] No temp dashboard found for '$finalName' - skipping rename"
                     continue
                 }
 
-                $current = $dashById[$dashId]
+                if (-not $dashById.ContainsKey($matchingTempId)) {
+                    Write-Warning "        [RENAME] TMP dashboard for '$finalName' (ID: $matchingTempId) not found. Skipping."
+                    Write-Verbose "[DASHBOARD-RENAME] Dashboard ID $matchingTempId not found in current list"
+                    continue
+                }
 
+                $renameIndex++
+                
+                # Get FULL dashboard details (list entries don't include widgets)
+                $current = Get-AdoDashboard -ProjectId $project.id -TeamId $defaultTeam.id -DashboardId $matchingTempId
+                
+                if (-not $current) {
+                    Write-Warning "        [RENAME] Failed to fetch dashboard details for ID $matchingTempId. Skipping."
+                    continue
+                }
+                
+                # For rename, only send name and position (don't touch widgets to avoid eTag conflicts)
                 $updateDef = [ordered]@{
                     name            = $finalName
                     position        = $recommendedByName[$finalName].position
-                    refreshInterval = $current.refreshInterval
-                    widgets         = $current.widgets
                 }
 
-                if ($current.PSObject.Properties['eTag']) {
+                # Handle eTag for both hashtable and PSObject
+                if ($current -is [hashtable] -and $current.ContainsKey('eTag')) {
+                    $updateDef['eTag'] = $current['eTag']
+                } elseif ($current.PSObject.Properties['eTag']) {
                     $updateDef['eTag'] = $current.eTag
                 }
 
                 Write-Host "        [RENAME] [$renameIndex] Renaming: '$($current.name)' -> '$finalName'" -ForegroundColor Green
-                Write-Verbose "[DASHBOARD-RENAME] Renaming dashboard ID $dashId from '$($current.name)' to '$finalName'"
+                Write-Verbose "[DASHBOARD-RENAME] Renaming dashboard ID $matchingTempId from '$($current.name)' to '$finalName'"
                 try {
-                    $updated = Set-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardId $dashId -DashboardDef $updateDef
+                    $updated = Set-AdoDashboard -ProjectId $project.id -TeamId $defaultTeam.id -DashboardId $matchingTempId -DashboardDef $updateDef
                     if ($updated -and $updated.id) {
                         Write-Host "          -> Successfully renamed (ID: $($updated.id))" -ForegroundColor DarkGreen
                         Write-Verbose "[DASHBOARD-RENAME] Successfully renamed dashboard to: $finalName (ID: $($updated.id))"
@@ -1503,49 +1183,117 @@ foreach ($project in $projects) {
                         Write-Warning "          -> Rename returned no ID"
                     }
                 } catch {
-                    Write-Warning "          -> Failed to rename dashboard '$($current.name)' to '$finalName' in team '$($team.name)'. $_"
-                    Write-Verbose "[DASHBOARD-RENAME] Error renaming dashboard ID $($dashId): $_"
+                    Write-Warning "          -> Failed to rename dashboard '$($current.name)' to '$finalName' in project '$($project.name)'. $_"
+                    Write-Verbose "[DASHBOARD-RENAME] Error renaming dashboard ID $($matchingTempId): $_"
                 }
             }
-            Write-Host "      [TEAM-RESET] Dashboard reset complete for team '$($team.name)'" -ForegroundColor Cyan
+            Write-Host "      [PROJECT-RESET] Dashboard reset complete for project '$($project.name)'" -ForegroundColor Cyan
         }
     }
     else {
         # Non-reset mode: only create missing dashboards, keep others intact
-        Write-Host "      [TEAM-MERGE] MERGE MODE: Creating missing dashboards only..." -ForegroundColor Yellow
-        Write-Verbose "[TEAM] Entering merge mode for team $($team.name)"
+        # Use [TMP-XXXXX] strategy to avoid duplicate name errors during creation
+        Write-Host "      [PROJECT-MERGE] MERGE MODE: Creating missing dashboards with unique ID [$script:RunId]..." -ForegroundColor Yellow
+        Write-Verbose "[PROJECT] Entering merge mode for project $($project.name)"
+        
+        $createdTemp = @{}
         $createIndex = 0
+        
         foreach ($def in $recommended) {
             $name = $def.name
             if ($existingByName.ContainsKey($name)) {
                 Write-Host "        [SKIP] Dashboard '$name' already exists (keeping)." -ForegroundColor DarkGray
-                Write-Verbose "[TEAM-MERGE] Skipping dashboard creation for $name - already exists"
+                Write-Verbose "[PROJECT-MERGE] Skipping dashboard creation for $name - already exists"
                 continue
             }
 
             $createIndex++
-            Write-Host "        [CREATE] [$createIndex] Creating new dashboard: '$name'" -ForegroundColor Green
-            Write-Verbose "[TEAM-MERGE] Creating missing dashboard: $name"
+            $tempName = "[TMP-$script:RunId] $name"
+            
+            Write-Host "        [CREATE] [$createIndex] Creating dashboard: '$name' (via temp name)" -ForegroundColor Green
+            Write-Verbose "[PROJECT-MERGE] Creating missing dashboard: $name"
+            
             if (-not $DryRun) {
-                $created = New-AdoDashboard -ProjectId $project.id -TeamId $team.id -DashboardDef $def
+                # Create with temporary name first
+                $newDef = [ordered]@{
+                    name            = $tempName
+                    position        = $def.position
+                    refreshInterval = $def.refreshInterval
+                    widgets         = $def.widgets
+                }
+                
+                $created = New-AdoDashboard -ProjectId $project.id -TeamId $defaultTeam.id -DashboardDef $newDef
                 if ($created -and $created.id) {
-                    Write-Host "          -> Successfully created (ID: $($created.id))" -ForegroundColor DarkGreen
-                    Write-Verbose "[TEAM-MERGE] Created dashboard with ID: $($created.id)"
-                    $createdCount++
+                    $createdTemp[$name] = $created
+                    Write-Host "          -> Created temp dashboard (ID: $($created.id))" -ForegroundColor DarkGreen
+                    Write-Verbose "[PROJECT-MERGE] Created temp dashboard with ID: $($created.id)"
                 } else {
                     Write-Warning "          -> Failed to create dashboard '$name'"
-                    Write-Verbose "[TEAM-MERGE] Failed to create dashboard: $name"
+                    Write-Verbose "[PROJECT-MERGE] Failed to create dashboard: $name"
                 }
             } else {
                 Write-Host "          -> [DRY-RUN] Would create dashboard" -ForegroundColor Cyan
             }
         }
+        
+        # Rename temporary dashboards to final names in merge mode
+        if (-not $DryRun -and $createdTemp.Count -gt 0) {
+            Write-Host "      [PROJECT-MERGE] Renaming temporary dashboards to final names..." -ForegroundColor DarkGray
+            Write-Verbose "[PROJECT] Re-reading dashboard list for merge mode rename"
+            $dashboards = @(Get-AdoDashboards -ProjectId $project.id -TeamId $defaultTeam.id)
+            $dashById = @{}
+            foreach ($d in $dashboards) {
+                if ($d -and $d.id) { $dashById[[string]$d.id] = $d }
+            }
+            
+            $renameIndex = 0
+            foreach ($finalName in $createdTemp.Keys) {
+                $renameIndex++
+                $tmpDash = $createdTemp[$finalName]
+                $dashId  = [string]$tmpDash.id
+                
+                if (-not $dashById.ContainsKey($dashId)) {
+                    Write-Warning "        [RENAME] Temp dashboard for '$finalName' not found. Skipping."
+                    Write-Verbose "[PROJECT-MERGE] Dashboard ID $dashId not found in current list"
+                    continue
+                }
+                
+                $current = $dashById[$dashId]
+                
+                # For rename, only send name and position (don't touch widgets/refreshInterval to avoid eTag conflicts)
+                $updateDef = [ordered]@{
+                    name     = $finalName
+                    position = $recommendedByName[$finalName].position
+                }
+                
+                # Handle eTag for both hashtable and PSObject
+                if ($current -is [hashtable] -and $current.ContainsKey('eTag')) {
+                    $updateDef['eTag'] = $current['eTag']
+                } elseif ($current.PSObject.Properties['eTag']) {
+                    $updateDef['eTag'] = $current.eTag
+                }
+                
+                Write-Host "        [RENAME] [$renameIndex] Renaming: '$($current.name)' -> '$finalName'" -ForegroundColor Green
+                Write-Verbose "[PROJECT-MERGE] Renaming dashboard ID $dashId to '$finalName'"
+                try {
+                    $updated = Set-AdoDashboard -ProjectId $project.id -TeamId $defaultTeam.id -DashboardId $dashId -DashboardDef $updateDef
+                    if ($updated -and $updated.id) {
+                        Write-Host "          -> Successfully renamed (ID: $($updated.id))" -ForegroundColor DarkGreen
+                        Write-Verbose "[PROJECT-MERGE] Successfully renamed dashboard to: $finalName (ID: $($updated.id))"
+                        $createdCount++
+                    }
+                } catch {
+                    Write-Warning "          -> Failed to rename dashboard '$($current.name)' to '$finalName'. $_"
+                    Write-Verbose "[PROJECT-MERGE] Error renaming dashboard ID $($dashId): $_"
+                }
+            }
+        }
     }
-    Write-Verbose "[TEAM] Completed team processing: $($team.name)"
+    Write-Verbose "[PROJECT] Completed project processing: $($project.name)"
 }
 
     Write-Verbose "[PROJECT] Completed project processing: $($project.name)"
-}
+
 
 Write-Progress -Activity "Processing Projects" -Completed -Id 1
 Write-Host ""

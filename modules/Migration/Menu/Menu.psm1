@@ -1066,17 +1066,22 @@ function Show-MigrationMenu {
                 Write-Host "[ERROR] Failed to import requirements: $_" -ForegroundColor Red
             }
         }
-        '10' {
+        '11' {
             Write-Host ""
-            Write-Host "=== MIGRATE ALL PREPARED PROJECTS ===" -ForegroundColor Cyan
-            Write-Host "This will migrate all projects that have already been prepared (no preparations will be performed)." -ForegroundColor Gray
+            Write-Host "=== END-TO-END UNATTENDED IMPORT FROM PROJECTS.JSON ===" -ForegroundColor Cyan
+            Write-Host "This will perform complete end-to-end setup for all prepared projects:" -ForegroundColor Gray
+            Write-Host "  • Initialize Azure DevOps projects (if missing)" -ForegroundColor Gray
+            Write-Host "  • Migrate code from GitLab" -ForegroundColor Gray
+            Write-Host "  • Apply all team packs (Business, Dev, Security, Management)" -ForegroundColor Gray
+            Write-Host "  • Create dashboards" -ForegroundColor Gray
+            Write-Host "  • Import work items from Excel" -ForegroundColor Gray
             Write-Host ""
 
             # Retrieve prepared projects
             $prepared = Get-PreparedProjects
 
             if (-not $prepared -or $prepared.Count -eq 0) {
-                Write-Host "[INFO] No prepared projects found. Run Option 1 or 2 to prepare projects first." -ForegroundColor Yellow
+                Write-Host "[INFO] No prepared projects found. Run Option 10 to prepare projects first." -ForegroundColor Yellow
                 return
             }
 
@@ -1096,93 +1101,194 @@ function Show-MigrationMenu {
             $successCount = 0
                 $failureCount = 0
                 $excelImportTracker = @{}
+                $teamPackTracker = @{}
+                $dashboardTracker = @{}
                 
                 # Initialize progress bar for unattended migration
-                Write-Progress -Activity "Unattended Migration" -Status "Starting unattended migration of $total projects..." -PercentComplete 0 -Id 6
+                Write-Progress -Activity "End-to-End Migration" -Status "Starting end-to-end migration of $total projects..." -PercentComplete 0 -Id 6
                 $processedCount = 0
 
                 foreach ($item in $prepared) {
                     $processedCount++
                     $progressPercent = [math]::Round(($processedCount - 1) / $total * 100)
-                    Write-Progress -Activity "Unattended Migration" -Status "Processing project $processedCount of $total`: $($item.ProjectName)" -PercentComplete $progressPercent -Id 6
+                    Write-Progress -Activity "End-to-End Migration" -Status "Processing project $processedCount of $total`: $($item.ProjectName)" -PercentComplete $progressPercent -Id 6
                     
                     try {
-                        # Check if Azure DevOps project exists and initialize if needed
+                        Write-Host ""
+                        Write-Host "╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+                        Write-Host "║ 🚀 PROCESSING: $($item.ProjectName)" -ForegroundColor Cyan -NoNewline
+                        $padding = 55 - $item.ProjectName.Length
+                        if ($padding -gt 0) { Write-Host (" " * $padding) -NoNewline }
+                        Write-Host "║" -ForegroundColor Cyan
+                        Write-Host "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+                        Write-Host ""
+                        
+                        # STEP 1: Check if Azure DevOps project exists and initialize if needed
                         $projectExists = Test-AdoProjectExists -ProjectName $item.ProjectName
                         if (-not $projectExists) {
-                            Write-Host "[INFO] Azure DevOps project '$($item.ProjectName)' does not exist. Initializing project with work item templates..." -ForegroundColor Cyan
+                            Write-Host "  [1/5] Initializing Azure DevOps project '$($item.ProjectName)'..." -ForegroundColor Cyan
                             try {
                                 # Initialize the project with work item templates and basic setup
                                 Initialize-AdoProject -DestProject $item.ProjectName -BulkInit
-                                Write-Host "[SUCCESS] Project '$($item.ProjectName)' initialized with work item templates" -ForegroundColor Green
+                                Write-Host "  [SUCCESS] Project initialized with work item templates" -ForegroundColor Green
                             }
                             catch {
-                                Write-Host "[ERROR] Failed to initialize project '$($item.ProjectName)': $($_.Exception.Message)" -ForegroundColor Red
+                                Write-Host "  [ERROR] Failed to initialize project: $($_.Exception.Message)" -ForegroundColor Red
                                 $failureCount++
                                 continue
                             }
                         }
                         else {
-                            Write-Host "[INFO] Azure DevOps project '$($item.ProjectName)' already exists" -ForegroundColor Gray
+                            Write-Host "  [1/5] Azure DevOps project already exists" -ForegroundColor Gray
                         }
 
+                        # STEP 2: Migrate code
                         if ($item.Type -eq 'Single') {
                             # Skip already migrated repos
                             if ($item.RepoMigrated) {
-                                Write-Host "[INFO] Skipping already-migrated repo: $($item.ProjectName) / $($item.GitLabRepoName)" -ForegroundColor Gray
-                                continue
+                                Write-Host "  [2/5] Code already migrated, skipping..." -ForegroundColor Gray
                             }
-                            if ($runPreparePhase) {
-                                Invoke-Option9PreparationRefresh -PreparedItem $item | Out-Null
-                            }
+                            else {
+                                if ($runPreparePhase) {
+                                    Invoke-Option9PreparationRefresh -PreparedItem $item | Out-Null
+                                }
 
-                            Write-Host "[INFO] Migrating single project: $($item.GitLabPath) → $($item.ProjectName)" -ForegroundColor Cyan
-                            # Use Force to avoid interactive prompts
-                            Invoke-SingleMigration -SrcPath $item.GitLabPath -DestProject $item.ProjectName -Force
-                            $successCount++
-                            Write-Host "[SUCCESS] Migrated: $($item.GitLabPath)" -ForegroundColor Green
-                            if (-not $excelImportTracker.ContainsKey($item.ProjectName)) {
-                                Invoke-ExcelRequirementsImport -ProjectName $item.ProjectName | Out-Null
-                                $excelImportTracker[$item.ProjectName] = $true
+                                Write-Host "  [2/5] Migrating code: $($item.GitLabPath) → $($item.ProjectName)" -ForegroundColor Cyan
+                                Invoke-SingleMigration -SrcPath $item.GitLabPath -DestProject $item.ProjectName -Force
+                                Write-Host "  [SUCCESS] Code migrated successfully" -ForegroundColor Green
                             }
                         }
                         elseif ($item.Type -eq 'Bulk') {
                             # Skip if all projects already migrated
                             if ($item.MigratedCount -ge $item.ProjectCount) {
-                                Write-Host "[INFO] Skipping bulk project (already migrated): $($item.ProjectName)" -ForegroundColor Gray
-                                continue
+                                Write-Host "  [2/5] All bulk repos already migrated, skipping..." -ForegroundColor Gray
                             }
-                            if ($runPreparePhase) {
-                                Invoke-Option9PreparationRefresh -PreparedItem $item | Out-Null
-                            }
+                            else {
+                                if ($runPreparePhase) {
+                                    Invoke-Option9PreparationRefresh -PreparedItem $item | Out-Null
+                                }
 
-                            Write-Host "[INFO] Executing bulk migration for: $($item.ProjectName)" -ForegroundColor Cyan
-                            Invoke-BulkMigrationWorkflow -AdoProject $item.ProjectName -Force
-                            $successCount++
-                            Write-Host "[SUCCESS] Bulk migration completed for: $($item.ProjectName)" -ForegroundColor Green
-                            if (-not $excelImportTracker.ContainsKey($item.ProjectName)) {
-                                Invoke-ExcelRequirementsImport -ProjectName $item.ProjectName | Out-Null
-                                $excelImportTracker[$item.ProjectName] = $true
+                                Write-Host "  [2/5] Executing bulk migration for: $($item.ProjectName)" -ForegroundColor Cyan
+                                Invoke-BulkMigrationWorkflow -AdoProject $item.ProjectName -Force
+                                Write-Host "  [SUCCESS] Bulk migration completed" -ForegroundColor Green
                             }
                         }
                         else {
-                            Write-Host "[WARN] Unknown prepared item type: $($item.Type) - skipping" -ForegroundColor Yellow
+                            Write-Host "  [WARN] Unknown prepared item type: $($item.Type) - skipping code migration" -ForegroundColor Yellow
                         }
+                        
+                        # STEP 3: Apply Team Packs (Business, Dev, Security, Management)
+                        if (-not $teamPackTracker.ContainsKey($item.ProjectName)) {
+                            Write-Host "  [3/5] Applying team initialization packs..." -ForegroundColor Cyan
+                            try {
+                                $packParams = @{ DestProject = $item.ProjectName }
+                                
+                                Write-Host "    • Business Team Pack..." -ForegroundColor Gray
+                                Initialize-BusinessInit @packParams
+                                
+                                Write-Host "    • Development Team Pack..." -ForegroundColor Gray
+                                Initialize-DevInit @packParams -ProjectType 'all'
+                                
+                                Write-Host "    • Security Team Pack..." -ForegroundColor Gray
+                                Initialize-SecurityInit @packParams
+                                
+                                Write-Host "    • Management Team Pack..." -ForegroundColor Gray
+                                Initialize-ManagementInit @packParams
+                                
+                                Write-Host "  [SUCCESS] All team packs applied" -ForegroundColor Green
+                                $teamPackTracker[$item.ProjectName] = $true
+                            }
+                            catch {
+                                Write-Host "  [WARN] Failed to apply team packs: $($_.Exception.Message)" -ForegroundColor Yellow
+                            }
+                        }
+                        else {
+                            Write-Host "  [3/5] Team packs already applied, skipping..." -ForegroundColor Gray
+                        }
+                        
+                        # STEP 4: Create Dashboards
+                        if (-not $dashboardTracker.ContainsKey($item.ProjectName)) {
+                            Write-Host "  [4/5] Creating dashboards..." -ForegroundColor Cyan
+                            try {
+                                # Resolve wiki id
+                                $wikiId = $null
+                                try {
+                                    $wiki = Ensure-ProjectWiki -ProjectName $item.ProjectName
+                                    if ($wiki -is [System.Collections.IDictionary]) { try { $wiki = [PSCustomObject]$wiki } catch { } }
+                                    if ($wiki -and $wiki.PSObject.Properties['id']) { $wikiId = $wiki.id }
+                                }
+                                catch {
+                                    Write-Verbose "[Dashboards] Ensure-ProjectWiki failed: $_"
+                                }
+                                if (-not $wikiId) {
+                                    try { $wikiId = Get-ProjectWikiId -ProjectName $item.ProjectName } catch { }
+                                }
+                                if (-not $wikiId) { $wikiId = $item.ProjectName }
+                                
+                                New-Adodevdashboard -Project $item.ProjectName -Team $item.ProjectName -WikiId $wikiId -Replace | Out-Null
+                                New-AdoSecurityDashboard -Project $item.ProjectName -Team $item.ProjectName -Replace | Out-Null
+                                Test-Adomanagementdashboard -Project $item.ProjectName -Team $item.ProjectName -Replace | Out-Null
+                                Test-Adoqadashboard -Project $item.ProjectName -Team $item.ProjectName -Replace | Out-Null
+                                
+                                Write-Host "  [SUCCESS] Dashboards created" -ForegroundColor Green
+                                $dashboardTracker[$item.ProjectName] = $true
+                            }
+                            catch {
+                                Write-Host "  [WARN] Failed to create dashboards: $($_.Exception.Message)" -ForegroundColor Yellow
+                            }
+                        }
+                        else {
+                            Write-Host "  [4/5] Dashboards already created, skipping..." -ForegroundColor Gray
+                        }
+                        
+                        # STEP 5: Import Work Items from Excel
+                        if (-not $excelImportTracker.ContainsKey($item.ProjectName)) {
+                            Write-Host "  [5/5] Importing work items from Excel..." -ForegroundColor Cyan
+                            try {
+                                $importResult = Invoke-ExcelRequirementsImport -ProjectName $item.ProjectName
+                                if ($importResult) {
+                                    Write-Host "  [SUCCESS] Work items imported from Excel" -ForegroundColor Green
+                                }
+                                else {
+                                    Write-Host "  [INFO] No requirements.xlsx found or import skipped" -ForegroundColor Gray
+                                }
+                                $excelImportTracker[$item.ProjectName] = $true
+                            }
+                            catch {
+                                Write-Host "  [WARN] Failed to import work items: $($_.Exception.Message)" -ForegroundColor Yellow
+                            }
+                        }
+                        else {
+                            Write-Host "  [5/5] Work items already imported, skipping..." -ForegroundColor Gray
+                        }
+                        
+                        $successCount++
+                        Write-Host ""
+                        Write-Host "╔══════════════════════════════════════════════════════════╗" -ForegroundColor Green
+                        Write-Host "║ ✅ COMPLETED: $($item.ProjectName)" -ForegroundColor Green -NoNewline
+                        $padding = 55 - $item.ProjectName.Length
+                        if ($padding -gt 0) { Write-Host (" " * $padding) -NoNewline }
+                        Write-Host "║" -ForegroundColor Green
+                        Write-Host "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Green
                     }
                     catch {
-                        Write-Host "[ERROR] Failed to migrate $($item.ProjectName): $($_.Exception.Message)" -ForegroundColor Red
+                        Write-Host ""
+                        Write-Host "  [ERROR] Failed to process $($item.ProjectName): $($_.Exception.Message)" -ForegroundColor Red
                         $failureCount++
                         continue
                     }
                 }
                 
-                Write-Progress -Activity "Unattended Migration" -Status "Migration completed! Generating final reports..." -PercentComplete 100 -Id 6
+                Write-Progress -Activity "End-to-End Migration" -Status "Migration completed! Generating final reports..." -PercentComplete 100 -Id 6
 
                 Write-Host ""
-                Write-Host "[INFO] Migration run completed. Summary:" -ForegroundColor Cyan
-                Write-Host "       Total prepared items: $total" -ForegroundColor White
-                Write-Host "       Successful migrations: $successCount" -ForegroundColor Green
-                Write-Host "       Failed migrations: $failureCount" -ForegroundColor Red
+                Write-Host "════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+                Write-Host "                    FINAL SUMMARY" -ForegroundColor Cyan
+                Write-Host "════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+                Write-Host "Total projects processed: $total" -ForegroundColor White
+                Write-Host "Successful: $successCount" -ForegroundColor Green
+                Write-Host "Failed: $failureCount" -ForegroundColor Red
+                Write-Host "════════════════════════════════════════════════════════════" -ForegroundColor Cyan
             }
             finally {
                 $ConfirmPreference = $oldConfirm
@@ -1192,13 +1298,6 @@ function Show-MigrationMenu {
             return
         }
 
-        '11' {
-            Write-Host ""
-            Write-Host "Thank you for using GitLab → Azure DevOps Migration Tool" -ForegroundColor Cyan
-            Write-Host "Goodbye! 👋" -ForegroundColor Green
-            Write-Host ""
-            return
-        }
         '12' {
             Write-Host ""
             Write-Host "=== SYNC REPOS FROM PROJECTS.JSON MAP ===" -ForegroundColor Cyan

@@ -1,0 +1,102 @@
+{
+  "Business": [
+    {
+      "Name": "Product Backlog Health",
+      "Wiql": "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Scheduling.StoryPoints], [Microsoft.VSTS.Common.BusinessValue] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] IN ('User Story', 'Product Backlog Item', 'Requirement', 'Bug') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [Microsoft.VSTS.Common.Priority], [System.ChangedDate] DESC"
+    },
+    {
+      "Name": "High-Value Items",
+      "Wiql": "SELECT [System.Id], [System.WorkItemType], [System.Title], [Microsoft.VSTS.Common.BusinessValue], [System.State] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] IN ('Feature', 'User Story', 'Product Backlog Item', 'Requirement') AND [Microsoft.VSTS.Common.BusinessValue] >= 50 AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.BusinessValue] DESC, [System.ChangedDate] DESC"
+    },
+    {
+      "Name": "Strategic Initiatives",
+      "Wiql": "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] IN ('Epic', 'Feature') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.CreatedDate]"
+    },
+    {
+      "Name": "Stakeholder Requests",
+      "Wiql": "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [System.CreatedDate] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] IN ('User Story', 'Product Backlog Item', 'Requirement', 'Issue') AND [System.State] NOT IN ('Closed', 'Done', 'Removed', 'Resolved') ORDER BY [System.CreatedDate] DESC"
+    },
+    {
+      "Name": "Customer Feedback",
+      "Wiql": "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [System.CreatedDate] FROM WorkItems WHERE [System.TeamProject] = @project AND ([System.WorkItemType] IN ('Feedback Request', 'Feedback Response', 'Issue') OR [System.Tags] CONTAINS 'Feedback') AND [System.State] NOT IN ('Closed', 'Rejected', 'Removed') ORDER BY [System.CreatedDate] DESC"
+    }
+  ],
+  "Engineering": [
+    {
+      "Name": "Sprint Task Breakdown",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Scheduling.RemainingWork], [System.AssignedTo] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Task' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [System.AssignedTo]"
+    },
+    {
+      "Name": "Code Review Queue",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo], [System.CreatedDate] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Task' AND [System.Title] CONTAINS 'Code Review' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.CreatedDate]"
+    },
+    {
+      "Name": "Technical Debt Backlog",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Task' AND [System.Tags] CONTAINS 'Tech Debt' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+    },
+    {
+      "Name": "Security Vulnerabilities",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Bug' AND ([System.Tags] CONTAINS 'Security' OR [System.Tags] CONTAINS 'Vulnerability') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Severity], [System.ChangedDate] DESC"
+    },
+    {
+      "Name": "Performance Optimization",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Task' AND ([System.Tags] CONTAINS 'Performance' OR [System.Tags] CONTAINS 'Perf') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+    },
+    {
+      "Name": "Test Automation Items",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.TCM.AutomationStatus] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Test Case' AND [Microsoft.VSTS.TCM.AutomationStatus] <> 'Not Automated' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+    }
+  ],
+  "Quality": [
+    {
+      "Name": "Open Defects By Priority",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Bug' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity], [System.ChangedDate] DESC"
+    },
+    {
+      "Name": "Critical and High Defects",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Bug' AND ([Microsoft.VSTS.Common.Severity] IN ('1 - Critical', '2 - High') OR [Microsoft.VSTS.Common.Priority] IN (1, 2)) AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Severity], [Microsoft.VSTS.Common.Priority], [System.ChangedDate] DESC"
+    },
+    {
+      "Name": "New Defects (Last 7 Days)",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State], [System.CreatedDate] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Bug' AND [System.CreatedDate] >= @Today - 7 ORDER BY [System.CreatedDate] DESC"
+    },
+    {
+      "Name": "Defects Ready For Test",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Bug' AND [System.State] = 'Resolved' ORDER BY [System.ChangedDate] DESC"
+    },
+    {
+      "Name": "Production Defects",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Bug' AND ([System.Tags] CONTAINS 'Production' OR [System.Title] CONTAINS 'Prod') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Severity], [System.ChangedDate] DESC"
+    },
+    {
+      "Name": "Active Test Cases",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Test Case' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.State], [System.Title]"
+    }
+  ],
+  "Operations": [
+    {
+      "Name": "Production Incidents",
+      "Wiql": "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State], [Microsoft.VSTS.Common.Severity] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] IN ('Bug', 'Issue') AND ([System.Tags] CONTAINS 'Production' OR [System.Tags] CONTAINS 'Incident') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [Microsoft.VSTS.Common.Severity], [System.ChangedDate] DESC"
+    },
+    {
+      "Name": "Open Operational Issues",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Issue' AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+    },
+    {
+      "Name": "Active Change Requests",
+      "Wiql": "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] IN ('Change Request', 'Issue', 'User Story', 'Product Backlog Item') AND ([System.Tags] CONTAINS 'Change' OR [System.Title] CONTAINS 'Change Request') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+    },
+    {
+      "Name": "Release Deployment Tasks",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Task' AND ([System.Title] CONTAINS 'Deployment' OR [System.Title] CONTAINS 'Deploy' OR [System.Tags] CONTAINS 'Deployment') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+    },
+    {
+      "Name": "Hotfix Backlog",
+      "Wiql": "SELECT [System.Id], [System.WorkItemType], [System.Title], [System.State] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] IN ('Bug', 'Issue') AND ([System.Tags] CONTAINS 'Hotfix' OR [System.Title] CONTAINS 'Hotfix') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+    },
+    {
+      "Name": "Monitoring and Alerting",
+      "Wiql": "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'Task' AND ([System.Tags] CONTAINS 'Monitoring' OR [System.Tags] CONTAINS 'Alerting' OR [System.Tags] CONTAINS 'Alert') AND [System.State] NOT IN ('Closed', 'Removed') ORDER BY [System.ChangedDate] DESC"
+    }
+  ]
+}

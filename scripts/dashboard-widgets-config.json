@@ -1,0 +1,168 @@
+{
+  "Business": [
+    {
+      "name": "Business - Cumulative Flow",
+      "column": 1,
+      "contributionId": "cumulativeFlowContribution"
+    },
+    {
+      "name": "Business - Velocity",
+      "column": 6,
+      "contributionId": "velocityContribution"
+    },
+    {
+      "name": "Business - Lead Time",
+      "column": 1,
+      "contributionId": "leadTimeContribution"
+    },
+    {
+      "name": "Business - Cycle Time",
+      "column": 6,
+      "contributionId": "cycleTimeContribution"
+    },
+    {
+      "name": "Business - Sprint Burndown",
+      "column": 1,
+      "contributionId": "sprintBurndownContribution"
+    },
+    {
+      "name": "Business - KPI Count",
+      "column": 6,
+      "contributionId": "queryScalarContribution"
+    }
+  ],
+  "Engineering": [
+    {
+      "name": "Dev - Sprint Burndown",
+      "column": 1,
+      "contributionId": "sprintBurndownContribution"
+    },
+    {
+      "name": "Dev - Velocity",
+      "column": 6,
+      "contributionId": "velocityContribution"
+    },
+    {
+      "name": "Dev - Cumulative Flow",
+      "column": 1,
+      "contributionId": "cumulativeFlowContribution"
+    },
+    {
+      "name": "Dev - Cycle Time",
+      "column": 6,
+      "contributionId": "cycleTimeContribution"
+    },
+    {
+      "name": "Dev - Build History",
+      "column": 1,
+      "contributionId": "buildHistogramContribution"
+    },
+    {
+      "name": "Dev - Code Activity",
+      "column": 6,
+      "contributionId": "codeScalarContribution"
+    }
+  ],
+  "Quality": [
+    {
+      "name": "QA - Sprint Burndown",
+      "column": 1,
+      "contributionId": "sprintBurndownContribution"
+    },
+    {
+      "name": "QA - Cumulative Flow",
+      "column": 6,
+      "contributionId": "cumulativeFlowContribution"
+    },
+    {
+      "name": "QA - Lead Time",
+      "column": 1,
+      "contributionId": "leadTimeContribution"
+    },
+    {
+      "name": "QA - Cycle Time",
+      "column": 6,
+      "contributionId": "cycleTimeContribution"
+    },
+    {
+      "name": "QA - Bug/Defect Chart",
+      "column": 1,
+      "contributionId": "witChartContribution"
+    },
+    {
+      "name": "QA - KPI Count",
+      "column": 6,
+      "contributionId": "queryScalarContribution"
+    }
+  ],
+  "Operations": [
+    {
+      "name": "Ops - Sprint Burndown",
+      "column": 1,
+      "contributionId": "sprintBurndownContribution"
+    },
+    {
+      "name": "Ops - Cumulative Flow",
+      "column": 6,
+      "contributionId": "cumulativeFlowContribution"
+    },
+    {
+      "name": "Ops - Velocity",
+      "column": 1,
+      "contributionId": "velocityContribution"
+    },
+    {
+      "name": "Ops - Lead Time",
+      "column": 6,
+      "contributionId": "leadTimeContribution"
+    },
+    {
+      "name": "Ops - Build History",
+      "column": 1,
+      "contributionId": "buildHistogramContribution"
+    },
+    {
+      "name": "Ops - KPI Count",
+      "column": 6,
+      "contributionId": "queryScalarContribution"
+    }
+  ],
+  "Fallback": [
+    {
+      "name": "Team - Cumulative Flow",
+      "column": 1,
+      "contributionId": "cumulativeFlowContribution"
+    },
+    {
+      "name": "Team - Velocity",
+      "column": 6,
+      "contributionId": "velocityContribution"
+    },
+    {
+      "name": "Team - Lead Time",
+      "column": 1,
+      "contributionId": "leadTimeContribution"
+    },
+    {
+      "name": "Team - Cycle Time",
+      "column": 6,
+      "contributionId": "cycleTimeContribution"
+    },
+    {
+      "name": "Team - Sprint Burndown",
+      "column": 1,
+      "contributionId": "sprintBurndownContribution"
+    },
+    {
+      "name": "Team - KPI Count",
+      "column": 6,
+      "contributionId": "queryScalarContribution"
+    },
+    {
+      "name": "Team - KPI Count",
+      "column": 1,
+      "contributionId": "queryScalarContribution",
+      "addRowGap": true
+    }
+  ]
+}
