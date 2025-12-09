@@ -432,7 +432,8 @@ try {
                 } catch {
                     # If 404 or any error, treat as no shared groups
                     $sharedGroups = @()
-                    Write-Verbose "shared_groups endpoint not available for group '$($g.full_path)': $($_.Exception.Message)"
+                    $errorMsg = if ($_.Exception) { $_.Exception.Message } else { $_.ToString() }
+                    Write-Verbose "shared_groups endpoint not available for group '$($g.full_path)': $errorMsg"
                 }
 
                 $members = @()

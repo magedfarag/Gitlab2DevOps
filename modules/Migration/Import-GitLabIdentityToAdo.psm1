@@ -638,7 +638,65 @@ function Get-AdoIdentity {
 }
 
 
-function Ensure-AdoGroupMembership {
+function Ensure-CustomAdoGroup {
+    param(
+        [string]$ProjectName,
+        [string]$GroupName,
+        [string]$Description,
+        [string]$CollectionUrl,
+        [string]$TfsSecurityExe
+    )
+
+    # Custom ADO group identity format: [ProjectName]\GroupName
+    $customGroupIdentity = "[$ProjectName]\$GroupName"
+    $msg = "Creating custom ADO group $customGroupIdentity"
+
+    if ($script:DryRunEffective) {
+        Write-Log "[DryRun] $msg" 'INFO'
+        if ($script:Report -and $script:Report.PSObject.Properties['CreatedAdoGroups']) {
+            $script:Report.CreatedAdoGroups += "[DRYRUN] $customGroupIdentity"
+        }
+        return $customGroupIdentity
+    }
+
+    # Use TFSSecurity /gcr to create custom group
+    $arguments = @(
+        '/gcr',
+        $customGroupIdentity,
+        $Description,
+        "/collection:$CollectionUrl"
+    )
+
+    $exitCode = $null
+    try {
+        & $TfsSecurityExe @arguments
+        $exitCode = $LASTEXITCODE
+    }
+    catch {
+        Write-Log "TFSSecurity /gcr invocation failed for $($customGroupIdentity): $_" 'WARN'
+        return $null
+    }
+
+    if ($exitCode -ne 0) {
+        # Group might already exist (exit code 1), which is OK
+        if ($exitCode -eq 1) {
+            Write-Log "Custom ADO group $customGroupIdentity already exists (exit $exitCode)" 'DEBUG'
+        } else {
+            Write-Log "TFSSecurity /gcr failed for $customGroupIdentity (exit $exitCode)" 'WARN'
+            return $null
+        }
+    } else {
+        Write-Log $msg 'INFO'
+    }
+
+    if ($script:Report -and $script:Report.PSObject.Properties['CreatedAdoGroups']) {
+        $script:Report.CreatedAdoGroups += $customGroupIdentity
+    }
+
+    return $customGroupIdentity
+}
+
+function Add-AdGroupToAdoGroup {
     param(
         [string]$AdGroupSam,
         [string]$AdGroupDomain,
@@ -660,23 +718,22 @@ function Ensure-AdoGroupMembership {
         if ($script:Report -and $script:Report.PSObject.Properties['MissingUsers']) {
             $script:Report.MissingUsers += "$lookupDomain\$AdGroupSam"
         }
-        return
+        return $false
     }
 
     # Identity spec for TFSSecurity: n:DOMAIN\SamAccountName
     $identitySpec = "n:{0}\{1}" -f $lookupDomain, $AdGroupSam
-    $msg = "Mapping AD group $identitySpec -> ADO group $AdoGroupIdentity"
+    $msg = "Adding AD group $identitySpec to ADO group $AdoGroupIdentity"
 
     if ($script:DryRunEffective) {
-        Write-Log "DRY RUN: $msg" 'INFO'
-        if ($script:Report -and $script:Report.PSObject.Properties['AdoMappings']) {
-            $script:Report.AdoMappings += "[DRYRUN] $identitySpec -> $AdoGroupIdentity"
+        Write-Log "[DryRun] $msg" 'INFO'
+        if ($script:Report -and $script:Report.PSObject.Properties['AdGroupMappings']) {
+            $script:Report.AdGroupMappings += "[DRYRUN] $identitySpec -> $AdoGroupIdentity"
         }
-        return
+        return $true
     }
 
-    # 2. Call TFSSecurity /g+ groupIdentity memberIdentity /collection:CollectionURL
-    #    This is the supported way to add users/groups to ADO groups on Server. 
+    # 2. Call TFSSecurity /g+ to add AD group to ADO group
     $arguments = @(
         '/g+',
         $AdoGroupIdentity,
@@ -690,19 +747,68 @@ function Ensure-AdoGroupMembership {
         $exitCode = $LASTEXITCODE
     }
     catch {
-        Write-Log "TFSSecurity invocation failed for $AdoGroupIdentity + $($identitySpec): $_" 'WARN'
-        return
+        Write-Log "TFSSecurity /g+ invocation failed for $AdoGroupIdentity + $($identitySpec): $_" 'WARN'
+        return $false
     }
 
     if ($exitCode -ne 0) {
-        Write-Log "TFSSecurity failed for $AdoGroupIdentity + $($identitySpec) (exit $exitCode)." 'WARN'
-        return
+        Write-Log "TFSSecurity /g+ failed for $AdoGroupIdentity + $identitySpec (exit $exitCode)" 'WARN'
+        return $false
     }
 
-    if ($script:Report -and $script:Report.PSObject.Properties['AdoMappings']) {
-        $script:Report.AdoMappings += "$($identitySpec) -> $AdoGroupIdentity"
+    if ($script:Report -and $script:Report.PSObject.Properties['AdGroupMappings']) {
+        $script:Report.AdGroupMappings += "$identitySpec -> $AdoGroupIdentity"
     }
     Write-Log $msg 'INFO'
+    return $true
+}
+
+function Add-CustomGroupToBuiltInGroup {
+    param(
+        [string]$CustomGroupIdentity,
+        [string]$BuiltInGroupIdentity,
+        [string]$CollectionUrl,
+        [string]$TfsSecurityExe
+    )
+
+    $msg = "Adding custom ADO group $CustomGroupIdentity to built-in group $BuiltInGroupIdentity"
+
+    if ($script:DryRunEffective) {
+        Write-Log "[DryRun] $msg" 'INFO'
+        if ($script:Report -and $script:Report.PSObject.Properties['CustomToBuiltInMappings']) {
+            $script:Report.CustomToBuiltInMappings += "[DRYRUN] $CustomGroupIdentity -> $BuiltInGroupIdentity"
+        }
+        return $true
+    }
+
+    # Use TFSSecurity /g+ to add custom group to built-in group
+    $arguments = @(
+        '/g+',
+        $BuiltInGroupIdentity,
+        $CustomGroupIdentity,
+        "/collection:$CollectionUrl"
+    )
+
+    $exitCode = $null
+    try {
+        & $TfsSecurityExe @arguments
+        $exitCode = $LASTEXITCODE
+    }
+    catch {
+        Write-Log "TFSSecurity /g+ invocation failed for $BuiltInGroupIdentity + $($CustomGroupIdentity): $_" 'WARN'
+        return $false
+    }
+
+    if ($exitCode -ne 0) {
+        Write-Log "TFSSecurity /g+ failed for $BuiltInGroupIdentity + $($CustomGroupIdentity) (exit $exitCode)" 'WARN'
+        return $false
+    }
+
+    if ($script:Report -and $script:Report.PSObject.Properties['CustomToBuiltInMappings']) {
+        $script:Report.CustomToBuiltInMappings += "$CustomGroupIdentity -> $BuiltInGroupIdentity"
+    }
+    Write-Log $msg 'INFO'
+    return $true
 }
 
 function Sync-AdoGroupMappings {
@@ -717,27 +823,84 @@ function Sync-AdoGroupMappings {
     $defaultMappings = $Config.azureDevOps.defaultAdoGroupMappings
     $fmt = $Config.ad.groupNaming.projectGroupNameFormat
 
+    Write-Log "Starting three-step ADO group mapping process..." 'INFO'
+
     foreach ($proj in $ProjectsByKey.Values) {
+        Write-Log "Processing project: $($proj.AdoProjectName)" 'INFO'
         $overrides = $proj.Overrides
         $adoGroupMappings = if ($overrides -and $overrides.overrideAdoGroupMappings) { $overrides.overrideAdoGroupMappings } else { $defaultMappings }
+        
         foreach ($roleKey in $Config.ad.projectRoleKeys) {
-            $adoGroups = $adoGroupMappings.$roleKey
-            if (-not $adoGroups) { continue }
+            $adoBuiltInGroups = $adoGroupMappings.$roleKey
+            if (-not $adoBuiltInGroups) { continue }
+            
+            # Parse AD group name
             $adGroupName = ($fmt -replace '\{ProjectKey\}', $proj.ProjectKey) -replace '\{RoleKey\}', $roleKey
-            foreach ($adoGroup in $adoGroups) {
-                $adoGroupIdentity = if ($adoGroup -like '[*]*') { $adoGroup } else { "[{0}]\{1}" -f $proj.AdoProjectName, $adoGroup }
-                $adDomain = $null
-                $adSam = $adGroupName
-                if ($adGroupName -match '^(?<dom>[^\\]+)\\(?<sam>.+)$') {
-                    $adDomain = $matches.dom
-                    $adSam = $matches.sam
-                }
-                if (-not $adDomain) { $adDomain = $Config.ad.domainDnsName }
-                $adDomain = ConvertTo-NetbiosDomain $adDomain
-                Ensure-AdoGroupMembership -AdGroupSam $adSam -AdGroupDomain $adDomain -AdoGroupIdentity $adoGroupIdentity -CollectionUrl $collectionUrl -TfsSecurityExe $tfsSecurityExe
+            $adDomain = $null
+            $adSam = $adGroupName
+            if ($adGroupName -match '^(?<dom>[^\\]+)\\(?<sam>.+)$') {
+                $adDomain = $matches.dom
+                $adSam = $matches.sam
             }
+            if (-not $adDomain) { $adDomain = $Config.ad.domainDnsName }
+            $adDomain = ConvertTo-NetbiosDomain $adDomain
+
+            # Use AD group SamAccountName as the custom ADO group name
+            $customAdoGroupName = $adSam
+            $customAdoGroupDescription = "Custom ADO group for $roleKey role (mapped from AD: $adDomain\$adSam)"
+
+            Write-Log "Processing role: $roleKey (AD: $adDomain\$adSam)" 'INFO'
+
+            # STEP 1: Create custom ADO group with same name as AD group
+            Write-Log "  Step 1: Creating custom ADO group [$($proj.AdoProjectName)]\$customAdoGroupName" 'INFO'
+            $customGroupIdentity = Ensure-CustomAdoGroup -ProjectName $proj.AdoProjectName `
+                -GroupName $customAdoGroupName `
+                -Description $customAdoGroupDescription `
+                -CollectionUrl $collectionUrl `
+                -TfsSecurityExe $tfsSecurityExe
+
+            if (-not $customGroupIdentity) {
+                Write-Log "  Failed to create/verify custom ADO group. Skipping role $roleKey." 'WARN'
+                continue
+            }
+
+            # STEP 2: Add AD group to the custom ADO group
+            Write-Log "  Step 2: Adding AD group $adDomain\$adSam to custom ADO group $customGroupIdentity" 'INFO'
+            $adMappingSuccess = Add-AdGroupToAdoGroup -AdGroupSam $adSam `
+                -AdGroupDomain $adDomain `
+                -AdoGroupIdentity $customGroupIdentity `
+                -CollectionUrl $collectionUrl `
+                -TfsSecurityExe $tfsSecurityExe
+
+            if (-not $adMappingSuccess) {
+                Write-Log "  Failed to add AD group to custom ADO group. Skipping built-in group mappings." 'WARN'
+                continue
+            }
+
+            # STEP 3: Add custom ADO group to each built-in ADO group
+            foreach ($builtInGroup in $adoBuiltInGroups) {
+                $builtInGroupIdentity = if ($builtInGroup -like '[*]*') { 
+                    $builtInGroup 
+                } else { 
+                    "[{0}]\{1}" -f $proj.AdoProjectName, $builtInGroup 
+                }
+
+                Write-Log "  Step 3: Adding custom group $customGroupIdentity to built-in group $builtInGroupIdentity" 'INFO'
+                $builtInMappingSuccess = Add-CustomGroupToBuiltInGroup -CustomGroupIdentity $customGroupIdentity `
+                    -BuiltInGroupIdentity $builtInGroupIdentity `
+                    -CollectionUrl $collectionUrl `
+                    -TfsSecurityExe $tfsSecurityExe
+
+                if (-not $builtInMappingSuccess) {
+                    Write-Log "  Failed to add custom group to built-in group $builtInGroupIdentity" 'WARN'
+                }
+            }
+
+            Write-Log "  Completed mapping for role: $roleKey" 'INFO'
         }
     }
+
+    Write-Log "ADO group mapping process completed" 'INFO'
 }
 
 function Invoke-GitLabIdentityToAdoImport {
@@ -750,12 +913,14 @@ function Invoke-GitLabIdentityToAdoImport {
     )
 
     $script:Report = [ordered]@{
-        CreatedOUs        = @()
-        CreatedGroups     = @()
-        UsersAdded        = @()
-        MissingUsers      = @()
-        AdoMappings       = @()
-        Warnings          = @()
+        CreatedOUs                = @()
+        CreatedGroups             = @()
+        CreatedAdoGroups          = @()
+        UsersAdded                = @()
+        MissingUsers              = @()
+        AdGroupMappings           = @()
+        CustomToBuiltInMappings   = @()
+        Warnings                  = @()
     }
     $script:DryRunEffective = $false
 
@@ -782,17 +947,24 @@ function Invoke-GitLabIdentityToAdoImport {
     }
     Sync-AdoGroupMappings -Config $config -ProjectsByKey $maps.ProjectsByKey
 
-    Write-Host ""
+    Write-Host "" 
     Write-Host "==== Summary ====" -ForegroundColor Green
     Write-Host ("DryRun: {0}" -f $script:DryRunEffective)
-    Write-Host ("OUs created: {0}" -f ($script:Report.CreatedOUs.Count))
-    Write-Host ("Groups created: {0}" -f ($script:Report.CreatedGroups.Count))
-    Write-Host ("Users added to groups: {0}" -f ($script:Report.UsersAdded.Count))
-    Write-Host ("Missing AD users: {0}" -f ($script:Report.MissingUsers.Count))
-    Write-Host ("ADO mappings applied: {0}" -f ($script:Report.AdoMappings.Count))
+    Write-Host ""
+    Write-Host "Active Directory:" -ForegroundColor Cyan
+    Write-Host ("  OUs created: {0}" -f ($script:Report.CreatedOUs.Count))
+    Write-Host ("  AD groups created: {0}" -f ($script:Report.CreatedGroups.Count))
+    Write-Host ("  Users added to AD groups: {0}" -f ($script:Report.UsersAdded.Count))
+    Write-Host ("  Missing AD users: {0}" -f ($script:Report.MissingUsers.Count))
+    Write-Host ""
+    Write-Host "Azure DevOps Group Mapping (3-Step Process):" -ForegroundColor Cyan
+    Write-Host ("  Step 1 - Custom ADO groups created: {0}" -f ($script:Report.CreatedAdoGroups.Count))
+    Write-Host ("  Step 2 - AD groups mapped to custom ADO groups: {0}" -f ($script:Report.AdGroupMappings.Count))
+    Write-Host ("  Step 3 - Custom ADO groups added to built-in groups: {0}" -f ($script:Report.CustomToBuiltInMappings.Count))
     if ($script:Report.Warnings.Count -gt 0) {
+        Write-Host ""
         Write-Host "Warnings:" -ForegroundColor Yellow
-        $script:Report.Warnings | Sort-Object -Unique | ForEach-Object { Write-Host " - $_" -ForegroundColor Yellow }
+        $script:Report.Warnings | Sort-Object -Unique | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
     }
 }
 

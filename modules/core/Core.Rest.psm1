@@ -1344,40 +1344,60 @@ function Invoke-AdoRest {
         throw "Azure DevOps configuration not initialized. Call Initialize-CoreRest first."
     }
     
-    # Create headers if not provided (reuse script-level headers so callers can inject custom values)
-    if (-not $Headers) {
-        if ($script:AdoHeaders) {
-            if ($script:AdoHeaders -is [hashtable]) {
-                $Headers = $script:AdoHeaders.Clone()
-            }
-            else {
-                $Headers = @{}
-                foreach ($key in $script:AdoHeaders.PSObject.Properties.Name) {
-                    $Headers[$key] = $script:AdoHeaders.$key
-                }
+    # Always start with authentication headers, then merge custom headers
+    $finalHeaders = @{}
+    
+    # First, get or create authentication headers
+    if ($script:AdoHeaders) {
+        if ($script:AdoHeaders -is [hashtable]) {
+            $authHeaders = $script:AdoHeaders.Clone()
+        }
+        else {
+            $authHeaders = @{}
+            foreach ($key in $script:AdoHeaders.PSObject.Properties.Name) {
+                $authHeaders[$key] = $script:AdoHeaders.$key
             }
         }
-        elseif ($config.AdoPat) {
-            $script:AdoHeaders = New-AuthHeader -Pat $config.AdoPat
-            if ($script:AdoHeaders -is [hashtable]) {
-                $Headers = $script:AdoHeaders.Clone()
-            }
-            else {
-                $Headers = @{}
-                foreach ($key in $script:AdoHeaders.PSObject.Properties.Name) {
-                    $Headers[$key] = $script:AdoHeaders.$key
-                }
+        # Copy auth headers to final headers
+        foreach ($key in $authHeaders.Keys) {
+            $finalHeaders[$key] = $authHeaders[$key]
+        }
+    }
+    elseif ($config.AdoPat) {
+        $script:AdoHeaders = New-AuthHeader -Pat $config.AdoPat
+        if ($script:AdoHeaders -is [hashtable]) {
+            foreach ($key in $script:AdoHeaders.Keys) {
+                $finalHeaders[$key] = $script:AdoHeaders[$key]
             }
         }
         else {
-            $Headers = @{}
+            foreach ($key in $script:AdoHeaders.PSObject.Properties.Name) {
+                $finalHeaders[$key] = $script:AdoHeaders.$key
+            }
         }
     }
-
-    if ($PSBoundParameters.ContainsKey('ContentType') -and $ContentType) {
-        if (-not $Headers) { $Headers = @{} }
-        $Headers['Content-Type'] = $ContentType
+    
+    # Now merge any custom headers provided by caller (these override auth headers if same key)
+    if ($Headers) {
+        if ($Headers -is [hashtable]) {
+            foreach ($key in $Headers.Keys) {
+                $finalHeaders[$key] = $Headers[$key]
+            }
+        }
+        else {
+            foreach ($key in $Headers.PSObject.Properties.Name) {
+                $finalHeaders[$key] = $Headers.$key
+            }
+        }
     }
+    
+    # Apply ContentType parameter if provided
+    if ($PSBoundParameters.ContainsKey('ContentType') -and $ContentType) {
+        $finalHeaders['Content-Type'] = $ContentType
+    }
+    
+    # Use the merged headers
+    $Headers = $finalHeaders
 
     # Normalize base collection URL and relative paths
     $baseUrl = ($config.CollectionUrl -as [string])

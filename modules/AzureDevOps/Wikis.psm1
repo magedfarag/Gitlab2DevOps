@@ -145,7 +145,10 @@ function Set-AdoWikiPage {
             $pageExists = $true
             # ETag can come from headers; Invoke-AdoRest returns parsed body, so re-fetch raw headers
             try {
-                $raw = Invoke-WebRequest -Uri ($script:CollectionUrl.TrimEnd('/') + $relative + "&api-version=7.1") -Headers @{ Authorization = "Basic $([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$($script:AdoPat)")))" } -Method GET -UseBasicParsing
+                $config = Get-CoreRestConfig
+                $authHeader = New-AuthHeader -Pat $config.AdoPat
+                $collectionUrl = $config.CollectionUrl.TrimEnd('/')
+                $raw = Invoke-WebRequest -Uri ($collectionUrl + $relative + "&api-version=7.1") -Headers $authHeader -Method GET -UseBasicParsing
                 if ($raw -and $raw.Headers['ETag']) { $etag = $raw.Headers['ETag'] }
             } catch { }
         }
@@ -161,8 +164,10 @@ function Set-AdoWikiPage {
         }
     }
 
-    # 2) Build headers for PUT (include If-Match on update)
-    $headers = @{ 'Content-Type' = 'application/json' }
+    # 2) Build headers for PUT - use Content-Type and optionally If-Match
+    $headers = @{
+        'Content-Type' = 'application/json'
+    }
     if ($pageExists -and $etag) {
         $headers['If-Match'] = $etag
     }
@@ -171,7 +176,7 @@ function Set-AdoWikiPage {
 
     # 3) Create or update
     try {
-        Invoke-AdoRest PUT $relative -ApiVersion '7.1' -Body $body -CustomHeaders $headers | Out-Null
+        Invoke-AdoRest PUT $relative -ApiVersion '7.1' -Body $body -Headers $headers | Out-Null
         return
     }
     catch {
