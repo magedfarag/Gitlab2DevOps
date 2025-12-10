@@ -252,7 +252,7 @@ function Ensure-AdGroup {
         [string]$Path
     )
 
-    $existing = Get-ADGroup -Filter "SamAccountName -eq '$Name'" -ErrorAction SilentlyContinue
+    $existing = Get-ADGroup -Filter "name -eq '$Name'" -ErrorAction SilentlyContinue
     if ($existing) { return $existing }
 
     $msg = "Create AD group $Name in $Path"
@@ -261,7 +261,8 @@ function Ensure-AdGroup {
         return $null
     }
     if ($PSCmdlet.ShouldProcess($Name, 'Create AD Group')) {
-        $grp = New-ADGroup -Name $Name `
+        try {
+            $grp = New-ADGroup -Name $Name `
             -SamAccountName $Name `
             -GroupCategory Security `
             -GroupScope Global `
@@ -270,6 +271,11 @@ function Ensure-AdGroup {
             -ErrorAction Stop
         $script:Report.CreatedGroups += $Name
         Write-Log $msg 'INFO'
+        }
+        catch {
+            throw
+        }
+        
         return $grp
     }
     return $null
@@ -349,7 +355,7 @@ function Get-UserIdentityCandidates {
         if ($user.email) { $ids['userPrincipalName'] = $user.email }
     }
 
-    if (-not $ids.ContainsKey('samAccountName')) {
+    if (-not $ids.Contains('samAccountName')) {
         $ids['samAccountName'] = $UserMapping.usernameToSamPattern -replace '\{username\}', $Member.username
     }
 
@@ -945,7 +951,9 @@ function Invoke-GitLabIdentityToAdoImport {
     else {
         Write-Log "Skipping AD OU/group creation and membership sync (SkipAdOperations set)." 'INFO'
     }
-    Sync-AdoGroupMappings -Config $config -ProjectsByKey $maps.ProjectsByKey
+    if($SkipAdOperations){
+        Sync-AdoGroupMappings -Config $config -ProjectsByKey $maps.ProjectsByKey
+    }
 
     Write-Host "" 
     Write-Host "==== Summary ====" -ForegroundColor Green
